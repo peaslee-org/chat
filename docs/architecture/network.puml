@@ -1,0 +1,194 @@
+@startuml network
+!theme plain
+top to bottom direction
+
+skinparam {
+  BackgroundColor #F8FAFC
+  ArrowColor #4B5563
+  ArrowFontSize 9
+  ArrowFontColor #374151
+  ArrowThickness 1.3
+  linetype ortho
+  nodesep 30
+  ranksep 45
+  padding 10
+}
+
+skinparam rectangle {
+  BorderColor #9CA3AF
+  FontSize 11
+  RoundCorner 8
+  BackgroundColor #FFFFFF
+}
+
+skinparam package {
+  BorderColor #6B7280
+  FontSize 12
+  FontStyle bold
+  RoundCorner 12
+}
+
+skinparam database {
+  BorderColor #9CA3AF
+  FontSize 11
+  BackgroundColor #DBEAFE
+}
+
+skinparam actor {
+  BorderColor #6B7280
+  FontSize 12
+}
+
+skinparam note {
+  BorderColor #D1D5DB
+  BackgroundColor #F9FAFB
+  FontSize 9
+}
+
+title Chat Application — Network Architecture
+
+legend top right
+  |= Line |= Meaning |
+  | <color:#2563EB>——</color> | request / data flow |
+  | <color:#059669>- -</color> | deployment |
+  | <color:#9333EA>· ·</color> | optional / out-of-band |
+endlegend
+
+' ── Actors ────────────────────────────────────────────────────────────────────
+actor "Browser\n(Vue 3 SPA)" as browser
+
+' ── AWS Cloud ─────────────────────────────────────────────────────────────────
+package "AWS Cloud" as aws {
+
+  package "Entry / Auth" #E0EDFF {
+    rectangle "CloudFront\n(HTTPS CDN)" as cf
+    rectangle "AWS Cognito\n(PKCE OAuth2 · RS256 JWT)" as cognito
+  }
+
+  package "Chat API" #DCFCE7 {
+    rectangle "ECS Fargate\n**chat-api** (FastAPI)" as ecs
+    rectangle "S3\n(SPA assets · audio uploads\ntranscript output · speaker WAVs)" as s3 #FFF7ED
+  }
+
+  package "AI / Data" #FEF9C3 {
+    database "RDS / PostgreSQL\n+ pgvector" as rds
+    rectangle "AWS Bedrock\n(claude-3-sonnet)" as bedrock
+    rectangle "AWS Transcribe\n(word-level timestamps)" as transcribe
+    rectangle "SQS\njob queue + DLQ\n(maxReceiveCount=3)" as sqs
+  }
+
+  package "Transcription Worker" #FAE8FF {
+    rectangle "ECS GPU Spot\n**transcription-worker**\n(pyannote-audio 4.x · ECAPA-TDNN\nword aligner · SpotWatcher)" as worker
+    rectangle "Secrets Manager\n(HuggingFace token)" as secretsmanager
+    rectangle "CloudWatch\n(DLQ depth alarm\n· custom metrics)" as cloudwatch
+  }
+
+}
+
+' ── External ──────────────────────────────────────────────────────────────────
+package "External" #F1F5F9 {
+  rectangle "LangSmith\n(optional tracing)" as langsmith
+  rectangle "HuggingFace Hub\n(build-time model pull)" as hf
+}
+
+' ── CI / CD ───────────────────────────────────────────────────────────────────
+package "CI / CD  (GitHub Actions)" #F1F5F9 {
+  rectangle "api.yml · vue.yml" as gha_api
+  rectangle "worker.yml\n(OIDC → IAM)" as gha_worker
+  rectangle "ECR\n(chat-api)" as ecr_api
+  rectangle "ECR\n(worker)" as ecr_worker
+}
+
+' ── Layout hints (force top-down stacking) ───────────────────────────────────
+' Stack AWS packages vertically
+cf          -[hidden]-> ecs
+ecs         -[hidden]-> rds
+rds         -[hidden]-> worker
+' Stack within Entry/Auth
+cf          -[hidden]-> cognito
+' Stack within Chat API
+ecs         -[hidden]-> s3
+' Stack within AI/Data
+bedrock     -[hidden]-> transcribe
+transcribe  -[hidden]-> sqs
+sqs         -[hidden]-> rds
+' Stack within Transcription Worker
+worker      -[hidden]-> secretsmanager
+secretsmanager -[hidden]-> cloudwatch
+' Stack within CI/CD
+gha_api     -[hidden]-> ecr_api
+gha_worker  -[hidden]-> ecr_worker
+' Stack within External
+langsmith   -[hidden]-> hf
+' Push External below Transcription Worker
+cloudwatch  -[hidden]-> langsmith
+
+' ── SPA load ──────────────────────────────────────────────────────────────────
+browser -[#2563EB]-> cf      : HTTPS
+cf      -[#2563EB]-> s3      : origin fetch\n(SPA assets)
+
+' ── Auth ──────────────────────────────────────────────────────────────────────
+browser -[#2563EB]-> cognito : PKCE auth-code flow
+cognito -[#2563EB]-> browser : id_token (RS256 JWT)
+
+' ── Browser → API & S3 ────────────────────────────────────────────────────────
+browser -[#2563EB]-> ecs : REST API\n[Bearer id_token]
+browser -[#2563EB]-> s3  : PUT audio\n(presigned URL)
+
+' ── chat-api outbound ─────────────────────────────────────────────────────────
+ecs -[#2563EB]-> cognito    : JWKS fetch\n(token validation)
+ecs -[#2563EB]-> rds        : asyncpg / SQLAlchemy
+ecs -[#2563EB]-> bedrock    : invoke_model (boto3)
+ecs -[#2563EB]-> transcribe : start job
+ecs -[#2563EB]-> s3         : presigned URL gen\n+ object check
+ecs -[#2563EB]-> sqs        : publish job
+ecs -[#9333EA,dashed]-> langsmith : @traceable (opt.)
+
+' ── Worker flow ───────────────────────────────────────────────────────────────
+worker -[#2563EB]-> sqs            : long-poll ReceiveMessage
+worker -[#2563EB]-> transcribe     : poll until COMPLETED
+worker -[#2563EB]-> s3             : download audio\nwrite transcript\n+ speaker WAVs
+worker -[#2563EB]-> rds            : write TranscriptSegments\n+ SpeakerSample embeddings
+worker -[#2563EB]-> cloudwatch     : emit custom metrics
+worker -[#2563EB]-> secretsmanager : fetch HF token\n(task role)
+
+' ── CI/CD ─────────────────────────────────────────────────────────────────────
+gha_api    -[#059669,dashed]-> ecr_api    : build + push (OIDC)
+gha_worker -[#059669,dashed]-> ecr_worker : build + push\n(HF_TOKEN arg)
+gha_worker -[#059669,dashed]-> hf         : pull gated model\n(build-time)
+ecr_api    -[#059669,dashed]-> ecs        : rolling deploy
+ecr_worker -[#059669,dashed]-> worker     : rolling deploy
+
+' ── Notes ─────────────────────────────────────────────────────────────────────
+note right of ecs
+  All endpoints require JWT
+  except **GET /api/v1/health**
+  **/docs disabled in production**
+end note
+
+note top of cognito
+  Allowlisted callback URLs:
+  • prod CloudFront domain
+  • http://localhost:5173/callback
+end note
+
+note bottom of rds
+  **Conversation** (Cognito sub · model_id) → **Message** (user | assistant)
+  **TranscriptionJob**: pending → transcribing → matching → complete | failed
+  **TranscriptSegment**: timestamped text · optional SpeakerProfile FK
+  **SpeakerSample.embedding**: Vector(192) — 192-dim ECAPA-TDNN
+end note
+
+note bottom of worker
+  SpotWatcher polls EC2 metadata every 5 s
+  → releases SQS message immediately on interruption
+  Models pre-baked into Docker image at build time
+end note
+
+note right of langsmith
+  Enabled when:
+  LANGCHAIN_TRACING_V2=true
+  + LANGCHAIN_API_KEY set
+end note
+
+@enduml

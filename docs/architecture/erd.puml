@@ -1,0 +1,134 @@
+@startuml erd
+title ERD – Data Models & Related Object Structures
+
+skinparam defaultFontSize 11
+skinparam classBackgroundColor #dae8fc
+skinparam classBorderColor #6c8ebf
+skinparam classBorderRadius 6
+
+package "PostgreSQL Database Tables (SQLAlchemy ORM)" #e8f4ff {
+
+  entity "conversations" as conv {
+    * id : UUID <<PK>> DEFAULT uuid4()
+    ==
+    * user_sub : VARCHAR(256) NOT NULL  <<INDEXED>>
+    title : VARCHAR(512) NULLABLE
+    * created_at : TIMESTAMPTZ DEFAULT now()
+    * updated_at : TIMESTAMPTZ DEFAULT now()
+    --
+    Index: conversations_user_sub_idx (user_sub)
+    Class: Conversation (app/models/conversation.py)
+  }
+
+  entity "messages" as msg {
+    * id : UUID <<PK>> DEFAULT uuid4()
+    ==
+    * conversation_id : UUID <<FK NOT NULL>>
+    * role : VARCHAR(32) ('user' | 'assistant')
+    * content : TEXT NOT NULL
+    * created_at : TIMESTAMPTZ DEFAULT now()
+    * updated_at : TIMESTAMPTZ DEFAULT now()
+    --
+    FK → conversations.id (CASCADE DELETE)
+    Sorted by: created_at ASC
+    Class: Message (app/models/conversation.py)
+  }
+
+  entity "Cognito User\n(external)" as cognito_ent #f8cecc {
+    sub : string  <<JWT claim, globally unique>>
+    --
+    email : string  (JWT claim)
+  }
+
+}
+
+conv ||--o{ msg : "one-to-many"
+cognito_ent }o..|| conv : "user_sub matches sub claim\n(logical, not a DB FK)"
+
+package "Pydantic Schemas (FastAPI Request / Response)" #e8f5e9 {
+
+  class "ChatRequest\nPOST /api/v1/chat" as ChatRequest #d5e8d4 {
+    conversation_id : Optional[UUID] = None
+    message : str  (required)
+    --
+    schema: app/schemas/chat.py
+  }
+
+  class "ChatResponse\nPOST /api/v1/chat (response)" as ChatResponse #d5e8d4 {
+    conversation_id : UUID
+    reply : str
+    --
+    schema: app/schemas/chat.py
+  }
+
+  class "ConversationSchema\nGET /api/v1/conversations item" as ConvSchema #d5e8d4 {
+    id : UUID
+    title : Optional[str]
+    created_at : datetime
+    updated_at : datetime
+    --
+    app/schemas/conversation.py
+    model_config: from_attributes=True
+  }
+
+  class "MessageSchema\nGET /conversations/{id}/messages item" as MsgSchema #d5e8d4 {
+    id : UUID
+    role : str  ('user' | 'assistant')
+    content : str
+    created_at : datetime
+    --
+    app/schemas/conversation.py
+    model_config: from_attributes=True
+  }
+
+}
+
+ChatRequest ..> ChatResponse : triggers
+ChatResponse ..> ConvSchema : references conversation_id
+
+package "TypeScript Interfaces (src/types/index.ts)" #fffde7 {
+
+  class "Conversation" as TSConv #fff2cc {
+    id : string
+    title : string | null
+    created_at : string  (ISO 8601)
+    updated_at : string  (ISO 8601)
+    --
+    src/types/index.ts
+  }
+
+  class "Message" as TSMsg #fff2cc {
+    id : string
+    role : 'user' | 'assistant'
+    content : string
+    created_at : string  (ISO 8601)
+    conversation_id? : string
+    --
+    src/types/index.ts
+  }
+
+}
+
+conv ..> ConvSchema : serialized to
+msg ..> MsgSchema : serialized to
+ConvSchema ..> TSConv : JSON → TS
+MsgSchema ..> TSMsg : JSON → TS
+
+note bottom of TSConv
+  Pinia Store (chat.ts):
+  • conversations: Conversation[]
+  • activeMessages: Message[]
+  • currentConversationId: string | null
+  • isLoading: boolean
+end note
+
+note bottom of TSMsg
+  Pinia Auth Store (auth.ts):
+  • token: string | null  (localStorage 'id_token')
+  • isAuthenticated: computed boolean (token != null)
+  • login() → PKCE → redirect to Cognito
+  • handleCallback(code) → token exchange
+  • logout() → clear token → redirect
+end note
+
+@enduml

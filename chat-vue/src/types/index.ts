@@ -1,0 +1,156 @@
+// Mirrors ModelOut from app/schemas/models.py
+export interface Model {
+  model_id: string
+  model_name: string
+  provider_name: string
+  input_price_per_1k_tokens: number | null
+  output_price_per_1k_tokens: number | null
+}
+
+// Mirrors ConversationOut from app/schemas/conversation.py
+export interface Conversation {
+  id: string
+  title: string | null
+  model_id: string | null
+  input_price_per_1k_tokens: number | null
+  output_price_per_1k_tokens: number | null
+  created_at: string
+  updated_at: string
+  messages: Message[]
+}
+
+// Mirrors ChatRequest from app/schemas/chat.py
+export interface ChatRequest {
+  conversation_id?: string
+  message: string
+  model_id?: string
+  input_price_per_1k_tokens?: number | null
+  output_price_per_1k_tokens?: number | null
+}
+
+// Mirrors ChatResponse from app/schemas/chat.py
+export interface ChatResponse {
+  conversation_id: string
+  reply: string
+}
+
+// Local UI-only type for displaying a message in the chat thread
+export interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
+}
+
+// Mirrors MessageOut from app/schemas/conversation.py
+export interface ApiMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+// ── Speaker profiles ──────────────────────────────────────────────────────
+
+export interface SpeakerProfile {
+  speaker_id: string
+  speaker_name: string | null
+  created_at: string
+  samples: SpeakerSample[]
+}
+
+export interface SpeakerSample {
+  sample_id: string
+  status: 'processing' | 'ready' | 'failed'
+  duration_seconds: number | null
+  error_message: string | null
+  created_at: string
+}
+
+export interface SpeakerListResponse {
+  items: SpeakerProfile[]
+  next_cursor: string | null
+}
+
+export interface SampleUploadInitResponse {
+  sample_id: string
+  upload_url: string
+}
+
+// ── Transcription jobs ────────────────────────────────────────────────────
+
+export interface TranscriptionJob {
+  job_id: string
+  status: 'pending' | 'transcribing' | 'matching' | 'complete' | 'failed'
+  speaker_count_hint: number
+  language: string
+  speaker_ids: string[]
+  error_message: string | null
+  partial_transcript_available: boolean
+  matched_speaker_count: number | null
+  total_segment_count: number | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  worker_paused?: boolean
+}
+
+export interface JobListResponse {
+  items: TranscriptionJob[]
+  next_cursor: string | null
+}
+
+export interface JobCreateRequest {
+  speaker_count_hint?: number
+  speaker_ids?: string[]
+  language?: string
+}
+
+export interface JobCreateResponse {
+  job_id: string
+  upload_url: string
+}
+
+// ── Job activity log ──────────────────────────────────────────────────────
+
+export interface JobLogEntry {
+  ts: string
+  direction: 'request' | 'response'
+  label: string
+  detail?: string
+  error?: boolean
+}
+
+// ── Transcript ────────────────────────────────────────────────────────────
+
+export interface TranscriptSegment {
+  segment_id: string
+  anonymous_label: string
+  speaker_name: string | null
+  start_time: number
+  end_time: number
+  text: string
+}
+
+export interface TranscriptResponse {
+  segments: TranscriptSegment[]
+}
+
+// ── Turn distances (client-side matching analysis) ────────────────────────
+
+export interface TurnCandidate {
+  candidate_id: string
+  speaker_name: string | null
+  cosine_dist: number
+}
+
+export interface TurnDistanceData {
+  start_time: number
+  end_time: number
+  text: string
+  candidates: TurnCandidate[]
+}
+
+export interface TurnDistancesResponse {
+  turns: TurnDistanceData[]
+}

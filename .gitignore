@@ -1,0 +1,59 @@
+# Secrets
+.env
+.env.*
+!.env.example
+huggingface_read_token
+
+# Logs
+*.log
+logs/
+
+# Build artefacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.npm/
+
+# Archives / large binaries
+archive.zip
+*.zip
+fixtures.tar.gz
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars
+!**/terraform.tfvars.example
+**/secrets.tfvars
+!**/secrets.tfvars.example
+**/tfplan
+**/*.tfplan
+
+# Claude Code memory
+memory/
+
+# Backup files
+*.sh-back
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test fixtures (large audio files)
+transcription-worker/tests/fixtures/*.wav
+transcription-worker/tests/fixtures/*.m4a
+transcription-worker/tests/fixtures/dataset/

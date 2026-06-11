@@ -1,0 +1,12 @@
+services:
+  worker:
+    build: .
+    runtime: nvidia
+    volumes:
+      - .:/app
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    env_file: .env
+    # Code is mounted as a volume — no image rebuild on code change.
+    # HuggingFace model cache is persisted across container restarts.
+    # Restart the process, not the image, to pick up code changes:
+    #   docker compose -f docker-compose.dev.yml restart worker

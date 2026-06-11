@@ -1,0 +1,150 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+**Local dev (without Docker):**
+```bash
+uv sync
+uv run scripts/run_local.sh      # uvicorn --reload on port 8000
+```
+
+**Local dev (with Docker):**
+```bash
+cp .env.example .env              # fill in values first
+docker compose up                 # api + postgres, port 8000
+```
+
+**Tests:**
+```bash
+uv run pytest tests/unit -q                                               # all unit tests; no external deps needed
+uv run pytest tests/unit/services/test_transcription_service.py -q       # transcription service + regression tests
+uv run pytest tests/unit/api/test_transcribe_jobs.py -q                  # job endpoint HTTP layer
+uv run pytest tests/unit/api/test_transcribe_speakers.py -q              # speaker endpoint HTTP layer
+```
+
+Key test classes in `tests/unit/services/test_transcription_service.py`:
+
+| Class | Covers |
+|---|---|
+| `TestInitiateJobUpload` | Concurrent job limit, S3 key shape |
+| `TestConfirmJobUpload` | 404/409/422 guards, Transcribe job start, SQS publish |
+| `TestGetJobStatus` | `matched_speaker_count` / `total_segment_count` forwarded from DB (regression) |
+| `TestGetTranscript` | Status guards, `speaker_name` from matched profile (regression), partial transcript |
+| `TestGetTranscriptSpeakerName` | Speaker name populated / null when unmatched (regression) |
+| `TestDeleteJob` | S3 key cleanup, repo delete call |
+
+Note: `tests/integration/` exists but contains only stubs — no integration tests are written yet.
+
+**Lint / type-check:**
+```bash
+uv run ruff check .
+uv run ruff format .
+uv run mypy app
+```
+
+**Migrations:**
+```bash
+uv run alembic -c app/db/alembic.ini revision --autogenerate -m "your message"
+uv run alembic -c app/db/alembic.ini upgrade head
+```
+
+## Architecture
+
+The app follows a layered pattern: **router → endpoint → service → repository/external service**.
+
+```
+app/
+  main.py          FastAPI app factory; registers CORS, exception handlers, v1 router
+  config.py        Pydantic Settings loaded from .env; accessed via get_settings() (lru_cache)
+  dependencies.py  FastAPI DI: get_db (async session) and get_current_user (Cognito JWT)
+  api/v1/          Versioned HTTP layer — thin, delegates to services
+    endpoints/     chat.py, conversations.py, health.py, models.py
+    transcribe/    jobs.py, speakers.py, dev.py (mock upload sink), deps.py
+  services/        Business logic
+    chat.py        ChatService: orchestrates conversation repo + BedrockService
+    conversation.py ConversationService: list/delete/get_messages
+    bedrock.py     BedrockService: Bedrock invocation + model listing
+    transcription_service.py  TranscriptionService (real) + LocalTranscriptionService (mock)
+    audio_storage.py          S3 presigned URLs, object existence check, Transcribe job start
+    sqs_publisher.py          SQS publish for transcription jobs and speaker sample embeddings
+  repositories/    Async SQLAlchemy queries only; no business logic
+    conversation.py
+    transcription.py
+  models/          SQLAlchemy ORM models (inherit from app/models/base.py)
+    conversation.py
+    transcription.py  SpeakerProfile, SpeakerSample (pgvector embedding), TranscriptionJob, TranscriptSegment
+  schemas/         Pydantic request/response schemas
+    chat.py, conversation.py, models.py, transcription.py
+  core/            security.py (Cognito JWKS verification), exceptions.py
+  db/              session.py (engine + sessionmaker init'd at startup), Alembic migrations
+```
+
+**Request flow for chat:**
+1. `POST /api/v1/chat` → `dependencies.get_current_user` verifies Cognito JWT (JWKS cached in-process)
+2. `ChatService.handle()` — loads or creates a conversation, fetches message history, appends the user message; when creating, stores the `model_id` from the request (falls back to `BEDROCK_MODEL_ID`)
+3. `BedrockService.invoke()` — calls `bedrock-runtime` synchronously via boto3 using `conversation.model_id` (falls back to `BEDROCK_MODEL_ID` for legacy rows)
+4. Both user and assistant messages are persisted via `ConversationRepository`
+
+**Request flow for transcription:**
+1. `POST /api/v1/transcribe/jobs` — creates a `TranscriptionJob` (status: `pending`) and returns a presigned S3 upload URL
+2. Client uploads audio directly to S3, then calls `POST /api/v1/transcribe/jobs/{id}/confirm`
+3. `TranscriptionService.confirm_job_upload()` — verifies the S3 object exists, starts an AWS Transcribe job (word timestamps only — `ShowSpeakerLabels` is **not** set), publishes an SQS message with the job ID + AWS job name + optional speaker IDs, transitions status to `transcribing`
+4. The `transcription-worker` consumes SQS, runs pyannote-audio diarization + ECAPA-TDNN speaker matching, writes segments, and updates job status to `complete` or `failed`
+5. Client polls `GET /api/v1/transcribe/jobs/{id}` for status, then fetches `GET /api/v1/transcribe/jobs/{id}/transcript` when ready
+
+**Speaker profile flow:**
+- `POST /api/v1/transcribe/speakers` — creates a named speaker profile
+- `POST /api/v1/transcribe/speakers/{id}/samples` — returns a presigned S3 upload URL for a voice sample
+- `POST /api/v1/transcribe/speakers/{id}/samples/{sid}/confirm` — validates audio (10–60 s, decodeable), transitions to `processing`, publishes SQS message to enqueue embedding generation; a worker updates status to `ready`
+- Speaker IDs can be passed at job-confirm time so the worker knows which profiles to match against
+
+**Database:** Async SQLAlchemy with asyncpg driver. `init_db()` is called at lifespan startup; `get_db()` yields an `AsyncSession` that commits on success and rolls back on exception. `SpeakerSample.embedding` uses `pgvector` (`Vector(192)`); `SpeakerSample.error_message` stores embedding failure reason set by the transcription worker.
+
+**Auth:** All endpoints (except `/api/v1/health`) use `get_current_user`, which validates RS256 JWTs against Cognito's JWKS URL. The JWKS response is cached as a module-level global.
+
+**Models endpoint:** `GET /api/v1/models` returns available Bedrock models via `BedrockService.list_models()`.
+
+## CI/CD
+
+`buildspec.yml` defines the AWS CodeBuild pipeline:
+1. `uv run pytest tests/unit` must pass
+2. Docker image is built and pushed to ECR, tagged with the short commit hash and `latest`
+3. `imagedefinitions.json` artifact is used by CodePipeline to update the ECS Fargate service
+
+Infrastructure is Terraform under `infra/` (per-environment in `infra/environments/`, shared modules in `infra/modules/`).
+
+## Environment variables
+
+All settings are in `app/config.py` (`Settings` class). Copy `.env.example` to `.env` for local dev. Key vars:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | asyncpg connection string |
+| `COGNITO_USER_POOL_ID` | Cognito pool for JWT validation |
+| `COGNITO_CLIENT_ID` | Cognito app client ID |
+| `AWS_REGION` | AWS region for Bedrock/SQS/S3 |
+| `BEDROCK_MODEL_ID` | Default Bedrock model (e.g. `anthropic.claude-3-sonnet-20240229-v1:0`) |
+| `USE_MOCK_BEDROCK` | Skip Bedrock, return canned response (local dev without AWS creds) |
+| `MOCK_BEDROCK_DELAY_SECONDS` | Artificial delay for mock Bedrock responses |
+| `AUDIO_BUCKET_NAME` | S3 bucket for audio uploads and transcription output |
+| `TRANSCRIBE_SQS_QUEUE_URL` | SQS queue URL consumed by the transcription worker |
+| `MAX_CONCURRENT_JOBS` | Per-user limit on active transcription jobs (default: 3) |
+| `USE_MOCK_TRANSCRIPTION` | Skip all AWS Transcribe/SQS calls; simulate job completion in-process |
+| `MOCK_UPLOAD_BASE_URL` | Base URL for mock presigned URLs (default: `http://localhost:8000`) |
+| `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS` | Delay before mock sample transitions `processing` → `ready` (default: 3) |
+| `MOCK_JOB_TRANSCRIBING_DELAY_SECONDS` | Delay in mock job `transcribing` stage (default: 5) |
+| `MOCK_JOB_MATCHING_DELAY_SECONDS` | Delay in mock job `matching` stage (default: 3) |
+
+**LangSmith tracing (optional):** set `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_API_KEY`, and `LANGCHAIN_PROJECT` to trace Bedrock invocations via the `@traceable` decorator on `BedrockService.invoke()`.
+
+Note: `.env.example` sets `CORS_ORIGINS=["http://localhost:3000"]` — change to `["http://localhost:5173"]` to match the Vite dev server.
+
+In production (`ENVIRONMENT=prod`), `/docs` (Swagger UI) is disabled.
+
+## Mock / local dev notes
+
+- **`USE_MOCK_BEDROCK=true`** — skips AWS Bedrock entirely, returns a canned response.
+- **`USE_MOCK_TRANSCRIPTION=true`** — uses `LocalTranscriptionService` instead of the real one. Jobs are completed in-process via `asyncio.create_task`: `transcribing` → `matching` → `complete` with configurable delays. Seeded with 4 mock transcript segments. Samples transition to `ready` after `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`.
+- **`/api/v1/transcribe/dev-upload/{path}`** — PUT/GET sink registered at app startup when mock transcription is enabled; acts as a no-op S3 replacement so browser presigned-URL uploads succeed.

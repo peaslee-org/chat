@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files — .env.example is safe to commit, real envs are not
+.env
+.env.local
+.env.*.local
+*.local
+
+# Mock traffic captures (user-generated, not committed)
+src/mocks/traffic.json
+
+# Logs
+*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp

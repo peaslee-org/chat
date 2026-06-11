@@ -1,0 +1,94 @@
+@startuml transcription-job-states
+!theme plain
+
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #9CA3AF
+  ArrowColor #4B5563
+  ArrowFontSize 9
+  ArrowFontColor #374151
+  StartColor #374151
+  EndColor #374151
+  FontSize 11
+}
+
+skinparam note {
+  BorderColor #D1D5DB
+  BackgroundColor #F9FAFB
+  FontSize 9
+}
+
+skinparam shadowing false
+
+title Transcription Job State Diagram\n(two speakers · one sample each)
+
+' ─── Speaker Sample lifecycle ────────────────────────────────────────────────
+
+state "Speaker A Sample" as SampleA {
+  [*]                  --> SA_Processing : POST /speakers/{a}/samples\n+ confirm (audio validated)
+  SA_Processing        --> SA_Ready      : worker: ECAPA-TDNN\nembedding stored (192-dim)
+  SA_Processing        --> SA_Failed     : validation error\nor embedding error
+  SA_Ready             --> [*]
+  SA_Failed            --> [*]
+
+  state "processing" as SA_Processing
+  state "ready"      as SA_Ready  #D1FAE5
+  state "failed"     as SA_Failed #FEE2E2
+}
+
+state "Speaker B Sample" as SampleB {
+  [*]                  --> SB_Processing : POST /speakers/{b}/samples\n+ confirm (audio validated)
+  SB_Processing        --> SB_Ready      : worker: ECAPA-TDNN\nembedding stored (192-dim)
+  SB_Processing        --> SB_Failed     : validation error\nor embedding error
+  SB_Ready             --> [*]
+  SB_Failed            --> [*]
+
+  state "processing" as SB_Processing
+  state "ready"      as SB_Ready  #D1FAE5
+  state "failed"     as SB_Failed #FEE2E2
+}
+
+note "Both speakers must have ≥ 1\n**ready** sample before job\ncan be confirmed\n(409 Conflict otherwise)" as GuardNote
+
+' ─── Transcription Job lifecycle ─────────────────────────────────────────────
+
+state "Transcription Job" as Job {
+  [*]            --> pending       : POST /jobs\n(presigned S3 upload URL returned)
+  pending        --> pending       : client uploads audio to S3
+
+  pending        --> transcribing  : POST /jobs/{id}/confirm\n✔ audio exists in S3\n✔ both speakers have ready sample\n→ AWS Transcribe started\n→ SQS message published
+
+  note on link
+    409 if any speaker\nhas no ready sample
+    422 if audio missing\nfrom S3
+  end note
+
+  transcribing   --> matching      : worker receives SQS\n→ polls Transcribe until COMPLETED\n→ downloads word timestamps
+
+  state "matching" as matching {
+    [*]          --> Diarizing
+    Diarizing    --> Aligning      : pyannote-audio diarization\n(CUDA) complete
+    Aligning     --> Embedding     : words mapped to speaker\nturns via bisect midpoint
+    Embedding    --> SpeakerMatch  : ECAPA-TDNN 192-dim\nvector per speaker label
+    SpeakerMatch --> Persisting    : cosine distance vs.\nready sample embeddings\n(threshold 0.25)
+    Persisting   --> [*]           : TranscriptSegments\n+ transcript.txt written
+
+    state "Diarizing"    as Diarizing
+    state "Aligning"     as Aligning
+    state "Embedding"    as Embedding
+    state "SpeakerMatch" as SpeakerMatch
+    state "Persisting"   as Persisting
+  }
+
+  matching       --> complete      : result_s3_key set\nmatched_speaker_count,\ntotal_segment_count recorded\nCloudWatch metrics emitted
+  matching       --> failed        : unhandled exception\n(up to 3 SQS retries → DLQ)
+  transcribing   --> failed        : unhandled exception
+
+  state "complete" as complete #D1FAE5
+  state "failed"   as failed   #FEE2E2
+
+  complete       --> [*]
+  failed         --> [*]
+}
+
+@enduml

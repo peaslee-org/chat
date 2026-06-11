@@ -1,0 +1,56 @@
+name: Deploy — chat-vue
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chat-vue/**'
+      - '.github/workflows/vue.yml'
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: chat-vue/package-lock.json
+
+      - name: Install dependencies
+        working-directory: chat-vue
+        run: npm ci
+
+      - name: Build
+        working-directory: chat-vue
+        env:
+          VITE_API_BASE_URL:          ${{ secrets.VITE_API_BASE_URL }}
+          VITE_COGNITO_DOMAIN:        ${{ secrets.VITE_COGNITO_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID:     ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+          VITE_COGNITO_REDIRECT_URI:  ${{ secrets.VITE_COGNITO_REDIRECT_URI }}
+          VITE_COGNITO_SCOPE:         ${{ secrets.VITE_COGNITO_SCOPE }}
+        run: npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_VUE }}
+          aws-region: us-east-1
+
+      - name: Sync to S3
+        working-directory: chat-vue
+        run: aws s3 sync dist/ s3://${{ secrets.S3_BUCKET }}/ --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CF_DISTRIBUTION_ID }} \
+            --paths "/*"

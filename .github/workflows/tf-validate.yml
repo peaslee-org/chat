@@ -1,0 +1,33 @@
+name: Terraform Validate
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/tf-validate.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        environment: [prod, staging, dev, transcription-prod]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: terraform fmt check
+        working-directory: infra/environments/${{ matrix.environment }}
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        working-directory: infra/environments/${{ matrix.environment }}
+        run: terraform init -backend=false
+
+      - name: terraform validate
+        working-directory: infra/environments/${{ matrix.environment }}
+        run: terraform validate

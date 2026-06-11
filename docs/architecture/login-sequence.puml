@@ -1,0 +1,96 @@
+@startuml login-sequence
+title Login Flow – PKCE OAuth2 with AWS Cognito
+
+skinparam defaultFontSize 11
+skinparam sequenceArrowThickness 2
+skinparam participantBorderRadius 6
+
+actor User
+participant "Browser\nVue SPA\n(chat.example.com)" as Vue #fff2cc
+participant "AWS Cognito\nHosted UI\n+ Token endpoint" as Cognito #f8cecc
+participant "FastAPI\nECS Fargate\n(chat-api)" as API #d5e8d4
+participant "RDS PostgreSQL\nchatapi database" as RDS #f5f5f5
+
+== ① Initiate Login ==
+
+User -> Vue : Click Login (or route guard fires)
+
+== ② PKCE Generation ==
+
+note over Vue
+  pkce.ts:
+  1. Generate code_verifier (32 random bytes, base64url)
+  2. code_challenge = base64url(SHA-256(verifier))
+  3. Store verifier → sessionStorage[pkce_verifier]
+end note
+
+== ③ Cognito Auth ==
+
+Vue -> Cognito : HTTP 302 → Cognito Hosted UI\n?response_type=code&client_id=...\n&code_challenge=SHA256(verifier)&code_challenge_method=S256\n&scope=openid+email+profile&redirect_uri=.../callback
+
+User -> Cognito : Enter username + password
+
+note over Cognito
+  Cognito validates credentials
+  (password policy, prevent-user-existence-errors)
+end note
+
+Cognito -> Vue : HTTP 302 → /callback?code=AUTH_CODE
+
+== ④ Token Exchange ==
+
+note over Vue
+  CallbackView.vue:
+  Extract code from URL query string
+  → call auth.handleCallback(code)
+end note
+
+Vue -> Cognito : POST /oauth2/token\ngrant_type=authorization_code\ncode=AUTH_CODE + code_verifier=STORED_VERIFIER\nclient_id + redirect_uri
+
+note over Cognito
+  Cognito verifies:
+  SHA-256(code_verifier) == code_challenge
+  Issues tokens (RS256 signed)
+end note
+
+Cognito -> Vue : 200 OK { id_token: JWT, access_token, refresh_token }\n(id_token: 1 h, refresh_token: 30 d)
+
+note over Vue
+  auth.ts:
+  localStorage.setItem('id_token', jwt)
+  sessionStorage.removeItem('pkce_verifier')
+  router.push('/')  →  ChatView loads
+end note
+
+== ⑤ Authenticated Request ==
+
+note over Vue : (Subsequent API calls — every request)
+
+Vue -> API : GET /api/v1/conversations\nAuthorization: Bearer <id_token JWT>
+
+note over API
+  dependencies.py → security.py:
+  1. Extract JWT from Bearer header
+  2. Decode header → get kid
+  3. Fetch JWKS from Cognito (cached in-process)
+  4. Find matching public key by kid
+  5. Verify RS256 signature
+  6. Validate: aud=CLIENT_ID, iat≤now, exp>now
+  7. Extract sub claim (user ID)
+end note
+
+API -> RDS : SELECT * FROM conversations\nWHERE user_sub = {sub} ORDER BY updated_at DESC
+RDS -> API : [{ id, title, created_at, updated_at }, ...]
+API -> Vue : 200 OK — ConversationList JSON
+
+note over Vue, API
+  On token expiry (1 h) the axios interceptor catches 401
+  → auth.logout() → clears localStorage → redirects to login
+end note
+
+note over API
+  JWKS cached as module-level global in security.py.
+  Cache miss → re-fetch from Cognito's .well-known/jwks.json endpoint.
+end note
+
+@enduml

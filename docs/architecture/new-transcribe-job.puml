@@ -1,0 +1,148 @@
+@startuml new-transcribe-job
+!theme plain
+
+skinparam {
+  BackgroundColor #F8FAFC
+  ArrowColor #4B5563
+  ArrowFontSize 9
+  ArrowFontColor #374151
+  SequenceArrowThickness 1.3
+  SequenceGroupBodyBackgroundColor #F8FAFC
+  SequenceGroupBorderColor #9CA3AF
+  SequenceGroupFontSize 10
+  SequenceBoxBackgroundColor #F1F5F9
+  SequenceBoxBorderColor #9CA3AF
+  SequenceLifeLineBorderColor #9CA3AF
+  SequenceParticipantBackgroundColor #FFFFFF
+  SequenceParticipantBorderColor #9CA3AF
+  SequenceParticipantFontSize 11
+}
+
+skinparam note {
+  BorderColor #D1D5DB
+  BackgroundColor #F9FAFB
+  FontSize 9
+}
+
+title New Transcription Job — Sequence Diagram\n(user already authenticated)
+
+actor "User" as user
+participant "Vue SPA\n(NewJobForm\n+ transcribe store)" as spa
+participant "chat-api\n(FastAPI)" as api
+participant "PostgreSQL\n(RDS)" as db
+participant "S3" as s3
+participant "AWS Transcribe" as transcribe
+participant "SQS" as sqs
+participant "transcription-worker\n(ECS GPU)" as worker
+
+== 1. Create job record + get upload URL ==
+
+user -> spa : fill form\n(audio file, language,\nspeaker count, speaker IDs)\nclick Submit
+
+spa -> api : POST /api/v1/transcribe/jobs\n{speaker_count_hint, language, speaker_ids?}
+api -> db : INSERT TranscriptionJob\n(status=pending, audio_s3_key)
+db --> api : job record
+api -> s3 : generate_presigned_upload_url(s3_key)
+s3 --> api : presigned PUT URL (15 min TTL)
+api --> spa : 202 {job_id, upload_url}
+
+spa -> spa : add job to list\n(status=pending)
+
+== 2. Upload audio directly to S3 ==
+
+spa -> s3 : PUT presigned URL\n(raw audio bytes, no auth header)
+note right of s3
+  Plain fetch() — apiClient
+  must NOT be used here
+  (presigned URL forbids
+  extra auth headers)
+end note
+s3 --> spa : 200 OK
+
+== 3. Confirm upload → start transcription ==
+
+spa -> api : POST /api/v1/transcribe/jobs/{job_id}/confirm
+api -> db : get_job(job_id, user_id)
+db --> api : job (status=pending)
+api -> s3 : object_exists(audio_s3_key)
+s3 --> api : true
+
+api -> transcribe : StartTranscriptionJob\n(audio_s3_key, word timestamps only;\nShowSpeakerLabels=false)
+transcribe --> api : aws_job_name
+
+api -> db : UPDATE job\n(status=transcribing,\naws_transcribe_job_name,\ntranscribe_output_s3_key)
+db --> api : ok
+api -> sqs : publish {job_id, aws_job_name, speaker_ids}
+sqs --> api : ok
+api --> spa : 202 Accepted
+
+spa -> spa : update job status → transcribing\nstartPolling(job_id)
+
+== 4. Client polls for status ==
+
+loop every 10 s (or 60 s if worker_paused)
+  spa -> api : GET /api/v1/transcribe/jobs/{job_id}
+  api -> db : get_job(job_id, user_id)
+  db --> api : job (status, worker_paused flag)
+  api --> spa : 200 {status, worker_paused, ...}
+  spa -> spa : update job in list
+end
+
+== 5. Worker processes job (async) ==
+
+worker -> sqs : ReceiveMessage (long-poll)
+sqs --> worker : {job_id, aws_job_name, speaker_ids}
+
+loop until COMPLETED
+  worker -> transcribe : GetTranscriptionJob(aws_job_name)
+  transcribe --> worker : job status
+end
+
+worker -> s3 : GetObject(audio_s3_key)
+s3 --> worker : audio bytes
+
+worker -> worker : pyannote-audio diarization\n(CUDA GPU)
+note right of worker
+  Detects speaker turns
+  with start/end timestamps
+end note
+
+opt speaker_ids provided
+  worker -> db : load SpeakerSample embeddings\n(ECAPA-TDNN, Vector(192))
+  db --> worker : embeddings
+  worker -> worker : match diarized turns\nto known speaker profiles\n(cosine similarity)
+end
+
+worker -> worker : align AWS Transcribe words\nto pyannote turns\n(bisect midpoint)
+
+worker -> db : INSERT TranscriptSegments\n(anonymous_label, speaker_profile_id?,\nstart_time, end_time, text)
+db --> worker : ok
+
+worker -> s3 : PUT result transcript\n(result_s3_key)
+s3 --> worker : ok
+
+worker -> db : UPDATE job\n(status=complete,\nresult_s3_key,\nmatched_speaker_count,\ntotal_segment_count)
+db --> worker : ok
+
+worker -> sqs : DeleteMessage (ack)
+
+== 6. Poll detects completion ==
+
+spa -> api : GET /api/v1/transcribe/jobs/{job_id}
+api -> db : get_job(job_id, user_id)
+db --> api : job (status=complete)
+api --> spa : 200 {status: "complete", ...}
+spa -> spa : stopPolling(job_id)
+
+== 7. Load transcript ==
+
+spa -> api : GET /api/v1/transcribe/jobs/{job_id}/transcript
+api -> db : get_segments(job_id)\n(with speaker_profile join)
+db --> api : segments [{anonymous_label,\nspeaker_name?, start, end, text}]
+api -> s3 : generate_presigned_download_url(result_s3_key)
+s3 --> api : presigned GET URL
+api --> spa : 200 {segments, transcript_url}
+
+spa --> user : render TranscriptDisplay\n(speaker labels + timestamps)
+
+@enduml

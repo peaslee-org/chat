@@ -1,0 +1,63 @@
+@startuml network-map
+title Chat Application – AWS Network Architecture
+
+skinparam defaultFontSize 11
+skinparam rectangleBorderRadius 8
+skinparam packageBorderColor #4da6ff
+skinparam packageBackgroundColor #f0f8ff
+
+cloud "Internet / Users" as internet
+
+rectangle "<b>CloudFront Distribution</b>\nchat.example.com\n(HTTPS, TLS 1.2+, IPv6)" as cf #8C4FFF/white
+rectangle "<b>CloudFront Function</b>\nSPA Router (Viewer Request)" as cf_fn #f5f5f5
+
+rectangle "<b>S3 Bucket</b>\nchat-frontend-prod\n(Private, OAC, SPA assets)" as s3 #7AA116/white
+
+package "VPC: chat-api-prod (10.0.0.0/16)" {
+
+  rectangle "<b>Internet Gateway</b>" as igw #8C4FFF/white
+
+  rectangle "<b>Application Load Balancer</b>\nPort 80/443\nSG: allows from CF only\n(X-CloudFront-Secret header)" as alb #8C4FFF/white
+
+  package "ECS Cluster: chat-api-prod" {
+    rectangle "<b>ECR Repository</b>\nchat-api (Last 10 images)" as ecr #ED7100/white
+    rectangle "<b>ECS Fargate Task</b>\nFastAPI :8000\n256 CPU / 512 MB\nSG: port 8000 from ALB" as ecs #ED7100/white
+  }
+
+  rectangle "<b>RDS PostgreSQL 15</b>\nchat-api-prod / db: chatapi\ndb.t3.small, 100 GB\nSG: port 5432 from VPC" as rds #C7131F/white
+
+  rectangle "<b>CloudWatch Logs</b>\n/ecs/chat-api-prod\n(30-day retention)" as cw #E7157B/white
+
+  rectangle "<b>EFS Volume</b>\nbedrock-logs\nMounted: /app/logs" as efs #7AA116/white
+}
+
+rectangle "<b>AWS Bedrock</b>\nclaude-3-sonnet-20240229-v1:0\n(LLM Inference)" as bedrock #01A88D/white
+
+rectangle "<b>AWS Cognito</b>\nUser Pool: chat-api-prod\nHosted UI + PKCE\nJWKS endpoint" as cognito #BF0816/white
+
+package "CI/CD Pipeline" {
+  rectangle "<b>GitHub</b>\npeaslee-org/chat-api\n(main branch)" as github #dae8fc
+  rectangle "<b>CodeBuild</b>\nRun tests → Build image\nPush to ECR" as codebuild #C7131F/white
+  rectangle "<b>CodePipeline</b>\nRolling deploy to ECS" as codepipeline #C7131F/white
+  rectangle "<b>GitHub OIDC IAM Role</b>\ngithub-actions-prod" as oidc #DD344C/white
+}
+
+internet --> cf : HTTPS
+cf_fn --> cf : SPA Router
+cf --> s3 : "/* (default)\nOAC SigV4"
+cf --> alb : "/api/*\nX-CF-Secret header"
+igw --> alb
+alb --> ecs : :8000
+ecs --> rds : "asyncpg :5432"
+ecs --> cw : awslogs
+ecs --> efs : /app/logs
+ecs --> bedrock : "InvokeModel (HTTPS)"
+ecs .right.> cognito : "JWKS fetch\n(RS256 verify)"
+ecr ..> ecs : pull image
+
+github --> codebuild : push to main
+codebuild --> codepipeline : imagedefinitions.json
+oidc ..> codebuild : assume role
+oidc --> ecs : rolling deploy
+
+@enduml
