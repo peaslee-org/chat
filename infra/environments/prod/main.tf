@@ -57,6 +57,7 @@ module "ecs" {
   environment                  = var.environment
   vpc_id                       = data.aws_vpc.default.id
   subnet_ids                   = data.aws_subnets.public.ids
+  alb_subnet_ids               = slice(sort(data.aws_subnets.public.ids), 0, var.alb_subnet_count)
   ecr_repository_url           = module.ecr.repository_url
   acm_certificate_arn          = module.acm.certificate_arn
   aws_region                   = var.aws_region

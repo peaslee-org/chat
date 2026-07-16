@@ -162,7 +162,7 @@ resource "aws_lb" "this" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = var.subnet_ids
+  subnets            = var.alb_subnet_ids != null ? var.alb_subnet_ids : var.subnet_ids
 
   tags = { Environment = var.environment }
 }
@@ -260,7 +260,7 @@ resource "aws_ecs_cluster" "this" {
 
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = var.container_insights
   }
 
   tags = { Environment = var.environment }
