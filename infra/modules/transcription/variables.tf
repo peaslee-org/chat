@@ -22,8 +22,8 @@ variable "vpc_id" {
 }
 
 variable "database_url" {
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
   description = "Full asyncpg DATABASE_URL for the transcription worker."
 }
 

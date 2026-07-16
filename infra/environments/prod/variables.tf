@@ -17,8 +17,8 @@ variable "langchain_api_key_secret_arn" {
 }
 
 variable "database_url" {
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
   description = "Full asyncpg DATABASE_URL for the chat-api (postgresql+asyncpg://...)."
 }
 

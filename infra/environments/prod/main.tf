@@ -53,17 +53,17 @@ module "ecr" {
 
 
 module "ecs" {
-  source               = "../../modules/ecs"
-  environment          = var.environment
-  vpc_id               = data.aws_vpc.default.id
-  subnet_ids           = data.aws_subnets.public.ids
-  ecr_repository_url   = module.ecr.repository_url
-  acm_certificate_arn  = module.acm.certificate_arn
-  aws_region           = var.aws_region
-  cognito_user_pool_id = module.cognito.user_pool_id
-  cognito_client_id    = module.cognito.client_id
-  bedrock_model_id     = var.bedrock_model_id
-  database_url         = var.database_url
+  source                       = "../../modules/ecs"
+  environment                  = var.environment
+  vpc_id                       = data.aws_vpc.default.id
+  subnet_ids                   = data.aws_subnets.public.ids
+  ecr_repository_url           = module.ecr.repository_url
+  acm_certificate_arn          = module.acm.certificate_arn
+  aws_region                   = var.aws_region
+  cognito_user_pool_id         = module.cognito.user_pool_id
+  cognito_client_id            = module.cognito.client_id
+  bedrock_model_id             = var.bedrock_model_id
+  database_url                 = var.database_url
   cloudfront_secret            = random_password.cloudfront_secret.result
   langchain_api_key_secret_arn = var.langchain_api_key_secret_arn
   audio_bucket_name            = var.audio_bucket_name
