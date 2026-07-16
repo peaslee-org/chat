@@ -11,6 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      # Without this, one environment's failure cancels the others mid-run and
+      # their real status is never reported. staging/dev/transcription-prod have
+      # failed `terraform validate` since the initial commit (missing required
+      # module arguments), which was silently cancelling prod's checks too.
+      fail-fast: false
       matrix:
         environment: [prod, staging, dev, transcription-prod]
 
