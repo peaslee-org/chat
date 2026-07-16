@@ -22,10 +22,14 @@ variable "alb_subnet_ids" {
     the region and pays for an address in each, while its targets live in one. ALB
     cross-zone load balancing is always on and free, so the extra AZs buy nothing.
 
-    Kept separate from subnet_ids because task placement is NOT a cost driver: a
-    service runs a fixed number of tasks and each takes one public IP regardless
-    of how many subnets it could have been placed in. Give tasks every AZ; give
-    the ALB two.
+    MUST cover every AZ the service can place tasks in. An ALB only routes to
+    targets in its ENABLED AZs, so narrowing the ALB while leaving the service
+    free to place tasks anywhere strands a task in a dropped AZ on some future
+    deployment: registered, unroutable, no healthy targets. It fails later, not
+    at apply time, which makes it a poor thing to get wrong.
+
+    In practice: set alb_subnet_ids and subnet_ids to the same AZs, or make
+    subnet_ids a subset.
   EOT
 }
 
