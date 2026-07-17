@@ -162,7 +162,7 @@ resource "aws_lb" "this" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = var.subnet_ids
+  subnets            = var.alb_subnet_ids != null ? var.alb_subnet_ids : var.subnet_ids
 
   tags = { Environment = var.environment }
 }
@@ -260,7 +260,7 @@ resource "aws_ecs_cluster" "this" {
 
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = var.container_insights
   }
 
   tags = { Environment = var.environment }
@@ -286,16 +286,16 @@ resource "aws_ecs_task_definition" "this" {
     }]
 
     environment = [
-      { name = "DATABASE_URL",         value = var.database_url },
+      { name = "DATABASE_URL", value = var.database_url },
       { name = "COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
-      { name = "COGNITO_CLIENT_ID",    value = var.cognito_client_id },
-      { name = "AWS_REGION",           value = var.aws_region },
-      { name = "BEDROCK_MODEL_ID",     value = var.bedrock_model_id },
-      { name = "ENVIRONMENT",          value = var.environment },
-      { name = "AUDIO_BUCKET_NAME",    value = var.audio_bucket_name },
+      { name = "COGNITO_CLIENT_ID", value = var.cognito_client_id },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "BEDROCK_MODEL_ID", value = var.bedrock_model_id },
+      { name = "ENVIRONMENT", value = var.environment },
+      { name = "AUDIO_BUCKET_NAME", value = var.audio_bucket_name },
       { name = "TRANSCRIBE_SQS_QUEUE_URL", value = var.transcribe_sqs_queue_url },
       { name = "LANGCHAIN_TRACING_V2", value = "true" },
-      { name = "LANGCHAIN_PROJECT",    value = "chat-api" },
+      { name = "LANGCHAIN_PROJECT", value = "chat-api" },
     ]
 
     secrets = [

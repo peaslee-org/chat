@@ -81,9 +81,9 @@ resource "aws_iam_role_policy" "worker_github_actions" {
         Resource = "*"
       },
       {
-        Sid    = "IAMPassRole"
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Sid      = "IAMPassRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = "*"
         Condition = {
           StringLike = {
@@ -597,10 +597,10 @@ resource "aws_ecs_task_definition" "worker" {
     }]
 
     environment = [
-      { name = "DATABASE_URL",             value = var.database_url },
-      { name = "AUDIO_BUCKET_NAME",        value = aws_s3_bucket.audio.bucket },
+      { name = "DATABASE_URL", value = var.database_url },
+      { name = "AUDIO_BUCKET_NAME", value = aws_s3_bucket.audio.bucket },
       { name = "TRANSCRIBE_SQS_QUEUE_URL", value = aws_sqs_queue.main.url },
-      { name = "AWS_REGION",               value = var.aws_region },
+      { name = "AWS_REGION", value = var.aws_region },
       { name = "DEV_CAPTURE_FIXTURES_S3_PREFIX", value = "dev-fixtures" },
     ]
 

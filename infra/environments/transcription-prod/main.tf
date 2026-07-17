@@ -34,7 +34,7 @@ module "transcription" {
   github_repo                  = "chat"
   sample_files_path            = "${path.module}/../../../chat-vue/public/samples"
   # Pinned — see variable description before updating. Last reviewed: 2026-03-11.
-  worker_ami_id                = "ami-00000000000000001"
+  worker_ami_id = "ami-00000000000000001"
 }
 
 output "audio_bucket_name" {

@@ -1,9 +1,9 @@
 # GitHub Actions OIDC provider — only one is allowed per AWS account.
 # Set create_oidc_provider = false if one already exists.
 resource "aws_iam_openid_connect_provider" "github" {
-  count           = var.create_oidc_provider ? 1 : 0
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
+  count          = var.create_oidc_provider ? 1 : 0
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
   # Thumbprints are stable; GitHub rotated to the second one in 2023.
   thumbprint_list = [
     "6938fd4d98bab03faadb97b34396831e3780aea1",
@@ -19,7 +19,7 @@ data "aws_iam_openid_connect_provider" "github" {
 locals {
   oidc_provider_arn = var.create_oidc_provider ? (
     aws_iam_openid_connect_provider.github[0].arn
-  ) : (
+    ) : (
     data.aws_iam_openid_connect_provider.github[0].arn
   )
 }
@@ -96,9 +96,9 @@ resource "aws_iam_role_policy" "github_actions" {
       },
       {
         # Required so ECS can pull the new task definition on your behalf.
-        Sid    = "IAMPassRole"
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Sid      = "IAMPassRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = "*"
         Condition = {
           StringLike = {

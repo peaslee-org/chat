@@ -6,6 +6,16 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
+variable "alb_subnet_count" {
+  type        = number
+  default     = 2
+  description = <<-EOT
+    How many public subnets to place the ALB in. Two is the AWS minimum; each
+    additional one costs another public IPv4 address and buys nothing while the
+    service runs a single task.
+  EOT
+}
+
 variable "bedrock_model_id" {
   type    = string
   default = "anthropic.claude-3-sonnet-20240229-v1:0"
@@ -17,8 +27,8 @@ variable "langchain_api_key_secret_arn" {
 }
 
 variable "database_url" {
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
   description = "Full asyncpg DATABASE_URL for the chat-api (postgresql+asyncpg://...)."
 }
 

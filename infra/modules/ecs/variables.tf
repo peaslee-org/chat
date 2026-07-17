@@ -10,6 +10,40 @@ variable "subnet_ids" {
   type = list(string)
 }
 
+variable "alb_subnet_ids" {
+  type        = list(string)
+  default     = null
+  description = <<-EOT
+    Public subnets for the ALB. Falls back to var.subnet_ids when null.
+
+    Only the ALB's subnet count drives public-IPv4 cost: AWS bills per public IPv4
+    address per hour, and an ALB claims one per subnet it sits in. Two is the AWS
+    minimum. Handing it every subnet of a default VPC puts the ALB in every AZ in
+    the region and pays for an address in each, while its targets live in one. ALB
+    cross-zone load balancing is always on and free, so the extra AZs buy nothing.
+
+    MUST cover every AZ the service can place tasks in. An ALB only routes to
+    targets in its ENABLED AZs, so narrowing the ALB while leaving the service
+    free to place tasks anywhere strands a task in a dropped AZ on some future
+    deployment: registered, unroutable, no healthy targets. It fails later, not
+    at apply time, which makes it a poor thing to get wrong.
+
+    In practice: set alb_subnet_ids and subnet_ids to the same AZs, or make
+    subnet_ids a subset.
+  EOT
+}
+
+variable "container_insights" {
+  type        = string
+  default     = "disabled"
+  description = <<-EOT
+    ECS Container Insights. "enabled" publishes a set of CloudWatch custom metrics
+    per cluster/service/task, billed per metric per month. For a low-traffic
+    service that can rival the cost of the compute it observes. Off by default;
+    turn it on deliberately when the dashboards are worth it.
+  EOT
+}
+
 variable "ecr_repository_url" {
   type = string
 }
