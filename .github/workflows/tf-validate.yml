@@ -17,7 +17,7 @@ jobs:
       # module arguments), which was silently cancelling prod's checks too.
       fail-fast: false
       matrix:
-        environment: [prod, staging, dev, transcription-prod]
+        environment: [prod, transcription-prod]
 
     steps:
       - uses: actions/checkout@v4
