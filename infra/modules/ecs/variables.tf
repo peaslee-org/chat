@@ -113,3 +113,9 @@ variable "transcribe_sqs_queue_url" {
   type        = string
   description = "SQS queue URL consumed by the transcription worker."
 }
+
+variable "image_tag" {
+  type        = string
+  description = "Image tag the task definition points at. CI deploys immutable tags and registers new revisions outside Terraform; set this to the deployed tag so plan stays clean."
+  default     = "latest"
+}

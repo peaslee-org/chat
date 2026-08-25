@@ -4,3 +4,7 @@ frontend_bucket_name         = "chat-frontend-prod"
 audio_bucket_name            = "chat-audio-prod-123456789012"
 transcribe_sqs_queue_url     = "https://sqs.us-east-1.amazonaws.com/123456789012/transcription-prod"
 langchain_api_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:chat-api/prod/langsmith-api-key-XXXXXX"
+image_tag                    = "latest"
+# Pin these once the stack is live — see the variable descriptions.
+# alb_subnet_ids  = ["subnet-0000000000000000a", "subnet-0000000000000000b"]
+# task_subnet_ids = ["subnet-0000000000000000b"]

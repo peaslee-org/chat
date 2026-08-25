@@ -29,6 +29,8 @@ module "transcription" {
   cors_allowed_origins         = var.cors_allowed_origins
   worker_memory                = var.worker_memory
   worker_cpu                   = var.worker_cpu
+  worker_desired_count         = var.worker_desired_count
+  image_tag                    = var.image_tag
   alarm_email                  = var.alarm_email
   huggingface_token_secret_arn = var.huggingface_token_secret_arn
   github_repo                  = "chat"
