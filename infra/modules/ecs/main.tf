@@ -204,9 +204,15 @@ resource "aws_lb_listener_rule" "cloudfront_only_http" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 1
 
+  # Written in the form AWS reports back (a forward block, not the target_group_arn
+  # shorthand); the shorthand leaves a perpetual in-place diff on an imported rule.
   action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.this.arn
+    type = "forward"
+    forward {
+      target_group {
+        arn = aws_lb_target_group.this.arn
+      }
+    }
   }
 
   condition {
@@ -240,9 +246,15 @@ resource "aws_lb_listener_rule" "cloudfront_only" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 1
 
+  # Written in the form AWS reports back (a forward block, not the target_group_arn
+  # shorthand); the shorthand leaves a perpetual in-place diff on an imported rule.
   action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.this.arn
+    type = "forward"
+    forward {
+      target_group {
+        arn = aws_lb_target_group.this.arn
+      }
+    }
   }
 
   condition {
