@@ -20,6 +20,10 @@ class SpotWatcher:
     simply times out.
     """
 
+    # Process-wide: set once a termination notice has been seen. WorkerLoop reads it
+    # between messages and exits; the per-message release below still happens.
+    interrupted = threading.Event()
+
     def __init__(self, queue_url: str, receipt_handle: str, region: str):
         self._queue_url = queue_url
         self._receipt_handle = receipt_handle
@@ -39,6 +43,7 @@ class SpotWatcher:
                 r = requests.get(_METADATA_URL, timeout=1)
                 if r.status_code == 200:
                     logger.warning("Spot interruption notice received — releasing SQS message")
+                    SpotWatcher.interrupted.set()
                     self._sqs.change_message_visibility(
                         QueueUrl=self._queue_url,
                         ReceiptHandle=self._receipt_handle,

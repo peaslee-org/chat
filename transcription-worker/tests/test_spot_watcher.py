@@ -70,3 +70,14 @@ class TestSpotWatcher:
             mock_get.assert_not_called()
 
         mock_sqs.change_message_visibility.assert_not_called()
+
+    def test_spot_interruption_sets_process_flag(self):
+        from services.spot_watcher import SpotWatcher
+        SpotWatcher.interrupted.clear()
+        watcher, _ = make_watcher()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        with patch("requests.get", return_value=mock_response):
+            watcher._run()
+        assert SpotWatcher.interrupted.is_set()
+        SpotWatcher.interrupted.clear()
