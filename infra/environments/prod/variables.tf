@@ -26,10 +26,9 @@ variable "langchain_api_key_secret_arn" {
   description = "ARN of the Secrets Manager secret containing the LangSmith API key."
 }
 
-variable "database_url" {
+variable "database_url_secret_arn" {
   type        = string
-  sensitive   = true
-  description = "Full asyncpg DATABASE_URL for the chat-api (postgresql+asyncpg://...)."
+  description = "ARN of the Secrets Manager secret holding the asyncpg DATABASE_URL. Injected into the container as DATABASE_URL by ECS; the value never passes through Terraform."
 }
 
 variable "audio_bucket_name" {

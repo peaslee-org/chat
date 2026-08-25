@@ -21,10 +21,9 @@ variable "vpc_id" {
   type = string
 }
 
-variable "database_url" {
+variable "database_url_secret_arn" {
   type        = string
-  sensitive   = true
-  description = "Full asyncpg DATABASE_URL for the transcription worker."
+  description = "ARN of the Secrets Manager secret holding the asyncpg DATABASE_URL. Injected into the container as DATABASE_URL by ECS; the value never passes through Terraform."
 }
 
 variable "worker_cpu" {

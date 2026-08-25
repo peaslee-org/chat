@@ -56,9 +56,9 @@ variable "aws_region" {
   type = string
 }
 
-variable "database_url" {
-  type      = string
-  sensitive = true
+variable "database_url_secret_arn" {
+  type        = string
+  description = "ARN of the Secrets Manager secret holding the asyncpg DATABASE_URL. Injected into the container as DATABASE_URL by ECS; the value never passes through Terraform."
 }
 
 variable "cognito_user_pool_id" {

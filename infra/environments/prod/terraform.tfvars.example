@@ -1,4 +1,5 @@
-# Copy to terraform.tfvars (gitignored). Secrets go in secrets.tfvars — see secrets.tfvars.example.
+# Copy to terraform.tfvars (gitignored). No secret values live in Terraform: credentials are
+# Secrets Manager ARNs, injected into the container by ECS.
 domain_name                  = "chat.example.com"
 frontend_bucket_name         = "chat-frontend-prod"
 audio_bucket_name            = "chat-audio-prod-123456789012"
@@ -8,3 +9,4 @@ image_tag                    = "latest"
 # Pin these once the stack is live — see the variable descriptions.
 # alb_subnet_ids  = ["subnet-0000000000000000a", "subnet-0000000000000000b"]
 # task_subnet_ids = ["subnet-0000000000000000b"]
+database_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:chat-api/prod/database-url-XXXXXX"
