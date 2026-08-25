@@ -13,6 +13,15 @@ data "aws_caller_identity" "current" {}
 resource "random_password" "cloudfront_secret" {
   length  = 32
   special = false
+
+  lifecycle {
+    # An existing secret is adopted with `terraform import random_password.cloudfront_secret <value>`,
+    # which records the provider defaults (special = true). Every generation attribute is
+    # replace-on-change, so without this the first plan after import would rotate the secret —
+    # and with it the CloudFront custom header and both ALB listener rules. Rotate deliberately
+    # (terraform apply -replace=random_password.cloudfront_secret), not as a side effect.
+    ignore_changes = [special]
+  }
 }
 
 data "aws_vpc" "default" {
