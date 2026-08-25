@@ -60,6 +60,21 @@ class Settings(BaseSettings):
     langchain_project: str = "chat-api"
     langchain_api_key: str = ""
 
+    # GPU controller (transcription worker on the shared GPU capacity provider)
+    gpu_controller_enabled: bool = False
+    gpu_cluster: str = ""                       # ECS cluster name
+    gpu_worker_task_family: str = ""            # task-definition family; RunTask uses family:latest
+    gpu_capacity_provider: str = ""             # capacity provider name (e.g. gpu-prod)
+    gpu_idle_exit_seconds: int = 900            # must match the worker's IDLE_EXIT_SECONDS
+    gpu_daily_cap_hours: float = 3.0
+    gpu_monthly_cap_hours: float = 30.0
+    gpu_warm_per_user_per_day: int = 3
+    gpu_hourly_rate_usd: float = 0.20           # estimate only; the usage panel labels it so
+    gpu_cost_tag_key: str = "CostCenter"
+    gpu_cost_tag_value: str = "gpu"
+    gpu_wait_estimate_starting_seconds: int = 120
+    gpu_wait_estimate_off_seconds: int = 180
+
     @property
     def cognito_jwks_url(self) -> str:
         return (
