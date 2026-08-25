@@ -136,3 +136,48 @@ def test_spot_flag_exits_between_messages_only():
                       clock=clock.mono, wall=clock.now)
     assert loop.run() == "spot_interruption"
     assert len(seen) == 1               # the in-flight message finished; no second receive
+
+
+def test_spot_flag_exits_mid_batch():
+    """Spot notice during multi-message batch stops after current message."""
+    clock = FakeClock()
+    interrupted = threading.Event()
+    seen = []
+
+    def receive():
+        clock.advance(20)
+        return [{"Body": "x"}, {"Body": "y"}, {"Body": "z"}]  # Three messages in one batch
+
+    def process(msg):
+        seen.append(msg)
+        if len(seen) == 1:
+            interrupted.set()  # Notice arrives after first message
+
+    loop = WorkerLoop(receive=receive, process=process, sessions=FakeSessions(),
+                      interrupted=interrupted,
+                      config=LoopConfig(idle_exit_seconds=60, max_lifetime_seconds=999),
+                      clock=clock.mono, wall=clock.now)
+    assert loop.run() == "spot_interruption"
+    assert len(seen) == 1  # Only first message processed, not y or z
+
+
+def test_max_lifetime_exits_mid_batch():
+    """Max lifetime during multi-message batch stops after current message."""
+    clock = FakeClock()
+    seen = []
+
+    def receive():
+        clock.advance(20)
+        return [{"Body": "x"}, {"Body": "y"}, {"Body": "z"}]  # Three messages in one batch
+
+    def process(msg):
+        seen.append(msg)
+        if len(seen) == 1:
+            clock.advance(150)  # Lifetime exceeded after first message
+
+    loop = WorkerLoop(receive=receive, process=process, sessions=FakeSessions(),
+                      interrupted=threading.Event(),
+                      config=LoopConfig(idle_exit_seconds=60, max_lifetime_seconds=100),
+                      clock=clock.mono, wall=clock.now)
+    assert loop.run() == "max_lifetime"
+    assert len(seen) == 1  # Only first message processed, not y or z

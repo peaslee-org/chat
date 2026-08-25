@@ -45,23 +45,49 @@ class WorkerLoop:
         self._sessions.claim()
         end_reason = "idle"
         while True:
-            for msg in self._receive():
+            messages = self._receive()
+
+            # Process each message, checking after each one
+            for msg in messages:
                 self._process(msg)
                 last_work = self._clock()
+
+                # Check after each message (before next one)
+                stop_reason = self._check_exit_conditions(start)
+                if stop_reason:
+                    end_reason = stop_reason
+                    break
+
+            # If we broke due to spot/lifetime, exit outer loop
+            if end_reason != "idle":
+                break
+
             now = self._clock()
             self._sessions.heartbeat()
-            if self._interrupted.is_set():
-                end_reason = "spot_interruption"
+
+            # Check again after empty poll
+            stop_reason = self._check_exit_conditions(start)
+            if stop_reason:
+                end_reason = stop_reason
                 break
-            if now - start >= self._config.max_lifetime_seconds:
-                end_reason = "max_lifetime"
-                break
+
+            # Check idle (only in the main loop after empty poll)
             if now - last_work >= self._config.idle_exit_seconds and self._warm_remaining() <= 0:
                 end_reason = "idle"
                 break
+
         logger.info("Worker loop ending: %s (uptime %.0fs)", end_reason, self._clock() - start)
         self._sessions.close(end_reason)
         return end_reason
+
+    def _check_exit_conditions(self, start: float) -> Optional[str]:
+        """Check interrupted and max_lifetime conditions. Return reason or None."""
+        if self._interrupted.is_set():
+            return "spot_interruption"
+        now = self._clock()
+        if now - start >= self._config.max_lifetime_seconds:
+            return "max_lifetime"
+        return None
 
     def _warm_remaining(self) -> float:
         warm_until: Optional[datetime] = self._sessions.warm_until()
