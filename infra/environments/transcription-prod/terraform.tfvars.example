@@ -5,3 +5,7 @@ cors_allowed_origins         = ["https://chat.example.com", "http://localhost:51
 huggingface_token_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:transcription-prod/huggingface-token-XXXXXX"
 # Email for the DLQ CloudWatch alarm. Leave empty to skip alarm creation.
 alarm_email = ""
+worker_cpu                   = 2048
+worker_memory                = 6144
+worker_desired_count         = 0
+image_tag                    = "latest"

@@ -54,3 +54,15 @@ variable "huggingface_token_secret_arn" {
   description = "ARN of the Secrets Manager secret containing the HuggingFace token."
   default     = ""
 }
+
+variable "image_tag" {
+  type        = string
+  description = "Image tag the task definition points at. CI deploys immutable tags and registers new revisions outside Terraform; set this to the deployed tag so plan stays clean."
+  default     = "latest"
+}
+
+variable "worker_desired_count" {
+  type        = number
+  description = "Desired count of the worker service. 0 parks the worker; 1 runs it."
+  default     = 1
+}

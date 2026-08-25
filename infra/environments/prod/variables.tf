@@ -51,3 +51,29 @@ variable "frontend_bucket_name" {
   type        = string
   description = "S3 bucket that holds the built SPA (CloudFront origin). Bucket names are global."
 }
+
+variable "image_tag" {
+  type        = string
+  description = "Image tag the task definition points at. CI deploys immutable tags and registers new revisions outside Terraform; set this to the deployed tag so plan stays clean."
+  default     = "latest"
+}
+
+variable "alb_subnet_ids" {
+  type        = list(string)
+  default     = null
+  description = <<-EOT
+    Explicit public subnets for the ALB (at least two, in different AZs). When null, the first
+    alb_subnet_count subnets by sorted id are used — which picks AZs arbitrarily. Pin this so a
+    plan never proposes moving a live ALB between AZs.
+  EOT
+}
+
+variable "task_subnet_ids" {
+  type        = list(string)
+  default     = null
+  description = <<-EOT
+    Subnets the ECS tasks may run in. When null, every public subnet of the VPC. Pin it to the
+    AZ of a single-AZ dependency (e.g. a self-hosted database) so tasks are not spread across
+    AZs that can never be resilient anyway.
+  EOT
+}

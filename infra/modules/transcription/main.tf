@@ -152,10 +152,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "audio" {
 # creates it once — ignore_changes prevents any plan from resetting it.
 
 resource "aws_s3_object" "worker_paused" {
-  bucket       = aws_s3_bucket.audio.id
-  key          = "worker_paused"
-  content      = "false"
-  content_type = "text/plain"
+  bucket  = aws_s3_bucket.audio.id
+  key     = "worker_paused"
+  content = "false"
 
   lifecycle {
     ignore_changes = [content, etag]
@@ -588,7 +587,7 @@ resource "aws_ecs_task_definition" "worker" {
 
   container_definitions = jsonencode([{
     name      = "transcription-worker"
-    image     = "${aws_ecr_repository.worker.repository_url}:latest"
+    image     = "${aws_ecr_repository.worker.repository_url}:${var.image_tag}"
     essential = true
 
     resourceRequirements = [{
@@ -625,7 +624,7 @@ resource "aws_ecs_service" "worker" {
   name            = "${local.name}-worker"
   cluster         = var.ecs_cluster_id
   task_definition = aws_ecs_task_definition.worker.arn
-  desired_count   = 1
+  desired_count   = var.worker_desired_count
   launch_type     = "EC2"
 
   # Single GPU instance: stop old task before starting new one.
