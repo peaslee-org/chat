@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored). Secrets go in secrets.tfvars — see secrets.tfvars.example.
+domain_name                  = "chat.example.com"
+frontend_bucket_name         = "chat-frontend-prod"
+audio_bucket_name            = "chat-audio-prod-123456789012"
+transcribe_sqs_queue_url     = "https://sqs.us-east-1.amazonaws.com/123456789012/transcription-prod"
+langchain_api_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:chat-api/prod/langsmith-api-key-XXXXXX"

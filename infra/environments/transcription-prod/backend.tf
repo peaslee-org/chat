@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -9,11 +9,11 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "chat-api-tfstate"
-    key            = "transcription-worker/prod/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
+    # bucket is supplied at init time: terraform init -backend-config=backend.hcl
+    key          = "transcription-worker/prod/v2/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 

@@ -17,7 +17,18 @@ variable "worker_database_url" {
 variable "cors_allowed_origins" {
   type        = list(string)
   description = "Browser origins allowed to PUT directly to S3."
-  default     = ["https://dev.chat.example.com", "http://localhost:5173"]
+}
+
+variable "worker_ami_id" {
+  type        = string
+  description = <<-EOT
+    AMI for the ECS GPU launch template (al2023-ami-ecs-gpu-hvm-* in the region). Pinned on
+    purpose — a new AMI creates a new launch template version and the next instance boots from it.
+    Look up the current one with:
+      aws ec2 describe-images --owners amazon \
+        --filters "Name=name,Values=al2023-ami-ecs-gpu-hvm-*" "Name=architecture,Values=x86_64" \
+        --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text
+  EOT
 }
 
 variable "worker_memory" {

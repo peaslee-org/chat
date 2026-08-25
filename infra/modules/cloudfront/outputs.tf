@@ -1,5 +1,5 @@
 output "distribution_domain_name" {
-  description = "Point chat.example.com CNAME to this value (replaces the ALB DNS name)."
+  description = "Point the domain_name CNAME to this value (replaces the ALB DNS name)."
   value       = aws_cloudfront_distribution.this.domain_name
 }
 

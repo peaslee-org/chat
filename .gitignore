@@ -35,6 +35,9 @@ fixtures.tar.gz
 !**/terraform.tfvars.example
 **/secrets.tfvars
 !**/secrets.tfvars.example
+**/backend.hcl
+!**/backend.hcl.example
+**/imports.tf
 **/tfplan
 **/*.tfplan
 

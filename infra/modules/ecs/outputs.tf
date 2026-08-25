@@ -1,5 +1,5 @@
 output "alb_dns_name" {
-  description = "Point chat.example.com CNAME to this value in your DNS provider."
+  description = "Point the domain_name CNAME to this value in your DNS provider."
   value       = aws_lb.this.dns_name
 }
 
