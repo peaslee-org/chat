@@ -1,0 +1,72 @@
+"""gpu_sessions / gpu_cost_snapshots access. Hours = closed sessions + open sessions to `until`."""
+from datetime import datetime
+from decimal import Decimal
+from typing import Optional
+
+from sqlalchemy import func, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.gpu import GpuCostSnapshot, GpuSession
+
+
+class GpuSessionRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def advisory_lock(self) -> None:
+        # Transaction-scoped; released at commit/rollback of this session's transaction.
+        await self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext('gpu_controller'))"))
+
+    async def hours_between(self, since: datetime, until: datetime) -> float:
+        # Overlap of each session [started_at, coalesce(ended_at, until)] with [since, until].
+        stmt = select(
+            func.coalesce(
+                func.sum(
+                    func.extract(
+                        "epoch",
+                        func.least(func.coalesce(GpuSession.ended_at, until), until)
+                        - func.greatest(GpuSession.started_at, since),
+                    )
+                ),
+                0,
+            )
+        ).where(
+            GpuSession.started_at < until,
+            func.coalesce(GpuSession.ended_at, until) > since,
+        )
+        seconds = (await self.db.execute(stmt)).scalar_one()
+        return round(float(seconds) / 3600.0, 3)
+
+    async def warm_count_for_user_since(self, user_id: str, since: datetime) -> int:
+        stmt = select(func.count()).where(
+            GpuSession.started_by == user_id,
+            GpuSession.reason == "warm",
+            GpuSession.started_at >= since,
+        )
+        return int((await self.db.execute(stmt)).scalar_one())
+
+    async def create(self, *, task_arn: str, started_by: str, reason: str,
+                     warm_until: Optional[datetime]) -> GpuSession:
+        row = GpuSession(task_arn=task_arn, started_by=started_by, reason=reason, warm_until=warm_until)
+        self.db.add(row)
+        await self.db.flush()
+        return row
+
+    async def extend_warm(self, warm_until: datetime) -> None:
+        # Extend every open session (there is at most one worker task at a time).
+        await self.db.execute(
+            update(GpuSession).where(GpuSession.ended_at.is_(None)).values(warm_until=warm_until)
+        )
+
+    async def sessions_since(self, since: datetime) -> list[GpuSession]:
+        stmt = select(GpuSession).where(GpuSession.started_at >= since).order_by(GpuSession.started_at.desc())
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def latest_cost_snapshot(self, month: str) -> Optional[GpuCostSnapshot]:
+        stmt = (select(GpuCostSnapshot).where(GpuCostSnapshot.month == month)
+                .order_by(GpuCostSnapshot.fetched_at.desc()).limit(1))
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def save_cost_snapshot(self, month: str, amount_usd: float) -> None:
+        self.db.add(GpuCostSnapshot(month=month, amount_usd=Decimal(str(amount_usd))))
+        await self.db.flush()

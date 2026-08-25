@@ -1,0 +1,117 @@
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.services import gpu_controller as gc
+from app.services.ecs_launcher import GpuLaunchError
+from app.services.gpu_controller import GpuCapExceeded, GpuController
+
+NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
+
+
+def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True):
+    repo = MagicMock()
+    repo.advisory_lock = AsyncMock()
+    repo.hours_between = AsyncMock(side_effect=lambda since, until: day_hours if since.day == NOW.day else month_hours)
+    repo.warm_count_for_user_since = AsyncMock(return_value=warms)
+    repo.create = AsyncMock()
+    repo.extend_warm = AsyncMock()
+    repo.sessions_since = AsyncMock(return_value=[])
+    repo.latest_cost_snapshot = AsyncMock(return_value=None)
+    repo.save_cost_snapshot = AsyncMock()
+    launcher = MagicMock()
+    launcher.list_worker_tasks = MagicMock(return_value=tasks or [])
+    launcher.run_worker_task = MagicMock(return_value="arn:task/1")
+    settings = MagicMock(
+        gpu_idle_exit_seconds=900, gpu_daily_cap_hours=3.0, gpu_monthly_cap_hours=30.0,
+        gpu_warm_per_user_per_day=3, gpu_hourly_rate_usd=0.2,
+        gpu_wait_estimate_starting_seconds=120, gpu_wait_estimate_off_seconds=180,
+        gpu_cost_tag_key="CostCenter", gpu_cost_tag_value="gpu",
+    )
+    gc._state_cache = None
+    return GpuController(repo, launcher, settings, now=lambda: NOW), repo, launcher
+
+
+async def test_ensure_worker_launches_when_nothing_running():
+    ctl, repo, launcher = make()
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.worker_state == "starting"
+    assert state.estimated_wait_seconds == 120
+    launcher.run_worker_task.assert_called_once_with("u1")
+    repo.advisory_lock.assert_awaited_once()
+    repo.create.assert_awaited_once()
+    kwargs = repo.create.await_args.kwargs
+    assert kwargs["task_arn"] == "arn:task/1" and kwargs["reason"] == "job"
+
+
+async def test_ensure_worker_is_idempotent_when_running():
+    ctl, repo, launcher = make(tasks=["RUNNING"])
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.worker_state == "running"
+    launcher.run_worker_task.assert_not_called()
+
+
+async def test_warm_extends_when_running():
+    ctl, repo, launcher = make(tasks=["RUNNING"])
+    state = await ctl.ensure_worker("warm", "u1")
+    repo.extend_warm.assert_awaited_once()
+    assert repo.extend_warm.await_args.args[0] == NOW + timedelta(seconds=900)
+    assert state.warm_until == NOW + timedelta(seconds=900)
+
+
+async def test_daily_cap_refuses():
+    ctl, _, launcher = make(day_hours=3.0)
+    with pytest.raises(GpuCapExceeded) as e:
+        await ctl.ensure_worker("warm", "u1")
+    assert "Daily GPU budget" in e.value.reason
+    launcher.run_worker_task.assert_not_called()
+
+
+async def test_monthly_cap_refuses():
+    ctl, _, _ = make(month_hours=30.0)
+    with pytest.raises(GpuCapExceeded):
+        await ctl.ensure_worker("job", "u1")
+
+
+async def test_per_user_warm_cap_only_applies_to_warm():
+    ctl, _, launcher = make(warms=3)
+    with pytest.raises(GpuCapExceeded):
+        await ctl.ensure_worker("warm", "u1")
+    await ctl.ensure_worker("job", "u1")
+    launcher.run_worker_task.assert_called_once()
+
+
+async def test_admin_bypasses_caps():
+    ctl, _, launcher = make(day_hours=99.0)
+    state = await ctl.ensure_worker("warm", "admin1", is_admin=True)
+    assert state.worker_state == "starting"
+    assert "cap" in (state.notice or "").lower()
+
+
+async def test_launch_failure_is_reported_not_raised():
+    ctl, _, launcher = make()
+    launcher.run_worker_task.side_effect = GpuLaunchError("RESOURCE:GPU")
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.worker_state == "off" and "unavailable" in state.notice
+
+
+async def test_get_state_caches_for_30s():
+    ctl, _, launcher = make(tasks=["PENDING"])
+    assert (await ctl.get_state()).worker_state == "starting"
+    launcher.list_worker_tasks.return_value = ["RUNNING"]
+    assert (await ctl.get_state()).worker_state == "starting"      # cached
+    gc._state_cache = None
+    assert (await ctl.get_state()).worker_state == "running"
+
+
+async def test_usage_estimates_and_snapshots():
+    ctl, repo, _ = make(day_hours=1.5, month_hours=4.0)
+    cost = MagicMock()
+    cost.month_to_date_usd = MagicMock(return_value=12.34)
+    ctl._cost = cost
+    u = await ctl.usage("u1")
+    assert u.today_hours == 1.5 and u.month_hours == 4.0
+    assert u.estimated_month_cost_usd == 0.8
+    assert u.actual_month_to_date_usd == 12.34
+    repo.save_cost_snapshot.assert_awaited_once()
