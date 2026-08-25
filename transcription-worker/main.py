@@ -21,7 +21,10 @@ import boto3
 from config import Settings
 from handlers.transcription import process_transcription_job
 from handlers.embedding import process_sample_embedding
+from services.ecs_metadata import instance_id, task_arn
+from services.gpu_session import GpuSessionStore
 from services.spot_watcher import SpotWatcher
+from worker_loop import LoopConfig, WorkerLoop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,16 +88,29 @@ def process_message(message: dict) -> None:
         watcher.stop()
 
 
+def receive_messages() -> list:
+    resp = sqs.receive_message(
+        QueueUrl=settings.TRANSCRIBE_SQS_QUEUE_URL,
+        MaxNumberOfMessages=1,
+        WaitTimeSeconds=20,
+    )
+    return resp.get("Messages", [])
+
+
 def run() -> None:
-    logger.info("Transcription worker started")
-    while True:
-        resp = sqs.receive_message(
-            QueueUrl=settings.TRANSCRIBE_SQS_QUEUE_URL,
-            MaxNumberOfMessages=1,
-            WaitTimeSeconds=20,
-        )
-        for msg in resp.get("Messages", []):
-            process_message(msg)
+    logger.info("Transcription worker started (idle_exit=%ss, max_lifetime=%ss)",
+                settings.IDLE_EXIT_SECONDS, settings.MAX_LIFETIME_SECONDS)
+    loop = WorkerLoop(
+        receive=receive_messages,
+        process=process_message,
+        sessions=GpuSessionStore(task_arn(), instance_id()),
+        interrupted=SpotWatcher.interrupted,
+        config=LoopConfig(
+            idle_exit_seconds=settings.IDLE_EXIT_SECONDS,
+            max_lifetime_seconds=settings.MAX_LIFETIME_SECONDS,
+        ),
+    )
+    loop.run()
 
 
 if __name__ == "__main__":

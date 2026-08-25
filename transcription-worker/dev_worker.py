@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 LOCAL_STORAGE_PATH = os.environ.get("LOCAL_STORAGE_PATH", "/tmp/mock-audio")
 DEV_FIXTURES_DIR = os.environ.get("DEV_FIXTURES_DIR", "/tmp/mock-fixtures")
 POLL_INTERVAL = int(os.environ.get("DEV_WORKER_POLL_INTERVAL", "2"))
+IDLE_EXIT_SECONDS = int(os.environ.get("DEV_WORKER_IDLE_EXIT_SECONDS", "0"))  # 0 = never exit
 SEGMENTS_PER_JOB = int(os.environ.get("DEV_WORKER_SEGMENTS", "6"))
 FAKE_SPEAKERS = ["SPEAKER_00", "SPEAKER_01"]
 
@@ -326,17 +327,22 @@ def process_pending_jobs() -> int:
 
 def run() -> None:
     logger.info(
-        "Dev worker started — poll_interval=%ds, fixtures=%s, storage=%s",
-        POLL_INTERVAL, DEV_FIXTURES_DIR, LOCAL_STORAGE_PATH,
+        "Dev worker started — poll_interval=%ds, idle_exit=%ss, fixtures=%s, storage=%s",
+        POLL_INTERVAL, IDLE_EXIT_SECONDS, DEV_FIXTURES_DIR, LOCAL_STORAGE_PATH,
     )
+    last_work = time.monotonic()
     while True:
         try:
             n_samples = process_pending_samples()
             n_jobs = process_pending_jobs()
             if n_samples or n_jobs:
                 logger.info("Processed %d sample(s), %d job(s)", n_samples, n_jobs)
+                last_work = time.monotonic()
         except Exception:
             logger.error("Poll iteration failed", exc_info=True)
+        if IDLE_EXIT_SECONDS and time.monotonic() - last_work >= IDLE_EXIT_SECONDS:
+            logger.info("Dev worker idle for %ss — exiting", IDLE_EXIT_SECONDS)
+            return
         time.sleep(POLL_INTERVAL)
 
 

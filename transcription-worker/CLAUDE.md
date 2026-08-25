@@ -117,6 +117,8 @@ main.py  (SQS poll loop, visibility extender thread, SpotWatcher)
 
 On any exception: job status → `failed`, `error_message` populated, SQS message left for retry.
 
+**Lifecycle.** The worker is a run-to-completion task: it exits after `IDLE_EXIT_SECONDS` (900) without work — extended by `gpu_sessions.warm_until` — or after `MAX_LIFETIME_SECONDS` (10800), or on a spot-interruption notice (between messages, never mid-job). It records instance id, heartbeat and end reason in `gpu_sessions` (row created by chat-api's RunTask); the ledger is best-effort. Local: `DEV_WORKER_IDLE_EXIT_SECONDS`.
+
 ## Data Models
 
 - `SpeakerProfile` — named speaker owned by a user (Cognito sub)
