@@ -73,7 +73,7 @@ module "ecs" {
   cognito_user_pool_id         = module.cognito.user_pool_id
   cognito_client_id            = module.cognito.client_id
   bedrock_model_id             = var.bedrock_model_id
-  database_url                 = var.database_url
+  database_url_secret_arn      = var.database_url_secret_arn
   cloudfront_secret            = random_password.cloudfront_secret.result
   langchain_api_key_secret_arn = var.langchain_api_key_secret_arn
   audio_bucket_name            = var.audio_bucket_name

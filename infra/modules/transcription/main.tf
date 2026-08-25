@@ -304,18 +304,23 @@ resource "aws_iam_role_policy_attachment" "worker_execution" {
 }
 
 resource "aws_iam_role_policy" "worker_execution_secrets" {
-  count = var.huggingface_token_secret_arn != "" ? 1 : 0
-  name  = "hf-token-secret"
-  role  = aws_iam_role.worker_execution.id
+  name = "hf-token-secret"
+  role = aws_iam_role.worker_execution.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
       Action   = "secretsmanager:GetSecretValue"
-      Resource = var.huggingface_token_secret_arn
+      Resource = compact([var.database_url_secret_arn, var.huggingface_token_secret_arn])
     }]
   })
+}
+
+# The policy used to be conditional on the HF token; it is now always present.
+moved {
+  from = aws_iam_role_policy.worker_execution_secrets[0]
+  to   = aws_iam_role_policy.worker_execution_secrets
 }
 
 # ── IAM: ECS task role ────────────────────────────────────────────────────────
@@ -596,16 +601,18 @@ resource "aws_ecs_task_definition" "worker" {
     }]
 
     environment = [
-      { name = "DATABASE_URL", value = var.database_url },
       { name = "AUDIO_BUCKET_NAME", value = aws_s3_bucket.audio.bucket },
       { name = "TRANSCRIBE_SQS_QUEUE_URL", value = aws_sqs_queue.main.url },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "DEV_CAPTURE_FIXTURES_S3_PREFIX", value = "dev-fixtures" },
     ]
 
-    secrets = var.huggingface_token_secret_arn != "" ? [
-      { name = "HUGGINGFACE_TOKEN", valueFrom = var.huggingface_token_secret_arn }
-    ] : []
+    secrets = concat(
+      [{ name = "DATABASE_URL", valueFrom = var.database_url_secret_arn }],
+      var.huggingface_token_secret_arn != "" ? [
+        { name = "HUGGINGFACE_TOKEN", valueFrom = var.huggingface_token_secret_arn }
+      ] : []
+    )
 
     logConfiguration = {
       logDriver = "awslogs"

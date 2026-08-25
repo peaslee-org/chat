@@ -40,7 +40,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
     Statement = [{
       Effect   = "Allow"
       Action   = "secretsmanager:GetSecretValue"
-      Resource = var.langchain_api_key_secret_arn
+      Resource = [var.langchain_api_key_secret_arn, var.database_url_secret_arn]
     }]
   })
 }
@@ -298,7 +298,6 @@ resource "aws_ecs_task_definition" "this" {
     }]
 
     environment = [
-      { name = "DATABASE_URL", value = var.database_url },
       { name = "COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
       { name = "COGNITO_CLIENT_ID", value = var.cognito_client_id },
       { name = "AWS_REGION", value = var.aws_region },
@@ -311,6 +310,7 @@ resource "aws_ecs_task_definition" "this" {
     ]
 
     secrets = [
+      { name = "DATABASE_URL", valueFrom = var.database_url_secret_arn },
       { name = "LANGCHAIN_API_KEY", valueFrom = var.langchain_api_key_secret_arn },
     ]
 

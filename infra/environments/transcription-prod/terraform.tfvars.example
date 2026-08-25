@@ -1,4 +1,5 @@
-# Copy to terraform.tfvars (gitignored). Secrets go in secrets.tfvars — see secrets.tfvars.example.
+# Copy to terraform.tfvars (gitignored). No secret values live in Terraform: credentials are
+# Secrets Manager ARNs, injected into the container by ECS.
 environment                  = "prod"
 worker_ami_id                = "ami-00000000000000000"
 cors_allowed_origins         = ["https://chat.example.com", "http://localhost:5173"]
@@ -9,3 +10,4 @@ worker_cpu                   = 2048
 worker_memory                = 6144
 worker_desired_count         = 0
 image_tag                    = "latest"
+database_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:transcription-prod/database-url-XXXXXX"

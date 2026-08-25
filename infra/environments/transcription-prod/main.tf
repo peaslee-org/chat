@@ -25,7 +25,7 @@ module "transcription" {
   ecs_cluster_id               = data.aws_ecs_cluster.api.id
   subnet_ids                   = data.aws_subnets.main.ids
   vpc_id                       = data.aws_vpc.main.id
-  database_url                 = var.worker_database_url
+  database_url_secret_arn      = var.database_url_secret_arn
   cors_allowed_origins         = var.cors_allowed_origins
   worker_memory                = var.worker_memory
   worker_cpu                   = var.worker_cpu
