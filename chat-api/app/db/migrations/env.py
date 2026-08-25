@@ -9,6 +9,7 @@ from app.models.base import Base
 # Import all models so Alembic can detect them
 import app.models.conversation  # noqa: F401
 import app.models.transcription  # noqa: F401
+import app.models.gpu  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
