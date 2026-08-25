@@ -19,3 +19,5 @@ class Settings(BaseSettings):
     # Value is an S3 key prefix, e.g. "dev-fixtures". Files land at
     # <prefix>/<job_id>/{transcribe,diarize,matcher}.json in AUDIO_BUCKET_NAME.
     DEV_CAPTURE_FIXTURES_S3_PREFIX: str = ""
+    IDLE_EXIT_SECONDS: int = 900
+    MAX_LIFETIME_SECONDS: int = 10800
