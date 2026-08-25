@@ -19,4 +19,9 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  # Cost-allocation / console-applied tags are not this code's business.
+  ignore_tags {
+    key_prefixes = ["user:"]
+  }
 }

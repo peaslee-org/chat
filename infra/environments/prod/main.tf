@@ -56,8 +56,8 @@ module "ecs" {
   source                       = "../../modules/ecs"
   environment                  = var.environment
   vpc_id                       = data.aws_vpc.default.id
-  subnet_ids                   = data.aws_subnets.public.ids
-  alb_subnet_ids               = slice(sort(data.aws_subnets.public.ids), 0, var.alb_subnet_count)
+  subnet_ids                   = var.task_subnet_ids != null ? var.task_subnet_ids : data.aws_subnets.public.ids
+  alb_subnet_ids               = var.alb_subnet_ids != null ? var.alb_subnet_ids : slice(sort(data.aws_subnets.public.ids), 0, var.alb_subnet_count)
   ecr_repository_url           = module.ecr.repository_url
   acm_certificate_arn          = module.acm.certificate_arn
   aws_region                   = var.aws_region
@@ -69,6 +69,7 @@ module "ecs" {
   langchain_api_key_secret_arn = var.langchain_api_key_secret_arn
   audio_bucket_name            = var.audio_bucket_name
   transcribe_sqs_queue_url     = var.transcribe_sqs_queue_url
+  image_tag                    = var.image_tag
 }
 
 module "cloudfront" {
