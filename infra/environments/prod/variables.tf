@@ -33,11 +33,21 @@ variable "database_url" {
 }
 
 variable "audio_bucket_name" {
-  type    = string
-  default = "chat-audio-prod-123456789012"
+  type        = string
+  description = "S3 bucket for audio uploads (created by the transcription environment)."
 }
 
 variable "transcribe_sqs_queue_url" {
-  type    = string
-  default = "https://sqs.us-east-1.amazonaws.com/123456789012/transcription-prod"
+  type        = string
+  description = "SQS queue URL the API enqueues transcription jobs to (created by the transcription environment)."
+}
+
+variable "domain_name" {
+  type        = string
+  description = "Public hostname served by CloudFront and named on the ACM certificate."
+}
+
+variable "frontend_bucket_name" {
+  type        = string
+  description = "S3 bucket that holds the built SPA (CloudFront origin). Bucket names are global."
 }

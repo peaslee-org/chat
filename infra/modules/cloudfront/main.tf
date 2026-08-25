@@ -5,7 +5,7 @@ locals {
 # ── S3 bucket for frontend build artifacts ────────────────────────────────────
 
 resource "aws_s3_bucket" "frontend" {
-  bucket = "chat-frontend-${var.environment}"
+  bucket = var.frontend_bucket_name
 
   tags = { Environment = var.environment }
 }

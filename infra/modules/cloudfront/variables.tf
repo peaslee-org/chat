@@ -35,3 +35,8 @@ variable "frontend_deploy_branch" {
   type    = string
   default = "main"
 }
+
+variable "frontend_bucket_name" {
+  type        = string
+  description = "Name of the S3 bucket holding the built SPA."
+}

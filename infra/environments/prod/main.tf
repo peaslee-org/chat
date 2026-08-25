@@ -1,10 +1,10 @@
 terraform {
   backend "s3" {
-    bucket         = "chat-api-tfstate"
-    key            = "chat-api/prod/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
+    # bucket is supplied at init time: terraform init -backend-config=backend.hcl
+    key          = "chat-api/prod/v2/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
@@ -39,7 +39,7 @@ data "aws_subnets" "public" {
 
 module "acm" {
   source      = "../../modules/acm"
-  domain_name = "chat.example.com"
+  domain_name = var.domain_name
 }
 
 module "cognito" {
@@ -74,7 +74,8 @@ module "ecs" {
 module "cloudfront" {
   source                   = "../../modules/cloudfront"
   environment              = var.environment
-  domain_name              = "chat.example.com"
+  domain_name              = var.domain_name
+  frontend_bucket_name     = var.frontend_bucket_name
   alb_dns_name             = module.ecs.alb_dns_name
   acm_certificate_arn      = module.acm.certificate_arn
   cloudfront_secret        = random_password.cloudfront_secret.result
@@ -106,7 +107,7 @@ output "acm_validation_records" {
 }
 
 output "cloudfront_domain_name" {
-  description = "Point chat.example.com CNAME to this value (replaces the ALB DNS name)."
+  description = "Point the domain_name CNAME to this value (replaces the ALB DNS name)."
   value       = module.cloudfront.distribution_domain_name
 }
 
