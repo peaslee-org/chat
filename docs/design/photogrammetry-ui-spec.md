@@ -1,6 +1,6 @@
 # Photogrammetry UI — design spec
 
-**Date:** 2026-08-26 · **Status:** approved in brainstorm, awaiting implementation plan
+**Date:** 2026-08-26 · **Status:** approved; plan `docs/superpowers/plans/2026-08-26-photogrammetry-ui.md`
 
 ## Goal
 
@@ -72,16 +72,17 @@ does. (Adding `photogrammetry/` to that rule is part of the worker spec.)
 | Method & path | Request | Response | Notes |
 |---|---|---|---|
 | `POST /jobs` | `{name?, filenames: string[]}` | `202 {job_id, uploads: [{filename, key, url}]}` | one presigned PUT per filename, TTL 15 min; `len(filenames)` outside `[5, PHOTOGRAMMETRY_MAX_IMAGES]` → 422; extension not in `jpg jpeg png` → 422; cap → 429 `ConcurrentJobLimitExceeded` |
-| `POST /jobs/{id}/confirm` | — | `202` | real: every key must exist (`head_object`) else 409 `UploadIncomplete`; then `queued` and `ensure_worker(task_family=GPU_PHOTOGRAMMETRY_TASK_FAMILY)`; **empty task family → 503 `photogrammetry worker not deployed`** (explicit stub). mock: trusts the sink, `queued`, schedules the mock walk |
-| `GET /jobs` | `?limit&offset` | `{jobs: [JobStatus], total}` | user's jobs, newest first |
+| `POST /jobs/{id}/confirm` | — | `202` | real: listing `input_prefix` must return ≥ `image_count` keys else 409 `UploadIncomplete`; then `queued` and `ensure_worker("job", user)` on a `GpuController` bound to `GPU_PHOTOGRAMMETRY_TASK_FAMILY`; **empty task family → 503 `photogrammetry worker not deployed`** (explicit stub, job stays `pending`). mock: trusts the sink, `queued`, schedules the mock walk |
+| `GET /jobs` | `?cursor&limit` | `{items: [JobStatus], next_cursor}` | user's jobs, newest first; same keyset cursor as transcribe |
 | `GET /jobs/{id}` | — | `JobStatus` | 404 if not the caller's |
 | `DELETE /jobs/{id}` | — | `204` | row only |
 | `POST /jobs/sample` | — | `202 {job_id}` | seeds from the shared sample set and confirms |
 | `GET /jobs/{id}/mesh` | — | `{url, expires_at}` | presigned GET (mock: sink GET URL); 409 unless `complete` |
 
-`JobStatus` = `{id, name, status, stage, image_count, preview_url (nullable, presigned/sink GET),
-error_message, mock: bool, created_at, updated_at, completed_at}`. `mock` is `true` when served by
-the local service so the UI can label the placeholder result.
+`JobStatus` = `{job_id, name, status, stage, image_count, preview_url (nullable, presigned/sink GET),
+error_message, mock: bool, created_at, updated_at, completed_at, worker_state?, estimated_wait_seconds?,
+gpu_notice?}` — `job_id` and the three GPU hints follow transcribe's response shape. `mock` is `true`
+when served by the local service so the UI can label the placeholder result.
 
 ## 2. Backend (`chat-api`)
 
@@ -100,10 +101,15 @@ Files, mirroring the transcribe layout:
 | `app/assets/photogrammetry/images/*.jpg`, `mesh.glb`, `preview.png` | sample assets (§4) |
 
 **`PhotogrammetryService`** (real): uses the existing `AudioStorageService` for presigned URLs and
-`head_object` — it is already a generic S3 helper on the audio bucket; it is not renamed. `confirm`
-calls the existing `GpuController.ensure_worker` with `settings.gpu_photogrammetry_task_family`, or
-raises `WorkerNotDeployed` (→ 503) when that setting is empty. `create_sample_job` builds a job whose
+prefix listing — it is already a generic S3 helper on the audio bucket; it is not renamed. It gains
+`generate_presigned_download_url(key, ttl)` (all three storage classes) and the local/mock classes
+gain `write_object(key, bytes)`. `deps.py` builds a second `GpuController` whose `EcsWorkerLauncher`
+is bound to `settings.gpu_photogrammetry_task_family` (same cluster, capacity provider and
+`gpu_sessions` ledger/caps as transcribe); when that setting is empty the service gets `gpu=None`
+and `confirm` raises `WorkerNotDeployed` (→ 503). `create_sample_job` builds a job whose
 `input_prefix` is `settings.photogrammetry_sample_prefix + "images/"` and confirms it.
+The `dev-upload` sink's GET now serves the stored file (with a guessed content type) when it exists,
+so the viewer can load the mock GLB/preview; a missing file still returns an empty 200.
 
 **`LocalPhotogrammetryService(PhotogrammetryService)`** (mock): presigned URLs point at the
 `dev-upload` sink under `MOCK_UPLOAD_BASE_URL` (as `LocalTranscriptionService` does); `confirm` sets
@@ -152,8 +158,10 @@ and `WorkerNotDeployed` (503). Validation (image count, extension) is Pydantic �
     uploading; shows `uploadProgress`.
   - `ScanSidebar.vue` — job list of `ScanJobCard.vue` (name, status badge, image count, age) +
     **New** and **Sample** buttons.
-  - `ScanStatusBadge.vue` — status colour + text; when `processing`, a four-step stage strip
-    (sfm · dense · mesh · texture) with the current step highlighted.
+  - `ScanStatusBadge.vue` — status colour + text (`processing · dense` while processing; the
+    worker-state label while queued/processing with the worker off or starting).
+  - `StageStrip.vue` — the four-step strip (sfm · dense · mesh · texture) with the current step
+    highlighted; shown in the detail view while a job is active.
   - `ScanDetailView.vue` — header (name, badge, delete), then: form when creating; preview image +
     stage strip while active; `MeshViewer` when complete; error box when failed.
   - `MeshViewer.vue` — wraps `<model-viewer>` from `@google/model-viewer` (one new dependency):
