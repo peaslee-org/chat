@@ -246,6 +246,11 @@ resource "aws_iam_role_policy" "api_transcription" {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn]
+        Condition = {
+          StringLike = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
       },
       {
         Sid      = "GpuCostExplorer"

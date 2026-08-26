@@ -108,12 +108,15 @@ resource "aws_launch_template" "gpu" {
 # ── ASG (ECS managed scaling owns desired_capacity) ────────────────────────
 
 resource "aws_autoscaling_group" "gpu" {
-  name                      = local.name
+  name_prefix               = "${local.name}-"
   min_size                  = 0
   max_size                  = var.max_size
   vpc_zone_identifier       = var.subnet_ids
   protect_from_scale_in     = true # required by managed termination protection
   wait_for_capacity_timeout = "0"
+
+  metrics_granularity = "1Minute"
+  enabled_metrics     = ["GroupInServiceInstances"]
 
   mixed_instances_policy {
     instances_distribution {
@@ -174,7 +177,7 @@ resource "aws_ecs_capacity_provider" "gpu" {
       target_capacity           = 100
       minimum_scaling_step_size = 1
       maximum_scaling_step_size = 1
-      instance_warmup_period    = 60
+      instance_warmup_period    = 300
     }
   }
 

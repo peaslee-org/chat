@@ -126,3 +126,15 @@ variable "gpu_hourly_rate_usd" {
   type    = number
   default = 0.20
 }
+
+variable "gpu_idle_exit_seconds" {
+  type        = number
+  default     = 900
+  description = "Must equal transcription-prod's idle_exit_seconds — both feed the same worker via GPU_IDLE_EXIT_SECONDS / IDLE_EXIT_SECONDS."
+}
+
+variable "gpu_max_lifetime_seconds" {
+  type        = number
+  default     = 10800
+  description = "Must equal transcription-prod's max_lifetime_seconds — both feed the same worker via GPU_MAX_LIFETIME_SECONDS / MAX_LIFETIME_SECONDS."
+}

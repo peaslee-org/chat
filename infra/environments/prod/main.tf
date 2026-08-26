@@ -95,6 +95,8 @@ module "ecs" {
     { name = "GPU_MONTHLY_CAP_HOURS", value = tostring(var.gpu_monthly_cap_hours) },
     { name = "GPU_WARM_PER_USER_PER_DAY", value = tostring(var.gpu_warm_per_user_per_day) },
     { name = "GPU_HOURLY_RATE_USD", value = tostring(var.gpu_hourly_rate_usd) },
+    { name = "GPU_IDLE_EXIT_SECONDS", value = tostring(var.gpu_idle_exit_seconds) },
+    { name = "GPU_MAX_LIFETIME_SECONDS", value = tostring(var.gpu_max_lifetime_seconds) },
   ]
 }
 

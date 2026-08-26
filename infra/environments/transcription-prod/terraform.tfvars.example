@@ -9,5 +9,5 @@ worker_cpu                   = 2048
 worker_memory                = 6144
 image_tag                    = "latest"
 database_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:transcription-prod/database-url-XXXXXX"
-idle_exit_seconds            = 900
-max_lifetime_seconds         = 10800
+idle_exit_seconds            = 900     # must equal prod's gpu_idle_exit_seconds
+max_lifetime_seconds         = 10800   # must equal prod's gpu_max_lifetime_seconds

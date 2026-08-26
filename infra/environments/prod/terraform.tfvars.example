@@ -13,3 +13,5 @@ database_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:se
 gpu_ami_id                   = "ami-0123456789abcdef0" # pre-baked GPU AMI (scripts/deploy/build-gpu-ami.sh)
 gpu_alert_email              = "you@example.com"       # empty disables the SNS topic, alarm and budget notifications
 gpu_controller_enabled       = false                   # flip on once the GPU controller is ready to route real traffic
+gpu_idle_exit_seconds        = 900                     # must equal transcription-prod's idle_exit_seconds
+gpu_max_lifetime_seconds     = 10800                   # must equal transcription-prod's max_lifetime_seconds

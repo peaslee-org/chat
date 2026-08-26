@@ -64,5 +64,5 @@ variable "budget_forecast_usd" {
 
 variable "budget_start" {
   type    = string
-  default = "2026-09-01_00:00"
+  default = "2026-08-01_00:00"
 }
