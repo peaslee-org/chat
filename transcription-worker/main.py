@@ -100,17 +100,25 @@ def receive_messages() -> list:
 def run() -> None:
     logger.info("Transcription worker started (idle_exit=%ss, max_lifetime=%ss)",
                 settings.IDLE_EXIT_SECONDS, settings.MAX_LIFETIME_SECONDS)
-    loop = WorkerLoop(
-        receive=receive_messages,
-        process=process_message,
-        sessions=GpuSessionStore(task_arn(), instance_id()),
-        interrupted=SpotWatcher.interrupted,
-        config=LoopConfig(
-            idle_exit_seconds=settings.IDLE_EXIT_SECONDS,
-            max_lifetime_seconds=settings.MAX_LIFETIME_SECONDS,
-        ),
-    )
-    loop.run()
+    # A per-message SpotWatcher only exists while a message is in flight, so a notice that
+    # arrives while idle would otherwise go unseen until the next message. This one just
+    # keeps SpotWatcher.interrupted current for the whole process lifetime.
+    idle_watcher = SpotWatcher.idle_watcher(settings.AWS_REGION)
+    idle_watcher.start()
+    try:
+        loop = WorkerLoop(
+            receive=receive_messages,
+            process=process_message,
+            sessions=GpuSessionStore(task_arn(), instance_id()),
+            interrupted=SpotWatcher.interrupted,
+            config=LoopConfig(
+                idle_exit_seconds=settings.IDLE_EXIT_SECONDS,
+                max_lifetime_seconds=settings.MAX_LIFETIME_SECONDS,
+            ),
+        )
+        loop.run()
+    finally:
+        idle_watcher.stop()
 
 
 if __name__ == "__main__":

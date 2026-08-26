@@ -24,12 +24,18 @@ class SpotWatcher:
     # between messages and exits; the per-message release below still happens.
     interrupted = threading.Event()
 
-    def __init__(self, queue_url: str, receipt_handle: str, region: str):
+    def __init__(self, queue_url: str | None, receipt_handle: str | None, region: str, *, idle: bool = False):
         self._queue_url = queue_url
         self._receipt_handle = receipt_handle
-        self._sqs = boto3.client("sqs", region_name=region)
+        self._idle = idle
+        self._sqs = boto3.client("sqs", region_name=region) if not idle else None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @classmethod
+    def idle_watcher(cls, region: str) -> "SpotWatcher":
+        """No message to release: just keeps `interrupted` current while the loop is between jobs."""
+        return cls(None, None, region, idle=True)
 
     def start(self):
         self._thread.start()
@@ -44,11 +50,12 @@ class SpotWatcher:
                 if r.status_code == 200:
                     logger.warning("Spot interruption notice received — releasing SQS message")
                     SpotWatcher.interrupted.set()
-                    self._sqs.change_message_visibility(
-                        QueueUrl=self._queue_url,
-                        ReceiptHandle=self._receipt_handle,
-                        VisibilityTimeout=0,
-                    )
+                    if not self._idle:
+                        self._sqs.change_message_visibility(
+                            QueueUrl=self._queue_url,
+                            ReceiptHandle=self._receipt_handle,
+                            VisibilityTimeout=0,
+                        )
                     return
             except Exception:
                 pass  # metadata endpoint unavailable (non-EC2 env, unit tests, etc.)

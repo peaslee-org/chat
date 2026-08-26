@@ -4,6 +4,8 @@ import sys
 import threading
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from worker_loop import LoopConfig, WorkerLoop  # noqa: E402
@@ -181,3 +183,23 @@ def test_max_lifetime_exits_mid_batch():
                       clock=clock.mono, wall=clock.now)
     assert loop.run() == "max_lifetime"
     assert len(seen) == 1  # Only first message processed, not y or z
+
+
+def test_exception_in_process_closes_session_as_error_and_reraises():
+    """The ledger row must be closed even when the loop dies unexpectedly."""
+    clock = FakeClock()
+    sessions = FakeSessions()
+
+    def receive():
+        clock.advance(20)
+        return [{"Body": "x"}]
+
+    def process(msg):
+        raise RuntimeError("boom")
+
+    loop, _ = make_loop(clock, sessions, receive, idle=60)
+    loop._process = process
+
+    with pytest.raises(RuntimeError, match="boom"):
+        loop.run()
+    assert sessions.calls[-1] == ("close", "error")

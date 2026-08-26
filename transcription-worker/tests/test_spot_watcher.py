@@ -81,3 +81,19 @@ class TestSpotWatcher:
             watcher._run()
         assert SpotWatcher.interrupted.is_set()
         SpotWatcher.interrupted.clear()
+
+    def test_idle_watcher_sets_flag_without_releasing_a_message(self):
+        """The long-lived idle-mode watcher has no receipt handle — it must not touch SQS."""
+        from services.spot_watcher import SpotWatcher
+        SpotWatcher.interrupted.clear()
+        with patch("boto3.client") as mock_boto:
+            watcher = SpotWatcher.idle_watcher("us-east-1")
+        mock_boto.assert_not_called()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        with patch("requests.get", return_value=mock_response):
+            watcher._run()
+
+        assert SpotWatcher.interrupted.is_set()
+        SpotWatcher.interrupted.clear()
