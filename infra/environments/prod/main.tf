@@ -61,6 +61,12 @@ module "ecr" {
 }
 
 
+locals {
+  cluster_name          = "chat-api-${var.environment}"             # mirrors modules/ecs local.name
+  gpu_capacity_provider = "gpu-${var.environment}"                  # mirrors modules/gpu-capacity local.name
+  worker_task_family    = "transcription-${var.environment}-worker" # owned by the transcription-prod state
+}
+
 module "ecs" {
   source                       = "../../modules/ecs"
   environment                  = var.environment
@@ -79,6 +85,32 @@ module "ecs" {
   audio_bucket_name            = var.audio_bucket_name
   transcribe_sqs_queue_url     = var.transcribe_sqs_queue_url
   image_tag                    = var.image_tag
+
+  extra_environment = [
+    { name = "GPU_CONTROLLER_ENABLED", value = tostring(var.gpu_controller_enabled) },
+    { name = "GPU_CLUSTER", value = local.cluster_name },
+    { name = "GPU_WORKER_TASK_FAMILY", value = local.worker_task_family },
+    { name = "GPU_CAPACITY_PROVIDER", value = local.gpu_capacity_provider },
+    { name = "GPU_DAILY_CAP_HOURS", value = tostring(var.gpu_daily_cap_hours) },
+    { name = "GPU_MONTHLY_CAP_HOURS", value = tostring(var.gpu_monthly_cap_hours) },
+    { name = "GPU_WARM_PER_USER_PER_DAY", value = tostring(var.gpu_warm_per_user_per_day) },
+    { name = "GPU_HOURLY_RATE_USD", value = tostring(var.gpu_hourly_rate_usd) },
+  ]
+}
+
+module "gpu_capacity" {
+  source              = "../../modules/gpu-capacity"
+  environment         = var.environment
+  vpc_id              = data.aws_vpc.default.id
+  subnet_ids          = data.aws_subnets.public.ids
+  cluster_name        = local.cluster_name
+  ami_id              = var.gpu_ami_id
+  max_size            = var.gpu_max_size
+  alert_email         = var.gpu_alert_email
+  budget_actual_usd   = var.gpu_budget_actual_usd
+  budget_forecast_usd = var.gpu_budget_forecast_usd
+
+  depends_on = [module.ecs] # the cluster must exist before capacity providers attach
 }
 
 module "cloudfront" {
@@ -163,4 +195,20 @@ output "cognito_user_pool_id" {
 
 output "cognito_client_id" {
   value = module.cognito.client_id
+}
+
+output "gpu_capacity_provider_name" {
+  value = module.gpu_capacity.capacity_provider_name
+}
+
+output "gpu_asg_name" {
+  value = module.gpu_capacity.asg_name
+}
+
+output "gpu_security_group_id" {
+  value = module.gpu_capacity.security_group_id
+}
+
+output "gpu_instance_profile_name" {
+  value = module.gpu_capacity.instance_profile_name
 }

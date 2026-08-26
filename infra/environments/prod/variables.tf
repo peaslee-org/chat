@@ -76,3 +76,53 @@ variable "task_subnet_ids" {
     AZs that can never be resilient anyway.
   EOT
 }
+
+variable "gpu_ami_id" {
+  type        = string
+  description = "Pre-baked GPU AMI (build-gpu-ami.sh)."
+}
+
+variable "gpu_max_size" {
+  type    = number
+  default = 2
+}
+
+variable "gpu_alert_email" {
+  type    = string
+  default = ""
+}
+
+variable "gpu_budget_actual_usd" {
+  type    = number
+  default = 40
+}
+
+variable "gpu_budget_forecast_usd" {
+  type    = number
+  default = 60
+}
+
+variable "gpu_controller_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "gpu_daily_cap_hours" {
+  type    = number
+  default = 3
+}
+
+variable "gpu_monthly_cap_hours" {
+  type    = number
+  default = 30
+}
+
+variable "gpu_warm_per_user_per_day" {
+  type    = number
+  default = 3
+}
+
+variable "gpu_hourly_rate_usd" {
+  type    = number
+  default = 0.20
+}

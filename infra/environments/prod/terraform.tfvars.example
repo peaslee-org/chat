@@ -10,3 +10,6 @@ image_tag                    = "latest"
 # alb_subnet_ids  = ["subnet-0000000000000000a", "subnet-0000000000000000b"]
 # task_subnet_ids = ["subnet-0000000000000000b"]
 database_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:chat-api/prod/database-url-XXXXXX"
+gpu_ami_id                   = "ami-0123456789abcdef0" # pre-baked GPU AMI (scripts/deploy/build-gpu-ami.sh)
+gpu_alert_email              = "you@example.com"       # empty disables the SNS topic, alarm and budget notifications
+gpu_controller_enabled       = false                   # flip on once the GPU controller is ready to route real traffic
