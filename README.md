@@ -65,7 +65,8 @@ scripts/
     ├── migrate.sh         — run Alembic migrations via ECS exec (prod)
     ├── build-api.sh       — build + push chat-api image to ECR
     ├── build-worker.sh    — build + push transcription-worker image to ECR
-    └── transcription-worker.sh  — start/stop/pause/unpause the GPU worker service
+    ├── build-gpu-ami.sh   — bake the worker image into the ECS GPU AMI (pre-bake, cold-start-free)
+    └── gpu-status.sh      — one-screen GPU pool status: ASG, worker tasks, queue depth
 ```
 
 ## Docs

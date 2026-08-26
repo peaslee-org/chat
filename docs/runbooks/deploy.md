@@ -25,15 +25,34 @@ a cold start after idle doesn't also pull the image. Rebuild the AMI only when t
 model layers change:
 
 ```bash
-./scripts/deploy/build-gpu-ami.sh
-# then set the new AMI ID as gpu_ami_id and apply the prod environment
+AWS_PROFILE=<admin> ./scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag> <subnet-id> <sg-id> <instance-profile> [env]
+# then set the printed AMI id as gpu_ami_id and apply the prod environment
 ```
+
+Where each argument comes from:
+- `<base-ami>` — the ECS GPU-optimized AMI currently pinned as `gpu_ami_id` in prod's tfvars
+  (Terraform pins it on purpose; don't chase "latest").
+- `<image-uri:tag>` — the transcription-worker image just pushed to ECR (from `build-worker.sh`
+  or the `worker.yml` CI run).
+- `<subnet-id>`, `<sg-id>`, `<instance-profile>` — `terraform output` of the `prod` environment:
+  a subnet from `gpu_security_group_id`'s VPC, `gpu_security_group_id`, and
+  `gpu_instance_profile_name`.
+- `[env]` — defaults to `prod`.
 
 Check current worker state (`off` / `starting` / `running`) with:
 
 ```bash
 ./scripts/deploy/gpu-status.sh
 ```
+
+Live debugging of a worker is now SSM to the instance `gpu-status.sh` shows, not `ecs execute-command`
+— `enableExecuteCommand` went away with the service when the worker became a run-to-completion task.
+
+### Rollback
+
+Set `gpu_controller_enabled = false` in prod's tfvars and apply, then force a new API deployment.
+`RunTask` stops, the GPU pool drains to 0 within its idle window, and jobs queue on SQS (4-day
+retention) until the controller is re-enabled.
 
 ### Capturing fixtures from production
 
