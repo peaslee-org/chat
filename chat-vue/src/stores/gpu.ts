@@ -12,6 +12,7 @@ export const useGpuStore = defineStore("gpu", () => {
   const warming = ref(false)
   const error = ref<string | null>(null)
   let timer: ReturnType<typeof setTimeout> | null = null
+  let polling = false
 
   const idleOutAt = computed(() => (state.value?.warm_until ? new Date(state.value.warm_until) : null))
 
@@ -35,10 +36,21 @@ export const useGpuStore = defineStore("gpu", () => {
   }
   function startPolling() {
     stopPolling()
-    const tick = async () => { await refreshState(); timer = setTimeout(tick, STATE_POLL_MS) }
+    polling = true
+    const tick = async () => {
+      await refreshState()
+      // stopPolling() may have run while the request above was in flight — timer was
+      // null at that instant so it couldn't cancel us; re-check the flag before
+      // rescheduling so we don't resurrect the loop after the component unmounted.
+      if (!polling) return
+      timer = setTimeout(tick, STATE_POLL_MS)
+    }
     void tick()
   }
-  function stopPolling() { if (timer) { clearTimeout(timer); timer = null } }
+  function stopPolling() {
+    polling = false
+    if (timer) { clearTimeout(timer); timer = null }
+  }
 
   return { state, usage, warming, error, idleOutAt, refreshState, refreshUsage, warm, startPolling, stopPolling }
 })
