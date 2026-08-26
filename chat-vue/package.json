@@ -11,6 +11,7 @@
     "lint": "eslint . --ext .vue,.ts,.tsx --fix"
   },
   "dependencies": {
+    "@google/model-viewer": "^4.3.1",
     "axios": "^1.6.0",
     "pinia": "^2.1.0",
     "vue": "^3.4.0",

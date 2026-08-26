@@ -9,7 +9,7 @@ const RESOLVED_VIRTUAL_MOCK_TRAFFIC = '\0' + VIRTUAL_MOCK_TRAFFIC
 
 export default defineConfig(({ mode }) => ({
   plugins: [
-    vue(),
+    vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === 'model-viewer' } } }),
     {
       // Provides `virtual:mock-traffic` — returns captured traffic.json contents,
       // or an empty array if the file doesn't exist (e.g. in CI).
