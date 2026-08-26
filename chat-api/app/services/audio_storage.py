@@ -27,6 +27,14 @@ class AudioStorageService:
             ExpiresIn=ttl_seconds,
         )
 
+    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
+        """Returns a pre-signed GET URL for direct browser download."""
+        return self.s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": s3_key},
+            ExpiresIn=ttl_seconds,
+        )
+
     def object_exists(self, s3_key: str) -> bool:
         """head_object; returns False on 404."""
         try:
@@ -108,6 +116,12 @@ class MockAudioStorageService:
     def generate_presigned_upload_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
+    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
+        return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
+
+    def write_object(self, s3_key: str, data: bytes) -> None:
+        pass
+
     def object_exists(self, s3_key: str) -> bool:
         return True
 
@@ -149,6 +163,14 @@ class LocalAudioStorageService:
 
     def generate_presigned_upload_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
+
+    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
+        return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
+
+    def write_object(self, s3_key: str, data: bytes) -> None:
+        dest = self._root / s3_key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
 
     def object_exists(self, s3_key: str) -> bool:
         return (self._root / s3_key).exists()
