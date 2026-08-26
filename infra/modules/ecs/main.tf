@@ -297,7 +297,7 @@ resource "aws_ecs_task_definition" "this" {
       protocol      = "tcp"
     }]
 
-    environment = [
+    environment = concat([
       { name = "COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
       { name = "COGNITO_CLIENT_ID", value = var.cognito_client_id },
       { name = "AWS_REGION", value = var.aws_region },
@@ -307,7 +307,7 @@ resource "aws_ecs_task_definition" "this" {
       { name = "TRANSCRIBE_SQS_QUEUE_URL", value = var.transcribe_sqs_queue_url },
       { name = "LANGCHAIN_TRACING_V2", value = "true" },
       { name = "LANGCHAIN_PROJECT", value = "chat-api" },
-    ]
+    ], var.extra_environment)
 
     secrets = [
       { name = "DATABASE_URL", valueFrom = var.database_url_secret_arn },

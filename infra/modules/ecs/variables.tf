@@ -119,3 +119,9 @@ variable "image_tag" {
   description = "Image tag the task definition points at. CI deploys immutable tags and registers new revisions outside Terraform; set this to the deployed tag so plan stays clean."
   default     = "latest"
 }
+
+variable "extra_environment" {
+  description = "Additional plain env vars for the API container (name/value). Secrets go in secrets, never here."
+  type        = list(object({ name = string, value = string }))
+  default     = []
+}
