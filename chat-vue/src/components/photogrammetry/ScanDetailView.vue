@@ -21,8 +21,11 @@ watch(
     meshError.value = null
     if (jobId && status === "complete") {
       try {
-        meshUrl.value = await store.fetchMeshUrl(jobId)
+        const url = await store.fetchMeshUrl(jobId)
+        if (job.value?.job_id !== jobId) return
+        meshUrl.value = url
       } catch {
+        if (job.value?.job_id !== jobId) return
         meshError.value = "Could not load the mesh URL"
       }
     }
