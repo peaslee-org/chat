@@ -35,8 +35,7 @@ def write_photo(src: Path, dest: Path, max_edge: int, quality: int) -> int:
         im = ImageOps.exif_transpose(im)          # bake orientation, then drop the tag
         im = im.convert("RGB")
         im.thumbnail((max_edge, max_edge), Image.LANCZOS)
-        clean = Image.new("RGB", im.size)
-        clean.putdata(list(im.getdata()))        # pixels only — no info dict, no EXIF
+        clean = Image.frombytes("RGB", im.size, im.tobytes())  # pixels only — no info, no EXIF
         clean.save(dest, "JPEG", quality=quality, optimize=True)
     return dest.stat().st_size
 
@@ -102,7 +101,7 @@ def render_preview(mesh: trimesh.Trimesh, dest: Path, size: int = 512) -> None:
         shade = 0.35 + 0.65 * max(0.0, float(normals[fi] @ light))
         c = tuple(int(x * shade) for x in colors[f].mean(axis=0))
         d.polygon([tuple(xy[i]) for i in f], fill=c)
-    d.text((10, size - 22), "placeholder mesh — not reconstructed", fill=(200, 200, 200))
+    d.text((10, size - 22), "placeholder mesh - not reconstructed", fill=(200, 200, 200))
     im.save(dest, "PNG", optimize=True)
 
 
@@ -120,6 +119,24 @@ def main() -> int:
     ap.add_argument("--budget-bytes", type=int, default=2_000_000)
     args = ap.parse_args()
 
+    # Validate the source before touching anything on disk — a bad --photos path or too few
+    # photos must not wipe out the last-known-good committed asset set.
+    photos: list[Path] = []
+    if args.synthetic:
+        if args.count < 5:
+            print(f"need at least 5 synthetic views, got --count {args.count}", file=sys.stderr)
+            return 1
+        n = args.count
+    else:
+        if not args.photos.is_dir():
+            print(f"photos folder not found: {args.photos}", file=sys.stderr)
+            return 1
+        photos = sorted(p for p in args.photos.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+        if len(photos) < 5:
+            print(f"need at least 5 photos, found {len(photos)} in {args.photos}", file=sys.stderr)
+            return 1
+        n = len(photos)
+
     images = args.out / "images"
     images.mkdir(parents=True, exist_ok=True)
     for old in images.glob("*"):
@@ -127,16 +144,10 @@ def main() -> int:
 
     if args.synthetic:
         synthetic_views(images, args.count, args.max_edge)
-        n = args.count
     else:
-        photos = sorted(p for p in args.photos.iterdir() if p.suffix.lower() in IMAGE_EXTS)
-        if len(photos) < 5:
-            print(f"need at least 5 photos, found {len(photos)} in {args.photos}", file=sys.stderr)
-            return 1
         total = 0
         for i, p in enumerate(photos, start=1):
             total += write_photo(p, images / f"{i:04d}.jpg", args.max_edge, args.quality)
-        n = len(photos)
         print(f"{n} photos → {total / 1e6:.2f} MB")
         if total > args.budget_bytes:
             budget_mb = args.budget_bytes / 1e6
