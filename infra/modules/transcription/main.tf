@@ -253,6 +253,15 @@ resource "aws_iam_role_policy" "api_transcription" {
         }
       },
       {
+        Sid      = "GpuTagTasks"
+        Effect   = "Allow"
+        Action   = "ecs:TagResource"
+        Resource = "*"
+        Condition = {
+          StringEquals = { "ecs:CreateAction" = "RunTask" }
+        }
+      },
+      {
         Sid      = "GpuCostExplorer"
         Effect   = "Allow"
         Action   = "ce:GetCostAndUsage"

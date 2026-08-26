@@ -24,7 +24,7 @@ class GpuSession(Base):
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     warm_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    end_reason: Mapped[Optional[str]] = mapped_column(String(20))  # idle | max_lifetime | spot_interruption | error
+    end_reason: Mapped[Optional[str]] = mapped_column(String(20))  # idle | max_lifetime | spot_interruption | error | unknown (reconciled)
 
 
 class GpuCostSnapshot(Base):

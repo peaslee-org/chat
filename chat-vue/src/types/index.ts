@@ -92,7 +92,7 @@ export interface TranscriptionJob {
   created_at: string
   updated_at: string
   completed_at: string | null
-  worker_state?: WorkerState
+  worker_state?: WorkerState | null
   estimated_wait_seconds?: number
   gpu_notice?: string | null
 }
