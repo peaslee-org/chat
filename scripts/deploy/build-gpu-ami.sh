@@ -43,7 +43,15 @@ done
 AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --name "$NAME" \
   --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGE//\//_}}]" \
   --query ImageId --output text)
-aws ec2 wait image-available --region "$REGION" --image-ids "$AMI"
+# `aws ec2 wait image-available` gives up after 10 min; an 80 GB root snapshot can take longer.
+echo "Waiting for $AMI to become available (up to 40 min) …"
+for _ in $(seq 1 160); do
+  STATE=$(aws ec2 describe-images --region "$REGION" --image-ids "$AMI" --query 'Images[0].State' --output text)
+  [[ "$STATE" == available ]] && break
+  [[ "$STATE" == failed ]] && { echo "AMI $AMI failed"; exit 1; }
+  sleep 15
+done
+[[ "$STATE" == available ]] || { echo "AMI $AMI still $STATE after 40 min — it may finish on its own; check before re-running"; exit 1; }
 # prune: keep the two newest gpu-<env>-* AMIs
 for OLD in $(aws ec2 describe-images --region "$REGION" --owners self --filters "Name=name,Values=gpu-${ENV}-*" \
              --query 'sort_by(Images,&CreationDate)[:-2].ImageId' --output text); do
