@@ -34,6 +34,21 @@ class AudioUploadMissing(AppException):
     detail = "Audio file not found at expected S3 location"
 
 
+class ImageCountOutOfRange(AppException):
+    status_code = 422
+    detail = "Image count out of range"
+
+
+class UploadIncomplete(AppException):
+    status_code = 409
+    detail = "Not every image has been uploaded yet"
+
+
+class WorkerNotDeployed(AppException):
+    status_code = 503
+    detail = "photogrammetry worker not deployed"
+
+
 class AudioValidationError(AppException):
     """Raised with an error_code: duration_too_short | duration_too_long | unsupported_format"""
     status_code = 422
