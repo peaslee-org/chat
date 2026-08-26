@@ -23,8 +23,8 @@ export const handlers = [
   ),
   http.get('*/api/v1/gpu/usage', () =>
     HttpResponse.json({
-      today_hours: 0, month_hours: 0, daily_cap_hours: 4, monthly_cap_hours: 40,
-      warms_today_for_user: 0, warm_cap_per_user_per_day: 10,
+      today_hours: 0, month_hours: 0, daily_cap_hours: 3, monthly_cap_hours: 30,
+      warms_today_for_user: 0, warm_cap_per_user_per_day: 3,
       estimated_month_cost_usd: 0, hourly_rate_usd: 0,
       actual_month_to_date_usd: null, actual_fetched_at: null,
       sessions: [],
