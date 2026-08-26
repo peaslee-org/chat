@@ -23,7 +23,7 @@
 - Keep audio separate from the Vue SPA assets bucket
 
 **Compute**
-- **ECS Fargate task (async worker)** — diarization is CPU/time-intensive, should NOT block the FastAPI request cycle
+- **ECS GPU task, EC2 launch type (async worker)** — diarization is CPU/time-intensive, should NOT block the FastAPI request cycle
   - Triggered via SQS message, not a synchronous HTTP call
   - pyannote/speaker-diarization-3.1 or speechbrain ECAPA-TDNN
 
@@ -80,7 +80,7 @@ GET  /api/v1/transcriptions/{id}/transcript  # fetch result
 Browser uploads audio → S3 (presigned URL)
   → POST /api/v1/transcriptions → FastAPI enqueues SQS message → returns job_id
 
-SQS Worker (Fargate):
+SQS Worker (ECS, EC2 GPU capacity provider):
   1. Download audio from S3
   2. Submit to AWS Transcribe (with speaker diarization)
   3. Poll until complete, download JSON result

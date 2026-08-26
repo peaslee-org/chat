@@ -29,7 +29,7 @@ Adds a router sub-package under `/api/v1/transcribe/` with **11 endpoints** cove
 
 #### Transcription Worker
 
-Introduces `transcription-worker/` — a separate Fargate Docker image (~2.5 GB) that:
+Introduces `transcription-worker/` — an ECS EC2-launch-type GPU task (run on the `gpu-<env>` capacity provider; GPU image, ~7 GB compressed) that:
 
 - Polls an **SQS queue** for new jobs
 - Runs **AWS Transcribe** for speech-to-text

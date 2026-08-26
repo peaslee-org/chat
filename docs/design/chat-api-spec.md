@@ -8,9 +8,9 @@
 
 ## Overview
 
-This document specifies every file to create or modify in `chat-api/` to implement the audio transcription and speaker diarization feature, plus the separate Fargate worker service. It follows the existing layered architecture: **router → endpoint → service → repository/external service**.
+This document specifies every file to create or modify in `chat-api/` to implement the audio transcription and speaker diarization feature, plus the separate GPU worker (ECS, EC2 launch type). It follows the existing layered architecture: **router → endpoint → service → repository/external service**.
 
-A companion directory `transcription-worker/` is introduced alongside `chat-api/` for the ML-heavy Fargate worker, keeping PyTorch out of the main API image.
+A companion directory `transcription-worker/` is introduced alongside `chat-api/` for the ML-heavy GPU worker, keeping PyTorch out of the main API image.
 
 ---
 
@@ -20,7 +20,7 @@ A companion directory `transcription-worker/` is introduced alongside `chat-api/
 /var/www/chat/
   chat-api/               ← existing; add transcription routes + models
   chat-vue/               ← existing; separate spec
-  transcription-worker/   ← new; separate Docker image for Fargate worker
+  transcription-worker/   ← new; separate Docker image for the GPU worker (ECS, EC2 launch type)
   docs/transcribe/
 ```
 

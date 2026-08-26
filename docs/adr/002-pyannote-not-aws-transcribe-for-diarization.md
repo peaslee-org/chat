@@ -17,7 +17,7 @@ Use **pyannote-audio 4.x** (`pyannote/speaker-diarization-community-1`) running 
 ## Reason
 
 - pyannote-audio provides significantly better diarization accuracy, especially with overlapping speech
-- The system already uses a GPU Fargate task for SpeechBrain ECAPA-TDNN embeddings; adding pyannote on the same GPU adds negligible cost
+- The system already uses a GPU ECS task (EC2 launch type; see ADR 004) for SpeechBrain ECAPA-TDNN embeddings; adding pyannote on the same GPU adds negligible cost
 - AWS Transcribe's diarization is less accurate and does not support the overlap detection needed for the sweep-line algorithm in `aligner.py`
 
 ## Consequences

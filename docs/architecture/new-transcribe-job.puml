@@ -80,7 +80,7 @@ spa -> spa : update job status → transcribing\nstartPolling(job_id)
 
 == 4. Client polls for status ==
 
-loop every 10 s (POLL_INTERVAL_NORMAL)
+loop every 10 s (POLL_INTERVAL_NORMAL, 60 s while worker_state == off)
   spa -> api : GET /api/v1/transcribe/jobs/{job_id}
   api -> db : get_job(job_id, user_id)
   db --> api : job (status)

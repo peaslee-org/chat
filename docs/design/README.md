@@ -6,7 +6,7 @@ Transcribe audio files with named speaker labels. Upload a recording and a short
 
 1. **Enroll speakers** — upload a 10–60 s reference clip per person. Voice embeddings are extracted asynchronously using [ECAPA-TDNN](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb).
 2. **Submit a job** — upload an audio file (up to 2 GB). AWS Transcribe diarizes the audio into anonymous speaker labels (`spk_0`, `spk_1` …).
-3. **Get results** — a Fargate worker matches anonymous labels to enrolled speakers via pgvector cosine similarity and produces a timestamped transcript.
+3. **Get results** — a GPU worker (ECS, EC2 launch type, launched per job on the `gpu-<env>` capacity provider) matches anonymous labels to enrolled speakers via pgvector cosine similarity and produces a timestamped transcript.
 
 ```
 [00:00:00]  Alice:   Good morning everyone, let's get started.
@@ -22,7 +22,7 @@ Transcribe audio files with named speaker labels. Upload a recording and a short
 | Transcription | AWS Transcribe |
 | Speaker ID | SpeechBrain ECAPA-TDNN + pgvector (PostgreSQL) |
 | Storage | S3 (direct browser upload via pre-signed URL) |
-| Async processing | SQS + ECS Fargate |
+| Async processing | SQS + ECS (EC2 launch type, GPU capacity provider) |
 | Auth | AWS Cognito (JWT) |
 
 ## API
@@ -63,5 +63,5 @@ pending → transcribing → matching → complete
 
 - Python 3.11+
 - PostgreSQL with `pgvector` extension
-- AWS account with Transcribe, S3, SQS, and ECS Fargate access
+- AWS account with Transcribe, S3, SQS, and ECS (EC2 GPU capacity provider) access
 - Docker (worker image ~2.5 GB due to PyTorch)

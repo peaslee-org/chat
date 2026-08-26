@@ -165,7 +165,7 @@ spa -> spa : update job status → transcribing\\nstartPolling(job_id)
 
 == Phase 6: Client polls for status ==
 
-loop every 10 s (POLL_INTERVAL_NORMAL)
+loop every 10 s (POLL_INTERVAL_NORMAL)\\n(60 s while worker_state == off)
   spa -> recorder : GET /api/v1/transcribe/jobs/{job_id}
   recorder -> msw : intercept
   msw --> recorder : 200 {status: "transcribing" | "matching", worker_state: "running"}

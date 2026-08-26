@@ -380,7 +380,7 @@ Run this once after confirming the model works, then hardcode the SHA. Matches t
 
 ### 4.0 GPU + Spot: Switch from Fargate to EC2 launch type
 
-Fargate does not support GPU. The ECS service must use the **EC2 launch type** with GPU-capable instances. Spot instances are used to reduce cost.
+GPU acceleration isn't available on Fargate. The task therefore needs the **EC2 launch type** with GPU-capable instances. Spot instances are used to reduce cost.
 
 **Recommended instance:** `g4dn.xlarge` — 4 vCPU, 16 GB RAM, 1× NVIDIA T4 (16 GB VRAM), ~$0.16/hr Spot.
 
