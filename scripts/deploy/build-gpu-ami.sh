@@ -38,8 +38,8 @@ for _ in $(seq 1 60); do
   [[ "$OUT" == *done* ]] && break
 done
 [[ "$OUT" == *done* ]] || { echo "bake did not finish in 20 min"; exit 1; }
-aws ec2 stop-instances --region "$REGION" --instance-ids "$IID" >/dev/null
-aws ec2 wait instance-stopped --region "$REGION" --instance-ids "$IID"
+# One-time spot instances cannot be stopped; create-image on the running instance reboots it
+# for a consistent snapshot (the ECS agent is already stopped and its state cleared by user-data).
 AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --name "$NAME" \
   --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGE//\//_}}]" \
   --query ImageId --output text)
