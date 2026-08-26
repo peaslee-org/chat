@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     sample_barry_s3_key: str = "samples/speakers/barry.wav"
     sample_jane_s3_key: str = "samples/speakers/jane.wav"
 
+    # Photogrammetry (spec: docs/design/photogrammetry-ui-spec.md)
+    use_mock_photogrammetry: bool = False
+    # Seconds spent in each mock stage: queued → sfm → dense → mesh → texture → complete
+    mock_photogrammetry_stage_delay_seconds: float = 2.0
+    photogrammetry_max_images: int = 150
+    # Shared sample photo set in the audio bucket, uploaded once by hand (images/0001.jpg …)
+    photogrammetry_sample_prefix: str = "samples/photogrammetry/"
+    # ECS task family of the photogrammetry worker; empty = not deployed (confirm returns 503)
+    gpu_photogrammetry_task_family: str = ""
+
     # LangSmith
     langchain_tracing_v2: bool = False
     langchain_project: str = "chat-api"
