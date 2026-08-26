@@ -25,7 +25,14 @@ function isImage(f: File): boolean {
 function addFiles(list: FileList | File[]) {
   const incoming = Array.from(list).filter(isImage)
   const seen = new Set(files.value.map(f => `${f.name}:${f.size}`))
-  files.value = [...files.value, ...incoming.filter(f => !seen.has(`${f.name}:${f.size}`))]
+  const next: File[] = []
+  for (const f of incoming) {
+    const key = `${f.name}:${f.size}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    next.push(f)
+  }
+  files.value = [...files.value, ...next]
 }
 
 function clear() {
@@ -77,7 +84,7 @@ onUnmounted(revokeThumbs)
             +{{ files.length - thumbs.length }}
           </div>
         </div>
-        <button class="mt-2 text-xs text-gray-500 hover:text-red-600" @click.stop="clear">Clear</button>
+        <button type="button" class="mt-2 text-xs text-gray-500 hover:text-red-600" @click.stop="clear">Clear</button>
       </div>
       <div v-else class="text-sm text-gray-500">
         <p>Drop photos here or click to browse</p>
