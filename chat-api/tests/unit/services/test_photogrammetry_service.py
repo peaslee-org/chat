@@ -1,0 +1,214 @@
+"""Unit tests for PhotogrammetryService — no real DB, S3 or ECS."""
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
+
+from app.core.exceptions import (
+    ConcurrentJobLimitExceeded,
+    ConflictError,
+    ImageCountOutOfRange,
+    NotFoundError,
+    UploadIncomplete,
+    WorkerNotDeployed,
+)
+from app.schemas.photogrammetry import JobCreateRequest
+from app.services.gpu_controller import GpuCapExceeded
+from app.services.photogrammetry_service import PhotogrammetryService
+
+NOW = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+
+
+def make_job(**overrides):
+    job = MagicMock()
+    job.id = overrides.get("id", uuid4())
+    job.user_id = "user1"
+    job.name = "Scan"
+    job.status = overrides.get("status", "pending")
+    job.stage = overrides.get("stage")
+    job.image_count = overrides.get("image_count", 6)
+    job.input_prefix = f"photogrammetry/user1/{job.id}/input/"
+    job.mesh_s3_key = overrides.get("mesh_s3_key")
+    job.preview_s3_key = overrides.get("preview_s3_key")
+    job.error_message = None
+    job.created_at = job.updated_at = NOW
+    job.completed_at = None
+    return job
+
+
+def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None):
+    repo = MagicMock()
+    repo.count_active_jobs = AsyncMock(return_value=active_jobs)
+    repo.create_job = AsyncMock(
+        side_effect=lambda job_id, user_id, name, image_count, input_prefix: make_job(
+            id=job_id, image_count=image_count
+        )
+    )
+    repo.get_job = AsyncMock(return_value=job)
+    repo.update_job_status = AsyncMock()
+    repo.list_jobs = AsyncMock(return_value=([], None))
+    repo.delete_job = AsyncMock()
+    repo.db = MagicMock()
+    repo.db.commit = AsyncMock()
+
+    storage = MagicMock()
+    storage.generate_presigned_upload_url = MagicMock(
+        side_effect=lambda k, ttl_seconds=900: f"https://up/{k}"
+    )
+    storage.generate_presigned_download_url = MagicMock(
+        side_effect=lambda k, ttl_seconds=900: f"https://dl/{k}"
+    )
+    storage.list_keys_with_prefix = MagicMock(return_value=keys if keys is not None else [])
+
+    settings = MagicMock()
+    settings.max_concurrent_jobs = 3
+    settings.photogrammetry_max_images = max_images
+    settings.photogrammetry_sample_prefix = "samples/photogrammetry/"
+
+    return PhotogrammetryService(repo, storage, settings, gpu), repo, storage
+
+
+FILES = ["IMG_1.JPG", "b.png", "c.jpeg", "d.jpg", "e.jpg", "f.jpg"]
+
+
+class TestCreateJob:
+    async def test_429_at_cap(self):
+        svc, *_ = make_service(active_jobs=3)
+        with pytest.raises(ConcurrentJobLimitExceeded):
+            await svc.create_job("user1", JobCreateRequest(filenames=FILES))
+
+    async def test_422_over_max_images(self):
+        svc, *_ = make_service(max_images=5)
+        with pytest.raises(ImageCountOutOfRange):
+            await svc.create_job("user1", JobCreateRequest(filenames=FILES))
+
+    async def test_one_upload_per_file_with_padded_keys(self):
+        svc, repo, storage = make_service()
+        res = await svc.create_job("user1", JobCreateRequest(name="Mug", filenames=FILES))
+        assert len(res.uploads) == 6
+        prefix = f"photogrammetry/user1/{res.job_id}/input/"
+        assert res.uploads[0].key == f"{prefix}0001.jpg"
+        assert res.uploads[1].key == f"{prefix}0002.png"
+        assert res.uploads[5].key == f"{prefix}0006.jpg"
+        assert res.uploads[0].filename == "IMG_1.JPG"
+        assert res.uploads[0].url == f"https://up/{prefix}0001.jpg"
+        repo.create_job.assert_awaited_once()
+        kwargs = repo.create_job.await_args.kwargs
+        assert kwargs["name"] == "Mug"
+        assert kwargs["image_count"] == 6
+        assert kwargs["input_prefix"] == prefix
+
+    async def test_default_name_when_omitted(self):
+        svc, repo, _ = make_service()
+        await svc.create_job("user1", JobCreateRequest(filenames=FILES))
+        assert repo.create_job.await_args.kwargs["name"].startswith("Scan ")
+
+
+class TestConfirmJob:
+    async def test_404_unknown(self):
+        svc, *_ = make_service(job=None)
+        with pytest.raises(NotFoundError):
+            await svc.confirm_job("user1", uuid4())
+
+    async def test_409_not_pending(self):
+        svc, *_ = make_service(job=make_job(status="queued"))
+        with pytest.raises(ConflictError):
+            await svc.confirm_job("user1", uuid4())
+
+    async def test_503_when_worker_not_deployed_and_job_stays_pending(self):
+        job = make_job()
+        svc, repo, _ = make_service(job=job, gpu=None, keys=[f"k{i}" for i in range(6)])
+        with pytest.raises(WorkerNotDeployed):
+            await svc.confirm_job("user1", job.id)
+        repo.update_job_status.assert_not_awaited()
+
+    async def test_409_when_uploads_incomplete(self):
+        job = make_job(image_count=6)
+        gpu = MagicMock()
+        svc, repo, _ = make_service(job=job, gpu=gpu, keys=["a", "b"])
+        with pytest.raises(UploadIncomplete):
+            await svc.confirm_job("user1", job.id)
+        repo.update_job_status.assert_not_awaited()
+
+    async def test_queues_and_ensures_worker(self):
+        job = make_job(image_count=6)
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        svc, repo, storage = make_service(job=job, gpu=gpu, keys=[f"k{i}" for i in range(6)])
+        await svc.confirm_job("user1", job.id)
+        storage.list_keys_with_prefix.assert_called_once_with(job.input_prefix)
+        repo.update_job_status.assert_awaited_once_with(job.id, "queued")
+        repo.db.commit.assert_awaited()
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+
+    async def test_cap_exceeded_leaves_job_queued(self):
+        job = make_job(image_count=6)
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock(side_effect=GpuCapExceeded("daily cap"))
+        svc, repo, _ = make_service(job=job, gpu=gpu, keys=[f"k{i}" for i in range(6)])
+        await svc.confirm_job("user1", job.id)  # must not raise
+        repo.update_job_status.assert_awaited_once_with(job.id, "queued")
+
+
+class TestStatusAndMesh:
+    async def test_status_includes_preview_url_and_mock_false(self):
+        job = make_job(status="complete", preview_s3_key="p/preview.png", mesh_s3_key="p/mesh.glb")
+        svc, *_ = make_service(job=job)
+        res = await svc.get_job_status("user1", job.id)
+        assert res.preview_url == "https://dl/p/preview.png"
+        assert res.mock is False
+        assert res.name == "Scan" and res.image_count == 6
+
+    async def test_status_resumes_worker_when_off(self):
+        job = make_job(status="queued")
+        gpu = MagicMock()
+        off = MagicMock(worker_state="off", estimated_wait_seconds=180, notice=None)
+        gpu.get_state = AsyncMock(return_value=off)
+        gpu.ensure_worker = AsyncMock(
+            return_value=MagicMock(worker_state="starting", estimated_wait_seconds=120, notice=None)
+        )
+        svc, *_ = make_service(job=job, gpu=gpu)
+        res = await svc.get_job_status("user1", job.id)
+        gpu.ensure_worker.assert_awaited_once_with("resume", "user1")
+        assert res.worker_state == "starting"
+
+    async def test_mesh_url_409_until_complete(self):
+        svc, *_ = make_service(job=make_job(status="processing"))
+        with pytest.raises(ConflictError):
+            await svc.get_mesh_url("user1", uuid4())
+
+    async def test_mesh_url_when_complete(self):
+        job = make_job(status="complete", mesh_s3_key="p/mesh.glb")
+        svc, *_ = make_service(job=job)
+        res = await svc.get_mesh_url("user1", job.id)
+        assert res.url == "https://dl/p/mesh.glb"
+        assert res.expires_at > datetime.now(timezone.utc)
+
+    async def test_delete_404_for_other_user(self):
+        svc, repo, _ = make_service(job=None)
+        with pytest.raises(NotFoundError):
+            await svc.delete_job("user1", uuid4())
+        repo.delete_job.assert_not_awaited()
+
+
+class TestSampleJob:
+    async def test_409_when_sample_set_missing(self):
+        svc, *_ = make_service(gpu=MagicMock(), keys=[])
+        with pytest.raises(ConflictError):
+            await svc.create_sample_job("user1")
+
+    async def test_creates_queued_job_from_shared_prefix(self):
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        svc, repo, storage = make_service(
+            gpu=gpu,
+            keys=[f"samples/photogrammetry/images/{i:04d}.jpg" for i in range(1, 8)],
+        )
+        res = await svc.create_sample_job("user1")
+        kwargs = repo.create_job.await_args.kwargs
+        assert kwargs["input_prefix"] == "samples/photogrammetry/images/"
+        assert kwargs["image_count"] == 7
+        assert kwargs["name"] == "Sample scan"
+        repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
