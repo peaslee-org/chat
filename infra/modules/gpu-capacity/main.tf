@@ -122,10 +122,12 @@ resource "aws_autoscaling_group" "gpu" {
     instances_distribution {
       on_demand_base_capacity                  = 0
       on_demand_percentage_above_base_capacity = var.on_demand_percentage
-      # capacity-optimized picks the pool most likely to have capacity; lowest-price with 2 pools
-      # kept choosing AZs with none (2026-08-26). spot_instance_pools only applies to lowest-price.
+      # lowest-price with 2 pools kept choosing AZs with no capacity (2026-08-26); 20 pools =
+      # every (type × AZ) combination gets tried. capacity-optimized would be better but cannot be
+      # set on an existing ASG in place: the provider still sends SpotInstancePools and AWS rejects
+      # it for other strategies — switch it when the ASG is next recreated.
       spot_allocation_strategy = var.spot_allocation_strategy
-      spot_instance_pools      = var.spot_allocation_strategy == "lowest-price" ? 2 : 0 # provider default is 2; AWS requires 0 for other strategies
+      spot_instance_pools      = var.spot_allocation_strategy == "lowest-price" ? var.spot_instance_pools : 0
     }
     launch_template {
       launch_template_specification {

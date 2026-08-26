@@ -74,9 +74,15 @@ variable "instance_types" {
 }
 
 variable "spot_allocation_strategy" {
-  description = "capacity-optimized (default) picks pools with capacity; lowest-price uses 2 pools and fails when they are empty."
+  description = "lowest-price (default; the only strategy an existing ASG accepts in place — see main.tf) with spot_instance_pools pools, or capacity-optimized on a fresh ASG."
   type        = string
-  default     = "capacity-optimized"
+  default     = "lowest-price"
+}
+
+variable "spot_instance_pools" {
+  description = "Pools for lowest-price: with 4 instance types x 5 AZs, 20 means every combination is tried."
+  type        = number
+  default     = 20
 }
 
 variable "on_demand_percentage" {
