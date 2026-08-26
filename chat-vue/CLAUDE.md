@@ -233,3 +233,4 @@ The chat-api is at `/var/www/chat/chat-api`. Key endpoints:
 - When sample polling detects a `processing → failed` transition, `transcribe` store pushes a toast (auto-dismisses after 8 s); `TranscribeView` renders toasts via `Teleport` bottom-right overlay; store exports `toasts` and `dismissToast`
 - S3 uploads must use plain `fetch` (not `apiClient`) — no Authorization header allowed on presigned PUT requests
 - Scan sidebar width is persisted under `scanSidebarWidth`; job polling every 3 s (`VITE_PHOTOGRAMMETRY_POLL_INTERVAL_MS`), 60 s while the GPU worker is off; resumes on reload via `resumePollingForActiveJobs()`
+- The `GpuStatusBar` on `/photogrammetry` is the transcribe component reused unchanged: it reflects the *transcription* worker (`/api/v1/gpu/*`, `GPU_WORKER_TASK_FAMILY`) and its Warm button launches that worker; with only `USE_MOCK_PHOTOGRAMMETRY=true` it shows "off". Parameterising it by task family is part of the worker spec.

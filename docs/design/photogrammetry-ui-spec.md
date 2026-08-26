@@ -212,3 +212,25 @@ and `WorkerNotDeployed` (503). Validation (image count, extension) is Pydantic �
 - Bucket lifecycle rule for `photogrammetry/`.
 - Gaussian splats, video input, ZIP input, job events / SSE, shared GPU-job abstraction across
   transcribe and photogrammetry.
+
+## 7. Known limitations until the worker ships
+
+- `GpuController` keeps a module-global `_state_cache` and `ensure_worker` reconciles
+  `gpu_sessions` with `close_open_sessions()` whenever *its own* family's `ListTasks` is empty. Two
+  controllers on different task families therefore poison each other's cache and can close each
+  other's session rows. **Before `GPU_PHOTOGRAMMETRY_TASK_FAMILY` is ever set**, the worker spec
+  must key the cache and the reconcile by family (or add a `family` column to `gpu_sessions`).
+- `deps.py` builds the photogrammetry `GpuController` only when **both**
+  `GPU_CONTROLLER_ENABLED=true` and `GPU_PHOTOGRAMMETRY_TASK_FAMILY` is non-empty (mirrors
+  `gpu/deps.py`); until then `confirm` and `/jobs/sample` return 503 and the job stays `pending`.
+- `pending` rows never expire and count against `MAX_CONCURRENT_JOBS` (transcribe precedent);
+  presigned PUTs live 15 min, so a dead `pending` job blocks a slot until deleted. Follow-up:
+  exclude `pending` older than the URL TTL from `count_active_jobs`.
+- Output keys are **always** `photogrammetry/<user_id>/<job_id>/output/{mesh.glb,preview.png}`
+  regardless of `input_prefix` — including sample jobs, whose real-path `input_prefix` is the
+  shared `samples/photogrammetry/images/`. The mock derives the output prefix from `input_prefix`
+  as a shortcut that only works because the mock copies the sample images under the job's own
+  prefix; the worker must not copy that derivation.
+- `GpuStatusBar` on the Scan page is the transcription worker's bar (see chat-vue/CLAUDE.md).
+- `image_count` for a real sample job is the number of keys under the sample prefix — keep only
+  images there.

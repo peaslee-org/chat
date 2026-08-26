@@ -215,6 +215,10 @@ When no fixtures are present, `dev_worker.py` generates data from these env vars
 - **Sample** in the sidebar (`POST /jobs/sample`) copies the bundled photo set into the sink and runs
   the same walk, so the page works with nothing uploaded.
 - Every status response carries `mock: true`; the viewer labels the mesh as a placeholder.
+- `<model-viewer>` and the preview `<img>` fetch from `MOCK_UPLOAD_BASE_URL` (default
+  `http://localhost:8000`) cross-origin from the Vite dev server, so `CORS_ORIGINS` in
+  `chat-api/.env` must include `http://localhost:5173` — or set
+  `MOCK_UPLOAD_BASE_URL=http://localhost:5173` so the sink URLs ride the Vite `/api` proxy.
 
 Regenerate the sample assets with `scripts/dev/make-photogrammetry-sample.py` (see its docstring).
 
@@ -232,7 +236,7 @@ Regenerate the sample assets with `scripts/dev/make-photogrammetry-sample.py` (s
 | [chat-vue/vite.config.ts](../chat-vue/vite.config.ts) | `mock-traffic` virtual module plugin |
 | [chat-vue/src/main.ts](../chat-vue/src/main.ts) | Conditionally starts MSW when `VITE_MOCK_API=true` |
 | [chat-api/app/services/audio_storage.py](../chat-api/app/services/audio_storage.py) | `LocalAudioStorageService` — filesystem-backed upload/read/delete |
-| [chat-api/app/api/v1/transcribe/dev.py](../chat-api/app/api/v1/transcribe/dev.py) | `PUT /dev-upload/*` sink — writes uploaded audio to `LOCAL_STORAGE_PATH` |
+| [chat-api/app/api/v1/transcribe/dev.py](../chat-api/app/api/v1/transcribe/dev.py) | `PUT`/`GET /dev-upload/*` sink — writes uploads to `LOCAL_STORAGE_PATH` and serves stored files back (mock mesh/preview) |
 | [chat-api/app/dependencies.py](../chat-api/app/dependencies.py) | `DEV_AUTH_BYPASS` guard in `get_current_user` |
 | [chat-api/app/config.py](../chat-api/app/config.py) | `dev_auth_bypass`, `local_storage_path`, `mock_worker_external` settings |
 | [transcription-worker/dev_worker.py](../transcription-worker/dev_worker.py) | Standalone DB-polling worker — no ML, no SQS |
