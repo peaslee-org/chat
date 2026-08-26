@@ -10,7 +10,7 @@ locals {
 
 resource "aws_security_group" "gpu" {
   name        = local.name
-  description = "Shared GPU capacity instances — egress only"
+  description = "Shared GPU capacity instances - egress only" # ASCII only: EC2 rejects other characters
   vpc_id      = var.vpc_id
 
   egress {
