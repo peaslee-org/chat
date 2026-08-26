@@ -233,8 +233,9 @@ resource "aws_budgets_budget" "gpu" {
   time_period_start = var.budget_start
 
   cost_filter {
-    name   = "TagKeyValue"
-    values = ["user:${var.cost_tag_key}$${var.cost_tag_value}"]
+    name = "TagKeyValue"
+    # AWS Budgets tag filter format is "user:<Key>$<Value>"; format() avoids HCL's $${ escape trap.
+    values = [format("user:%s$%s", var.cost_tag_key, var.cost_tag_value)]
   }
 
   notification {
