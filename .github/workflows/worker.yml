@@ -19,7 +19,6 @@ jobs:
       AWS_REGION:       us-east-1
       ECR_REPOSITORY:   transcription-worker-prod
       ECS_CLUSTER:      chat-api-prod
-      ECS_SERVICE:      transcription-prod-worker
       TASK_FAMILY:      transcription-prod-worker
       CONTAINER_NAME:   transcription-worker
 
@@ -40,16 +39,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::123456789012:role/transcription-prod-worker-github-actions
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Pause worker (set S3 flag)
-        run: |
-          BUCKET=$(aws ecs describe-task-definition \
-            --task-definition "$TASK_FAMILY" \
-            --query "taskDefinition.containerDefinitions[0].environment[?name=='AUDIO_BUCKET_NAME'].value" \
-            --output text)
-          echo "AUDIO_BUCKET_NAME=$BUCKET" >> "$GITHUB_ENV"
-          printf "true" | aws s3 cp - "s3://${BUCKET}/worker_paused"
-          echo "Paused: s3://${BUCKET}/worker_paused"
 
       - name: Log in to ECR
         id: login-ecr
@@ -83,25 +72,8 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build.outputs.image }}
 
-      - name: Deploy to ECS
+      - name: Register new task definition revision
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-
-      - name: Unpause worker (clear S3 flag)
-        if: always()
-        run: |
-          RUNNING=$(aws ecs describe-services \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE" \
-            --query "services[0].runningCount" \
-            --output text)
-          if [[ "$RUNNING" -gt 0 ]]; then
-            printf "false" | aws s3 cp - "s3://${AUDIO_BUCKET_NAME}/worker_paused"
-            echo "Unpaused: s3://${AUDIO_BUCKET_NAME}/worker_paused"
-          else
-            echo "Worker not running — pause flag left as-is"
-          fi
+          # no service/cluster: the API launches this family's latest revision with RunTask
