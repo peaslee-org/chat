@@ -121,14 +121,24 @@ resource "aws_autoscaling_group" "gpu" {
   mixed_instances_policy {
     instances_distribution {
       on_demand_base_capacity                  = 0
-      on_demand_percentage_above_base_capacity = 0
-      spot_allocation_strategy                 = "lowest-price"
-      spot_instance_pools                      = 2
+      on_demand_percentage_above_base_capacity = var.on_demand_percentage
+      # capacity-optimized picks the pool most likely to have capacity; lowest-price with 2 pools
+      # kept choosing AZs with none (2026-08-26). spot_instance_pools only applies to lowest-price.
+      spot_allocation_strategy = var.spot_allocation_strategy
+      spot_instance_pools      = var.spot_allocation_strategy == "lowest-price" ? 2 : null
     }
     launch_template {
       launch_template_specification {
         launch_template_id = aws_launch_template.gpu.id
         version            = "$Latest"
+      }
+      # Several GPU types widen the spot pools; the worker's CUDA image runs on any of them.
+      # Order = priority for on-demand; capacity-optimized ignores order for spot.
+      dynamic "override" {
+        for_each = var.instance_types
+        content {
+          instance_type = override.value
+        }
       }
     }
   }

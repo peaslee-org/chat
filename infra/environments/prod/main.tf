@@ -45,6 +45,30 @@ data "aws_subnets" "public" {
   }
 }
 
+# GPU pool subnets: only AZs that offer the pool's primary instance type (us-east-1e offers no
+# g4dn; an ASG spanning it wasted launch attempts there — observed 2026-08-26).
+data "aws_ec2_instance_type_offerings" "gpu" {
+  filter {
+    name   = "instance-type"
+    values = ["g4dn.xlarge"]
+  }
+  location_type = "availability-zone"
+}
+
+data "aws_subnets" "gpu" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+  filter {
+    name   = "map-public-ip-on-launch"
+    values = ["true"]
+  }
+  filter {
+    name   = "availability-zone"
+    values = data.aws_ec2_instance_type_offerings.gpu.locations
+  }
+}
 
 module "acm" {
   source      = "../../modules/acm"
@@ -101,16 +125,17 @@ module "ecs" {
 }
 
 module "gpu_capacity" {
-  source              = "../../modules/gpu-capacity"
-  environment         = var.environment
-  vpc_id              = data.aws_vpc.default.id
-  subnet_ids          = data.aws_subnets.public.ids
-  cluster_name        = local.cluster_name
-  ami_id              = var.gpu_ami_id
-  max_size            = var.gpu_max_size
-  alert_email         = var.gpu_alert_email
-  budget_actual_usd   = var.gpu_budget_actual_usd
-  budget_forecast_usd = var.gpu_budget_forecast_usd
+  source               = "../../modules/gpu-capacity"
+  environment          = var.environment
+  vpc_id               = data.aws_vpc.default.id
+  subnet_ids           = data.aws_subnets.gpu.ids
+  cluster_name         = local.cluster_name
+  ami_id               = var.gpu_ami_id
+  max_size             = var.gpu_max_size
+  on_demand_percentage = var.gpu_on_demand_percentage
+  alert_email          = var.gpu_alert_email
+  budget_actual_usd    = var.gpu_budget_actual_usd
+  budget_forecast_usd  = var.gpu_budget_forecast_usd
 
   depends_on = [module.ecs] # the cluster must exist before capacity providers attach
 }

@@ -138,3 +138,9 @@ variable "gpu_max_lifetime_seconds" {
   default     = 10800
   description = "Must equal transcription-prod's max_lifetime_seconds — both feed the same worker via GPU_MAX_LIFETIME_SECONDS / MAX_LIFETIME_SECONDS."
 }
+
+variable "gpu_on_demand_percentage" {
+  description = "0 = all spot (default). Set 100 when spot capacity for GPU types is unavailable; the GPU-hour caps still bound the cost."
+  type        = number
+  default     = 0
+}

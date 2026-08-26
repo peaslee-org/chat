@@ -66,3 +66,21 @@ variable "budget_start" {
   type    = string
   default = "2026-08-01_00:00"
 }
+
+variable "instance_types" {
+  description = "GPU instance types the pool may launch (mixed-instances overrides). Wider = more spot pools. All must run the tenants' CUDA images."
+  type        = list(string)
+  default     = ["g4dn.xlarge", "g4dn.2xlarge", "g5.xlarge", "g6.xlarge"]
+}
+
+variable "spot_allocation_strategy" {
+  description = "capacity-optimized (default) picks pools with capacity; lowest-price uses 2 pools and fails when they are empty."
+  type        = string
+  default     = "capacity-optimized"
+}
+
+variable "on_demand_percentage" {
+  description = "Percent of capacity above base launched on-demand. 0 = all spot; 100 = all on-demand (reliable, ~3x the price; the hour caps still bound it)."
+  type        = number
+  default     = 0
+}
