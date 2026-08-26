@@ -41,6 +41,13 @@ class PhotogrammetryRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_job_any(self, job_id: UUID) -> Optional[PhotogrammetryJob]:
+        """Lookup by id only — for background tasks that have no user context."""
+        result = await self.db.execute(
+            select(PhotogrammetryJob).where(PhotogrammetryJob.id == job_id)
+        )
+        return result.scalar_one_or_none()
+
     async def count_active_jobs(self, user_id: str) -> int:
         result = await self.db.execute(
             select(func.count()).where(
@@ -106,7 +113,10 @@ class PhotogrammetryRepository:
             last_returned = items[-1]
             next_cursor = base64.b64encode(
                 json.dumps(
-                    {"created_at": last_returned.created_at.isoformat(), "id": str(last_returned.id)}
+                    {
+                        "created_at": last_returned.created_at.isoformat(),
+                        "id": str(last_returned.id),
+                    }
                 ).encode()
             ).decode()
         return items, next_cursor

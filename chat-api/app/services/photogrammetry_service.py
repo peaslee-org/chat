@@ -3,7 +3,9 @@
 `PhotogrammetryService` is the real path (S3 + ECS via the shared GpuController).
 `LocalPhotogrammetryService` (Task 6) is the in-process mock selected by USE_MOCK_PHOTOGRAMMETRY.
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -182,3 +184,74 @@ class PhotogrammetryService:
             estimated_wait_seconds=gpu_state.estimated_wait_seconds if gpu_state else None,
             gpu_notice=gpu_state.notice if gpu_state else None,
         )
+
+
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "photogrammetry"
+
+
+class LocalPhotogrammetryService(PhotogrammetryService):
+    """Mock for local dev (USE_MOCK_PHOTOGRAMMETRY=true): real Postgres, no S3, no ECS.
+
+    confirm_job trusts the dev-upload sink and walks the job
+    queued → processing(sfm → dense → mesh → texture) → complete on timers, then copies the
+    committed placeholder mesh/preview into the sink under the job's output keys.
+    """
+    is_mock = True
+
+    def __init__(self, repo: PhotogrammetryRepository, storage, settings):
+        super().__init__(repo, storage, settings, gpu=None)
+
+    async def confirm_job(self, user_id: str, job_id: UUID) -> None:
+        job = await self._get_or_404(user_id, job_id)
+        if job.status != "pending":
+            raise ConflictError("Job is not in pending state")
+        await self._repo.update_job_status(job.id, "queued")
+        await self._repo.db.commit()
+        asyncio.create_task(self._mock_process_job(job.id))
+
+    async def create_sample_job(self, user_id: str) -> SampleJobResponse:
+        active = await self._repo.count_active_jobs(user_id)
+        if active >= self._settings.max_concurrent_jobs:
+            raise ConcurrentJobLimitExceeded()
+        job_id = uuid4()
+        input_prefix = f"photogrammetry/{user_id}/{job_id}/input/"
+        images = sorted((ASSET_DIR / "images").glob("*.jpg"))
+        for i, path in enumerate(images, start=1):
+            self._storage.write_object(f"{input_prefix}{i:04d}.jpg", path.read_bytes())
+        await self._repo.create_job(
+            job_id=job_id, user_id=user_id, name="Sample scan",
+            image_count=len(images), input_prefix=input_prefix,
+        )
+        await self._repo.update_job_status(job_id, "queued")
+        await self._repo.db.commit()
+        asyncio.create_task(self._mock_process_job(job_id))
+        return SampleJobResponse(job_id=job_id)
+
+    async def _mock_process_job(self, job_id: UUID) -> None:
+        import app.db.session as db_session
+
+        delay = self._settings.mock_photogrammetry_stage_delay_seconds
+
+        async def set_status(status: str, **kwargs) -> Optional[str]:
+            async with db_session.AsyncSessionLocal() as session:
+                try:
+                    repo = PhotogrammetryRepository(session)
+                    await repo.update_job_status(job_id, status, **kwargs)
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
+
+        await asyncio.sleep(delay)
+        for stage in STAGES:
+            await set_status("processing", stage=stage)
+            await asyncio.sleep(delay)
+
+        async with db_session.AsyncSessionLocal() as session:
+            job = await PhotogrammetryRepository(session).get_job_any(job_id)
+        output_prefix = job.input_prefix.rsplit("input/", 1)[0] + "output/"
+        mesh_key = f"{output_prefix}mesh.glb"
+        preview_key = f"{output_prefix}preview.png"
+        self._storage.write_object(mesh_key, (ASSET_DIR / "mesh.glb").read_bytes())
+        self._storage.write_object(preview_key, (ASSET_DIR / "preview.png").read_bytes())
+        await set_status("complete", mesh_s3_key=mesh_key, preview_s3_key=preview_key)

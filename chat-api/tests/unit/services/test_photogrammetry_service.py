@@ -1,6 +1,7 @@
 """Unit tests for PhotogrammetryService — no real DB, S3 or ECS."""
+import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -14,8 +15,13 @@ from app.core.exceptions import (
     WorkerNotDeployed,
 )
 from app.schemas.photogrammetry import JobCreateRequest
+from app.services import photogrammetry_service as ps
 from app.services.gpu_controller import GpuCapExceeded
-from app.services.photogrammetry_service import PhotogrammetryService
+from app.services.photogrammetry_service import (
+    ASSET_DIR,
+    LocalPhotogrammetryService,
+    PhotogrammetryService,
+)
 
 NOW = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
 
@@ -46,6 +52,7 @@ def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None
         )
     )
     repo.get_job = AsyncMock(return_value=job)
+    repo.get_job_any = AsyncMock(side_effect=lambda job_id: job)
     repo.update_job_status = AsyncMock()
     repo.list_jobs = AsyncMock(return_value=([], None))
     repo.delete_job = AsyncMock()
@@ -212,3 +219,85 @@ class TestSampleJob:
         assert kwargs["name"] == "Sample scan"
         repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
         gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+
+
+def make_local(*, job=None, active_jobs=0):
+    svc, repo, storage = make_service(job=job, active_jobs=active_jobs)
+    storage.write_object = MagicMock()
+    local = LocalPhotogrammetryService(svc._repo, storage, svc._settings)
+    local._settings.mock_photogrammetry_stage_delay_seconds = 0
+    return local, repo, storage
+
+
+class FakeSessionFactory:
+    """Stands in for app.db.session.AsyncSessionLocal; records the repo calls the walk makes."""
+    def __init__(self, repo):
+        self.repo = repo
+        self.session = MagicMock()
+        self.session.commit = AsyncMock()
+        self.session.rollback = AsyncMock()
+
+    def __call__(self):
+        return self
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class TestLocalService:
+    async def test_is_mock_flag_reaches_status(self):
+        job = make_job(status="complete", preview_s3_key="p/preview.png")
+        local, *_ = make_local(job=job)
+        res = await local.get_job_status("user1", job.id)
+        assert res.mock is True
+
+    async def test_confirm_queues_without_gpu_and_schedules_walk(self):
+        job = make_job()
+        local, repo, _ = make_local(job=job)
+        with patch.object(local, "_mock_process_job", new=AsyncMock()) as walk:
+            await local.confirm_job("user1", job.id)
+            await asyncio.sleep(0)
+        repo.update_job_status.assert_awaited_once_with(job.id, "queued")
+        walk.assert_awaited_once_with(job.id)
+
+    async def test_walk_visits_every_stage_then_writes_outputs_and_completes(self):
+        job = make_job()
+        local, repo, storage = make_local(job=job)
+        factory = FakeSessionFactory(repo)
+        with patch.object(ps, "PhotogrammetryRepository", return_value=repo), \
+             patch("app.db.session.AsyncSessionLocal", factory):
+            await local._mock_process_job(job.id)
+        calls = [
+            c.args[1:] + (c.kwargs.get("stage"),) for c in repo.update_job_status.await_args_list
+        ]
+        assert calls[:4] == [
+            ("processing", "sfm"),
+            ("processing", "dense"),
+            ("processing", "mesh"),
+            ("processing", "texture"),
+        ]
+        final = repo.update_job_status.await_args_list[-1]
+        assert final.args[1] == "complete"
+        assert final.kwargs["mesh_s3_key"] == f"photogrammetry/user1/{job.id}/output/mesh.glb"
+        assert final.kwargs["preview_s3_key"] == f"photogrammetry/user1/{job.id}/output/preview.png"
+        written = {c.args[0] for c in storage.write_object.call_args_list}
+        assert written == {final.kwargs["mesh_s3_key"], final.kwargs["preview_s3_key"]}
+        assert factory.session.commit.await_count >= 5
+
+    async def test_sample_copies_assets_into_sink_and_queues(self):
+        local, repo, storage = make_local()
+        with patch.object(local, "_mock_process_job", new=AsyncMock()) as walk:
+            res = await local.create_sample_job("user1")
+            await asyncio.sleep(0)
+        n = len(list((ASSET_DIR / "images").glob("*.jpg")))
+        assert n >= 5
+        assert storage.write_object.call_count == n
+        first_key = storage.write_object.call_args_list[0].args[0]
+        assert first_key == f"photogrammetry/user1/{res.job_id}/input/0001.jpg"
+        kwargs = repo.create_job.await_args.kwargs
+        assert kwargs["image_count"] == n and kwargs["name"] == "Sample scan"
+        repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
+        walk.assert_awaited_once_with(res.job_id)
