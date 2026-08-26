@@ -31,5 +31,8 @@ async def dev_download_sink(path: str) -> Response:
     target = (root / path).resolve()
     if target.is_file() and root in target.parents:
         media_type, _ = mimetypes.guess_type(target.name)
-        return Response(content=target.read_bytes(), media_type=media_type or "application/octet-stream")
+        return Response(
+            content=target.read_bytes(),
+            media_type=media_type or "application/octet-stream",
+        )
     return Response(status_code=200)

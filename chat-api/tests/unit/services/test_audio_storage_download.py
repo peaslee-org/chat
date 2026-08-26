@@ -30,7 +30,7 @@ def test_mock_download_url_and_write_object():
 
 
 def test_real_download_url_uses_get_object():
-    with patch("app.services.audio_storage.boto3") as boto3:
+    with patch("app.services.audio_storage.boto3"):
         settings = MagicMock(aws_region="us-east-1", audio_bucket_name="bucket")
         s = AudioStorageService(settings)
         s.s3.generate_presigned_url = MagicMock(return_value="https://signed")
