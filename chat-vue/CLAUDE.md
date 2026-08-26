@@ -78,6 +78,7 @@ src/
     pkce.ts            PKCE code_verifier + code_challenge generation (WebCrypto)
     axios.ts           Axios instance with auth interceptor and 401 handler
     transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
+    photogrammetryApi.ts   Photogrammetry API calls (jobs, uploads, mesh URL)
   stores/
     auth.ts            Authentication state: token, login(), handleCallback(), logout()
     chat.ts            Conversation list + active thread, sendMessage(), deleteConversation()
@@ -85,11 +86,14 @@ src/
                        static AVAILABLE_MODELS list on error
     transcribe.ts      Speaker profiles + samples + transcription jobs state; polling for
                        in-flight jobs (5 s interval) and processing samples (3 s interval)
-  router/index.ts      Three routes: / (ChatView), /transcribe (TranscribeView), /callback (CallbackView)
+    photogrammetry.ts   Scan jobs state, concurrent uploads, 3 s polling, presigned mesh URL cache
+  router/index.ts      Four routes: / (ChatView), /transcribe (TranscribeView), /photogrammetry
+                       (PhotogrammetryView), /callback (CallbackView)
   views/
     ChatView.vue       Main layout: sidebar + message thread
     CallbackView.vue   OAuth callback handler — exchanges code for tokens
     TranscribeView.vue Transcribe layout: resizable sidebar (RunSidebar) + detail panel (RunDetailView)
+    PhotogrammetryView.vue  Scan layout: resizable ScanSidebar + ScanDetailView, GpuStatusBar on top
   components/
     ConversationSidebar.vue              Left panel: conversation list, new/delete, logout
     MessageList.vue                      Scrollable message thread with typing indicator
@@ -109,6 +113,16 @@ src/
       SpeakerProfileCard.vue   Expandable card: speaker name, samples list, upload
       SpeakerSampleRow.vue     Single sample row with status and delete action
       SampleStatusBadge.vue    Status chip (processing / ready / failed) for a sample
+    photogrammetry/
+      ScanSidebar.vue          Left panel: job list + New/Sample buttons
+      ScanJobCard.vue          Job summary card in the sidebar list
+      ScanStatusBadge.vue      Status chip (pending / queued / processing / complete / failed)
+      StageStrip.vue           Four-step strip (sfm · dense · mesh · texture), current step highlighted
+      ImageDropzone.vue        Multi-file drag/drop image picker with thumbnails
+      NewScanForm.vue          Name + dropzone + Start scan, shows uploadProgress
+      ScanDetailView.vue       Header + form/preview/stage-strip/viewer/error body for the selected job
+      MeshViewer.vue           <model-viewer> web component; registered as a custom element in
+                               vite.config.ts
 ```
 
 All imports use the `@` alias which maps to `src/`.
@@ -191,6 +205,18 @@ The chat-api is at `/var/www/chat/chat-api`. Key endpoints:
 2. PUT file directly to S3 using the presigned URL (no auth header — use plain `fetch`, not `apiClient`)
 3. Call confirm endpoint → backend transitions status and begins processing
 
+**Photogrammetry (`/api/v1/photogrammetry/`):**
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/jobs` | `{name, filenames[]}` → `{job_id, uploads[{filename,key,url}]}` |
+| POST | `/jobs/{id}/confirm` | Confirm photos uploaded; transitions job → `queued` |
+| GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
+| GET | `/jobs/{id}` | Get job status |
+| DELETE | `/jobs/{id}` | 204 |
+| POST | `/jobs/sample` | Seed a job from the bundled sample photo set and confirm it |
+| GET | `/jobs/{id}/mesh` | `{url, expires_at}` — presigned GLB URL |
+
 ## Notes
 
 - No Dockerfile — static site deployed to S3 + CloudFront
@@ -206,3 +232,4 @@ The chat-api is at `/var/www/chat/chat-api`. Key endpoints:
 - Sample statuses: `processing → ready | failed`; `SpeakerSample.error_message` holds the worker error reason when `failed`
 - When sample polling detects a `processing → failed` transition, `transcribe` store pushes a toast (auto-dismisses after 8 s); `TranscribeView` renders toasts via `Teleport` bottom-right overlay; store exports `toasts` and `dismissToast`
 - S3 uploads must use plain `fetch` (not `apiClient`) — no Authorization header allowed on presigned PUT requests
+- Scan sidebar width is persisted under `scanSidebarWidth`; job polling every 3 s (`VITE_PHOTOGRAMMETRY_POLL_INTERVAL_MS`), 60 s while the GPU worker is off; resumes on reload via `resumePollingForActiveJobs()`

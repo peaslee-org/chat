@@ -32,6 +32,9 @@ Browser (chat-vue SPA on S3 + CloudFront)
                   → PostgreSQL (TranscriptSegment / SpeakerProfile writes)
                   → S3 (transcript.txt output, speaker embeddings)
                   → worker exits (idle timeout, max lifetime, or spot notice); ASG scales back to 0
+      → S3 (photo sets under photogrammetry/<user>/<job>/input/) → RunTask photogrammetry worker
+                  (not yet built — confirm returns 503 until GPU_PHOTOGRAMMETRY_TASK_FAMILY is set;
+                  local dev uses the in-process mock, see docs/mock-api.md)
 ```
 
 **Auth:**

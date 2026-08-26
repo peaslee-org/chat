@@ -202,6 +202,24 @@ When no fixtures are present, `dev_worker.py` generates data from these env vars
 
 ---
 
+## Photogrammetry mock
+
+`USE_MOCK_PHOTOGRAMMETRY=true` in `chat-api/.env` swaps in `LocalPhotogrammetryService`:
+
+- `POST /api/v1/photogrammetry/jobs` returns one dev-upload sink URL per photo; the browser PUTs
+  them there (4 at a time), then confirms.
+- Confirmed jobs walk `queued → processing (sfm → dense → mesh → texture) → complete`, one
+  `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` (default 2 s) per step, then the committed placeholder
+  `chat-api/app/assets/photogrammetry/{mesh.glb,preview.png}` is copied into the sink under the job's
+  `output/` keys and served back by the sink's GET — `<model-viewer>` loads the GLB from there.
+- **Sample** in the sidebar (`POST /jobs/sample`) copies the bundled photo set into the sink and runs
+  the same walk, so the page works with nothing uploaded.
+- Every status response carries `mock: true`; the viewer labels the mesh as a placeholder.
+
+Regenerate the sample assets with `scripts/dev/make-photogrammetry-sample.py` (see its docstring).
+
+---
+
 ## Key files at a glance
 
 | File | Purpose |
@@ -219,3 +237,6 @@ When no fixtures are present, `dev_worker.py` generates data from these env vars
 | [chat-api/app/config.py](../chat-api/app/config.py) | `dev_auth_bypass`, `local_storage_path`, `mock_worker_external` settings |
 | [transcription-worker/dev_worker.py](../transcription-worker/dev_worker.py) | Standalone DB-polling worker — no ML, no SQS |
 | [transcription-worker/handlers/transcription.py](../transcription-worker/handlers/transcription.py) | `_maybe_capture()` — writes fixture JSON when `DEV_CAPTURE_FIXTURES_DIR` is set |
+| [chat-api/app/services/photogrammetry_service.py](../chat-api/app/services/photogrammetry_service.py) | `LocalPhotogrammetryService` — timed stage walk, placeholder outputs |
+| [chat-api/app/assets/photogrammetry/](../chat-api/app/assets/photogrammetry/) | Sample photo set (EXIF-stripped) + placeholder `mesh.glb` / `preview.png` |
+| [scripts/dev/make-photogrammetry-sample.py](../scripts/dev/make-photogrammetry-sample.py) | Regenerates those assets from a photo folder (or `--synthetic`) |
