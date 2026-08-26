@@ -137,6 +137,8 @@ All settings are in `app/config.py` (`Settings` class). Copy `.env.example` to `
 | `MOCK_JOB_TRANSCRIBING_DELAY_SECONDS` | Delay in mock job `transcribing` stage (default: 5) |
 | `MOCK_JOB_MATCHING_DELAY_SECONDS` | Delay in mock job `matching` stage (default: 3) |
 
+**GPU controller:** The transcription worker runs as a run-to-completion ECS task launched on-demand by the API via `app/services/gpu_controller.py` (using ECS `RunTask`). It launches when a transcription job is confirmed, when `/api/v1/gpu/warm` is called, or when a status poll detects an active job with an off worker. The controller enforces daily and monthly GPU-hour caps (from environment) and a per-user warm cap tracked in the `gpu_sessions` table. The GPU-related environment variables (`GPU_CONTROLLER_ENABLED`, `GPU_CLUSTER`, `GPU_WORKER_TASK_FAMILY`, `GPU_CAPACITY_PROVIDER`, cap and rate settings) are defined in `.env.example`. The `/api/v1/gpu/*` endpoints return 503 Service Unavailable unless `GPU_CONTROLLER_ENABLED=true` or `USE_MOCK_TRANSCRIPTION=true`.
+
 **LangSmith tracing (optional):** set `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_API_KEY`, and `LANGCHAIN_PROJECT` to trace Bedrock invocations via the `@traceable` decorator on `BedrockService.invoke()`.
 
 Note: `.env.example` sets `CORS_ORIGINS=["http://localhost:3000"]` — change to `["http://localhost:5173"]` to match the Vite dev server.
@@ -146,5 +148,5 @@ In production (`ENVIRONMENT=prod`), `/docs` (Swagger UI) is disabled.
 ## Mock / local dev notes
 
 - **`USE_MOCK_BEDROCK=true`** — skips AWS Bedrock entirely, returns a canned response.
-- **`USE_MOCK_TRANSCRIPTION=true`** — uses `LocalTranscriptionService` instead of the real one. Jobs are completed in-process via `asyncio.create_task`: `transcribing` → `matching` → `complete` with configurable delays. Seeded with 4 mock transcript segments. Samples transition to `ready` after `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`.
+- **`USE_MOCK_TRANSCRIPTION=true`** — uses `LocalTranscriptionService` instead of the real one. Jobs are completed in-process via `asyncio.create_task`: `transcribing` → `matching` → `complete` with configurable delays. Seeded with 4 mock transcript segments. Samples transition to `ready` after `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`. Also enables the mock GPU launcher for the `/api/v1/gpu/*` endpoints, so the Warm button and GPU state queries work locally without AWS resources.
 - **`/api/v1/transcribe/dev-upload/{path}`** — PUT/GET sink registered at app startup when mock transcription is enabled; acts as a no-op S3 replacement so browser presigned-URL uploads succeed.
