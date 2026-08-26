@@ -1,5 +1,6 @@
 """Thin ECS wrapper: is a worker task alive, and start one. No policy here."""
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 
 class GpuLaunchError(Exception):
@@ -15,22 +16,28 @@ class EcsWorkerLauncher:
 
     def list_worker_tasks(self) -> list[str]:
         # desiredStatus=RUNNING covers PROVISIONING/PENDING/ACTIVATING/RUNNING tasks.
-        arns = self._ecs.list_tasks(
-            cluster=self._cluster, family=self._family, desiredStatus="RUNNING"
-        ).get("taskArns", [])
-        if not arns:
-            return []
-        tasks = self._ecs.describe_tasks(cluster=self._cluster, tasks=arns).get("tasks", [])
+        try:
+            arns = self._ecs.list_tasks(
+                cluster=self._cluster, family=self._family, desiredStatus="RUNNING"
+            ).get("taskArns", [])
+            if not arns:
+                return []
+            tasks = self._ecs.describe_tasks(cluster=self._cluster, tasks=arns).get("tasks", [])
+        except (ClientError, BotoCoreError) as e:
+            raise GpuLaunchError(str(e)) from e
         return [t["lastStatus"] for t in tasks]
 
     def run_worker_task(self, started_by: str) -> str:
-        resp = self._ecs.run_task(
-            cluster=self._cluster,
-            taskDefinition=self._family,          # latest ACTIVE revision
-            count=1,
-            capacityProviderStrategy=[{"capacityProvider": self._cp, "weight": 1}],
-            startedBy=started_by[:36],
-        )
+        try:
+            resp = self._ecs.run_task(
+                cluster=self._cluster,
+                taskDefinition=self._family,          # latest ACTIVE revision
+                count=1,
+                capacityProviderStrategy=[{"capacityProvider": self._cp, "weight": 1}],
+                startedBy=started_by[:36],
+            )
+        except (ClientError, BotoCoreError) as e:
+            raise GpuLaunchError(str(e)) from e
         if resp.get("failures"):
             f = resp["failures"][0]
             raise GpuLaunchError(f"{f.get('reason')}: {f.get('detail')}")
