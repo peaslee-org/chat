@@ -1,5 +1,5 @@
 """The dev-upload sink GET serves a stored file (needed for the mock mesh/preview)."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -56,3 +56,13 @@ async def test_get_outside_root_is_empty_200(tmp_path):
         r = await dev.dev_download_sink("../secret.txt")
     assert r.status_code == 200
     assert r.body == b""
+
+
+async def test_put_outside_root_is_rejected(tmp_path):
+    settings = MagicMock(local_storage_path=str(tmp_path))
+    request = MagicMock()
+    request.body = AsyncMock(return_value=b"x")
+    with patch.object(dev, "get_settings", return_value=settings):
+        r = await dev.dev_upload_sink("../evil.bin", request)
+    assert r.status_code == 400
+    assert not (tmp_path.parent / "evil.bin").exists()

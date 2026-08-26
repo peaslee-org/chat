@@ -14,7 +14,7 @@ const sampleBusy = ref(false)
 async function handleSample() {
   if (sampleBusy.value) return
   sampleBusy.value = true
-  try { await store.submitSampleJob() } finally { sampleBusy.value = false }
+  try { await store.submitSampleJob() } catch { /* store already pushed a toast */ } finally { sampleBusy.value = false }
 }
 </script>
 

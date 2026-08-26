@@ -287,6 +287,24 @@ class TestLocalService:
         assert written == {final.kwargs["mesh_s3_key"], final.kwargs["preview_s3_key"]}
         assert factory.session.commit.await_count >= 5
 
+    async def test_walk_aborts_quietly_when_job_deleted(self):
+        # job=None (default) → repo.get_job_any returns None, simulating deletion mid-walk.
+        local, repo, storage = make_local()
+        factory = FakeSessionFactory(repo)
+        with patch.object(ps, "PhotogrammetryRepository", return_value=repo), \
+             patch("app.db.session.AsyncSessionLocal", factory):
+            await local._mock_process_job(uuid4())
+        storage.write_object.assert_not_called()
+        calls = [
+            c.args[1:] + (c.kwargs.get("stage"),) for c in repo.update_job_status.await_args_list
+        ]
+        assert calls == [
+            ("processing", "sfm"),
+            ("processing", "dense"),
+            ("processing", "mesh"),
+            ("processing", "texture"),
+        ]
+
     async def test_sample_copies_assets_into_sink_and_queues(self):
         local, repo, storage = make_local()
         with patch.object(local, "_mock_process_job", new=AsyncMock()) as walk:

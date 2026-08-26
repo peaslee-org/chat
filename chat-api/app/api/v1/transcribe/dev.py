@@ -17,7 +17,10 @@ async def dev_upload_sink(path: str, request: Request) -> Response:
     and the file is available on disk for downstream processing."""
     body = await request.body()
     settings = get_settings()
-    dest = Path(settings.local_storage_path) / path
+    root = Path(settings.local_storage_path).resolve()
+    dest = (root / path).resolve()
+    if root not in dest.parents:
+        return Response(status_code=400)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(body)
     return Response(status_code=200)

@@ -4,6 +4,7 @@
 `LocalPhotogrammetryService` (Task 6) is the in-process mock selected by USE_MOCK_PHOTOGRAMMETRY.
 """
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -30,6 +31,8 @@ from app.schemas.photogrammetry import (
     extension_of,
 )
 from app.services.gpu_controller import GpuCapExceeded
+
+logger = logging.getLogger(__name__)
 
 DOWNLOAD_TTL_SECONDS = 900
 ACTIVE_FOR_GPU = ("queued", "processing")
@@ -228,6 +231,12 @@ class LocalPhotogrammetryService(PhotogrammetryService):
         return SampleJobResponse(job_id=job_id)
 
     async def _mock_process_job(self, job_id: UUID) -> None:
+        try:
+            await self._run_mock_process_job(job_id)
+        except Exception:
+            logger.exception("mock photogrammetry walk failed for job %s", job_id)
+
+    async def _run_mock_process_job(self, job_id: UUID) -> None:
         import app.db.session as db_session
 
         delay = self._settings.mock_photogrammetry_stage_delay_seconds
@@ -249,6 +258,9 @@ class LocalPhotogrammetryService(PhotogrammetryService):
 
         async with db_session.AsyncSessionLocal() as session:
             job = await PhotogrammetryRepository(session).get_job_any(job_id)
+        if job is None:
+            logger.info("mock photogrammetry walk: job %s deleted mid-walk, aborting", job_id)
+            return
         output_prefix = job.input_prefix.rsplit("input/", 1)[0] + "output/"
         mesh_key = f"{output_prefix}mesh.glb"
         preview_key = f"{output_prefix}preview.png"

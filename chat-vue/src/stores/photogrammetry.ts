@@ -68,11 +68,14 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
 
   /** Create → upload every file (4 at a time) → confirm → poll. Returns the job id. */
   async function submitScan(name: string, files: File[]): Promise<string> {
-    const { job_id, uploads } = await api.createJob(name || null, files.map(f => f.name))
-    upsert(placeholder(job_id, name, files.length, "pending"))
-    activeJobId.value = job_id
-    uploadProgress.value = { done: 0, total: uploads.length }
+    let job_id: string
     try {
+      const created = await api.createJob(name || null, files.map(f => f.name))
+      job_id = created.job_id
+      const { uploads } = created
+      upsert(placeholder(job_id, name, files.length, "pending"))
+      activeJobId.value = job_id
+      uploadProgress.value = { done: 0, total: uploads.length }
       let next = 0
       async function worker(): Promise<void> {
         while (next < uploads.length) {
@@ -88,7 +91,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
       startPolling(job_id)
     } catch (err) {
       const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined
-      pushToast(detail ? `Scan failed: ${detail}` : "Scan failed — upload or confirm error")
+      pushToast(detail ? `Scan failed: ${detail}` : "Scan failed — could not create or upload the scan")
       throw err
     } finally {
       uploadProgress.value = null
@@ -97,11 +100,17 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
   }
 
   async function submitSampleJob(): Promise<string> {
-    const { job_id } = await api.createSampleJob()
-    upsert(placeholder(job_id, "Sample scan", 0, "queued"))
-    activeJobId.value = job_id
-    startPolling(job_id)
-    return job_id
+    try {
+      const { job_id } = await api.createSampleJob()
+      upsert(placeholder(job_id, "Sample scan", 0, "queued"))
+      activeJobId.value = job_id
+      startPolling(job_id)
+      return job_id
+    } catch (err) {
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined
+      pushToast(detail ? `Sample scan failed: ${detail}` : "Sample scan failed")
+      throw err
+    }
   }
 
   function selectJob(jobId: string): void {
