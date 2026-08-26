@@ -1,25 +1,7 @@
 import asyncio
 import io
-import time
 from uuid import UUID, uuid4
 from typing import Optional
-
-# Cache for the S3 worker_paused flag. Tuple of (expiry_monotonic, value).
-_paused_cache: tuple[float, bool] | None = None
-_PAUSED_CACHE_TTL = 60.0  # seconds
-
-
-def _is_worker_paused(storage) -> bool:
-    global _paused_cache
-    now = time.monotonic()
-    if _paused_cache is not None and now < _paused_cache[0]:
-        return _paused_cache[1]
-    try:
-        value = storage.read_object_text("worker_paused") == "true"
-    except Exception:
-        value = False
-    _paused_cache = (now + _PAUSED_CACHE_TTL, value)
-    return value
 
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
@@ -50,6 +32,7 @@ from app.schemas.transcription import (
     TurnDistancesResponse,
 )
 from app.services.audio_storage import AudioStorageService
+from app.services.gpu_controller import GpuCapExceeded
 from app.services.sqs_publisher import SQSPublisher
 
 
@@ -61,11 +44,13 @@ class TranscriptionService:
         storage: AudioStorageService,
         sqs: SQSPublisher,
         settings,
+        gpu=None,
     ):
         self._repo = repo
         self._storage = storage
         self._sqs = sqs
         self._settings = settings
+        self._gpu = gpu
 
     # ── Speaker Profiles ──────────────────────────────────────────────────────
 
@@ -264,6 +249,13 @@ class TranscriptionService:
         )
         await self._repo.append_event(job_id, "api", "sqs.published")
         await self._repo.db.commit()
+        if self._gpu is not None:
+            try:
+                await self._gpu.ensure_worker("job", user_id)
+                await self._repo.append_event(job_id, "api", "gpu.ensured")
+            except GpuCapExceeded as e:
+                await self._repo.append_event(job_id, "api", "gpu.capped", {"reason": e.reason})
+            await self._repo.db.commit()
 
     async def get_job_status(self, user_id: str, job_id: UUID) -> JobStatusResponse:
         job = await self._repo.get_job(job_id, user_id)
@@ -272,11 +264,14 @@ class TranscriptionService:
         partial_available = (
             job.status == "failed" and job.transcribe_output_s3_key is not None
         )
-        worker_paused = (
-            _is_worker_paused(self._storage)
-            if job.status in ("transcribing", "matching")
-            else False
-        )
+        gpu_state = None
+        if self._gpu is not None and job.status in ("transcribing", "matching"):
+            gpu_state = await self._gpu.get_state()
+            if gpu_state.worker_state == "off":
+                try:
+                    gpu_state = await self._gpu.ensure_worker("resume", user_id)
+                except GpuCapExceeded as e:
+                    gpu_state = gpu_state.model_copy(update={"notice": e.reason})
         return JobStatusResponse(
             job_id=job.id,
             status=job.status,
@@ -290,7 +285,9 @@ class TranscriptionService:
             created_at=job.created_at,
             updated_at=job.updated_at,
             completed_at=job.completed_at,
-            worker_paused=worker_paused,
+            worker_state=gpu_state.worker_state if gpu_state else "off",
+            estimated_wait_seconds=gpu_state.estimated_wait_seconds if gpu_state else 0,
+            gpu_notice=gpu_state.notice if gpu_state else None,
         )
 
     async def list_jobs(

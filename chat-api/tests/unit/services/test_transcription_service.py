@@ -13,6 +13,7 @@ def make_service(
     *,
     active_jobs: int = 0,
     max_concurrent_jobs: int = 3,
+    gpu=None,
 ):
     repo = MagicMock()
     repo.count_active_jobs = AsyncMock(return_value=active_jobs)
@@ -49,7 +50,7 @@ def make_service(
     settings = MagicMock()
     settings.max_concurrent_jobs = max_concurrent_jobs
 
-    return TranscriptionService(repo, storage, sqs, settings), repo, storage, sqs
+    return TranscriptionService(repo, storage, sqs, settings, gpu), repo, storage, sqs
 
 
 class TestInitiateJobUpload:
@@ -374,3 +375,65 @@ class TestGetTranscriptSpeakerName:
         result = await service.get_transcript("user1", fake_job.id)
 
         assert result.segments[0].speaker_name is None
+
+
+class TestGpuIntegration:
+    async def test_confirm_calls_ensure_worker_and_records_cap(self):
+        from app.services.gpu_controller import GpuCapExceeded
+
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock(
+            side_effect=GpuCapExceeded("Daily GPU budget used (3 h). Resets at midnight UTC.")
+        )
+        service, repo, storage, sqs = make_service(gpu=gpu)
+        job_id = uuid4()
+        fake_job = MagicMock()
+        fake_job.id = job_id
+        fake_job.status = "pending"
+        fake_job.audio_s3_key = "audio/user/job/source"
+        fake_job.speaker_count_hint = None
+        fake_job.language = "en-US"
+        repo.get_job.return_value = fake_job
+
+        await service.confirm_job_upload("user1", job_id)
+
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+        repo.append_event.assert_any_await(
+            job_id,
+            "api",
+            "gpu.capped",
+            {"reason": "Daily GPU budget used (3 h). Resets at midnight UTC."},
+        )
+
+    async def test_status_resumes_worker_when_off_and_job_active(self):
+        from app.schemas.gpu import GpuStateResponse
+
+        gpu = MagicMock()
+        gpu.get_state = AsyncMock(
+            return_value=GpuStateResponse(worker_state="off", estimated_wait_seconds=180)
+        )
+        gpu.ensure_worker = AsyncMock(
+            return_value=GpuStateResponse(worker_state="starting", estimated_wait_seconds=120)
+        )
+        service, repo, _, _ = make_service(gpu=gpu)
+        job_id = uuid4()
+        fake_job = MagicMock()
+        fake_job.id = job_id
+        fake_job.status = "transcribing"
+        fake_job.speaker_count_hint = None
+        fake_job.language = "en-US"
+        fake_job.speaker_ids = []
+        fake_job.error_message = None
+        fake_job.transcribe_output_s3_key = None
+        fake_job.matched_speaker_count = None
+        fake_job.total_segment_count = None
+        fake_job.created_at = MagicMock()
+        fake_job.updated_at = MagicMock()
+        fake_job.completed_at = None
+        repo.get_job = AsyncMock(return_value=fake_job)
+
+        resp = await service.get_job_status("user1", job_id)
+
+        gpu.ensure_worker.assert_awaited_once_with("resume", "user1")
+        assert resp.worker_state == "starting"
+        assert resp.estimated_wait_seconds == 120
