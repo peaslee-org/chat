@@ -45,7 +45,11 @@ class GpuController:
         global _state_cache
         mono = time.monotonic()
         if _state_cache is None or mono >= _state_cache[0]:
-            statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
+            try:
+                statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
+            except GpuLaunchError as e:
+                logger.warning("ListTasks failed: %s", e)
+                return self._response("off", notice="GPU status unavailable")
             _state_cache = (mono + _STATE_CACHE_TTL, statuses)
         return self._response(_state_from(_state_cache[1]))
 
@@ -62,7 +66,12 @@ class GpuController:
         global _state_cache
         notice = await self._check_caps(reason, user_id, is_admin)
         await self._repo.advisory_lock()
-        statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
+        try:
+            statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
+        except GpuLaunchError as e:
+            logger.error("ListTasks failed: %s", e)
+            _state_cache = None
+            return self._response("off", notice="GPU unavailable, retrying on next poll")
         state = _state_from(statuses)
         warm_until = None
         if state == "off":

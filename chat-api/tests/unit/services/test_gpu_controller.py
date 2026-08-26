@@ -96,6 +96,23 @@ async def test_launch_failure_is_reported_not_raised():
     assert state.worker_state == "off" and "unavailable" in state.notice
 
 
+async def test_get_state_degrades_when_list_fails():
+    ctl, _, launcher = make()
+    launcher.list_worker_tasks.side_effect = GpuLaunchError("throttled")
+    state = await ctl.get_state()
+    assert state.worker_state == "off"
+    assert "unavailable" in state.notice
+
+
+async def test_ensure_worker_degrades_when_list_fails():
+    ctl, _, launcher = make()
+    launcher.list_worker_tasks.side_effect = GpuLaunchError("throttled")
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.worker_state == "off"
+    assert "unavailable" in state.notice
+    launcher.run_worker_task.assert_not_called()
+
+
 async def test_get_state_caches_for_30s():
     ctl, _, launcher = make(tasks=["PENDING"])
     assert (await ctl.get_state()).worker_state == "starting"
