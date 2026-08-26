@@ -1,5 +1,5 @@
 """gpu_sessions / gpu_cost_snapshots access. Hours = closed sessions + open sessions to `until`."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -17,15 +17,32 @@ class GpuSessionRepository:
         # Transaction-scoped; released at commit/rollback of this session's transaction.
         await self.db.execute(text("SELECT pg_advisory_xact_lock(hashtext('gpu_controller'))"))
 
-    async def hours_between(self, since: datetime, until: datetime) -> float:
-        # Overlap of each session [started_at, coalesce(ended_at, until)] with [since, until].
+    async def close_open_sessions(self, now: datetime, end_reason: str = "unknown") -> int:
+        # Reconciliation: a row can be left open by a worker that never got to call back
+        # (e.g. it died before GpuSessionStore.close). Called when ListTasks shows nothing
+        # running, so any still-open row is stale.
+        result = await self.db.execute(
+            update(GpuSession)
+            .where(GpuSession.ended_at.is_(None))
+            .values(ended_at=now, end_reason=end_reason)
+        )
+        return result.rowcount or 0
+
+    async def hours_between(self, since: datetime, until: datetime, max_session_seconds: int) -> float:
+        # Overlap of each session [started_at, min(coalesce(ended_at, until), until, started_at +
+        # max_session_seconds)] with [since, until]. The max_session_seconds term clamps a single
+        # runaway open session so it cannot inflate the caps forever.
+        span_end = func.least(
+            func.coalesce(GpuSession.ended_at, until),
+            until,
+            GpuSession.started_at + timedelta(seconds=max_session_seconds),
+        )
         stmt = select(
             func.coalesce(
                 func.sum(
-                    func.extract(
-                        "epoch",
-                        func.least(func.coalesce(GpuSession.ended_at, until), until)
-                        - func.greatest(GpuSession.started_at, since),
+                    func.greatest(
+                        0,
+                        func.extract("epoch", span_end - func.greatest(GpuSession.started_at, since)),
                     )
                 ),
                 0,

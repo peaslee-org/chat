@@ -37,3 +37,13 @@ def test_list_worker_tasks_wraps_client_error():
     launcher = make_launcher(client)
     with pytest.raises(GpuLaunchError):
         launcher.list_worker_tasks()
+
+
+def test_run_worker_task_sets_propagate_tags_and_disables_exec():
+    client = MagicMock()
+    client.run_task.return_value = {"tasks": [{"taskArn": "arn:task/1"}]}
+    launcher = make_launcher(client)
+    launcher.run_worker_task("user1")
+    kwargs = client.run_task.call_args.kwargs
+    assert kwargs["propagateTags"] == "TASK_DEFINITION"
+    assert kwargs["enableExecuteCommand"] is False

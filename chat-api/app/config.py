@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     gpu_worker_task_family: str = ""            # task-definition family; RunTask uses family:latest
     gpu_capacity_provider: str = ""             # capacity provider name (e.g. gpu-prod)
     gpu_idle_exit_seconds: int = 900            # must match the worker's IDLE_EXIT_SECONDS
+    gpu_max_lifetime_seconds: int = 10800       # must match the worker's MAX_LIFETIME_SECONDS
     gpu_daily_cap_hours: float = 3.0
     gpu_monthly_cap_hours: float = 30.0
     gpu_warm_per_user_per_day: int = 3

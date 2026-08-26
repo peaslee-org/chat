@@ -64,7 +64,7 @@ class GpuController:
 
     async def ensure_worker(self, reason: str, user_id: str, is_admin: bool = False) -> GpuStateResponse:
         global _state_cache
-        notice = await self._check_caps(reason, user_id, is_admin)
+        now = self._now()
         await self._repo.advisory_lock()
         try:
             statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
@@ -73,6 +73,14 @@ class GpuController:
             _state_cache = None
             return self._response("off", notice="GPU unavailable, retrying on next poll")
         state = _state_from(statuses)
+        if state == "off":
+            # ListTasks just confirmed nothing is running — any still-open row is stale
+            # (e.g. a worker that died before it could close its own session). Reconcile
+            # before the cap check reads gpu_sessions, or a phantom row inflates it forever.
+            closed = await self._repo.close_open_sessions(now, end_reason="unknown")
+            if closed:
+                logger.info("Reconciled %d stale gpu_sessions row(s) before cap check", closed)
+        notice = await self._check_caps(reason, user_id, is_admin, will_launch=(state == "off"))
         warm_until = None
         if state == "off":
             try:
@@ -81,25 +89,31 @@ class GpuController:
                 logger.error("RunTask failed: %s", e)
                 _state_cache = None
                 return self._response("off", notice="GPU unavailable, retrying on next poll")
-            warm_until = self._now() + timedelta(seconds=self._s.gpu_idle_exit_seconds) if reason == "warm" else None
+            warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds) if reason == "warm" else None
             await self._repo.create(task_arn=task_arn, started_by=user_id, reason=reason, warm_until=warm_until)
             state = "starting"
         elif reason == "warm":
-            warm_until = self._now() + timedelta(seconds=self._s.gpu_idle_exit_seconds)
+            warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds)
             await self._repo.extend_warm(warm_until)
         _state_cache = None
         return self._response(state, notice=notice, warm_until=warm_until)
 
-    async def _check_caps(self, reason: str, user_id: str, is_admin: bool) -> Optional[str]:
+    async def _check_caps(self, reason: str, user_id: str, is_admin: bool, will_launch: bool) -> Optional[str]:
         now = self._now()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start = day_start.replace(day=1)
         problems = []
-        if await self._repo.hours_between(day_start, now) >= self._s.gpu_daily_cap_hours:
+        if await self._repo.hours_between(day_start, now, self._s.gpu_max_lifetime_seconds) >= self._s.gpu_daily_cap_hours:
             problems.append(f"Daily GPU budget used ({self._s.gpu_daily_cap_hours:g} h). Resets at midnight UTC.")
-        if await self._repo.hours_between(month_start, now) >= self._s.gpu_monthly_cap_hours:
+        if await self._repo.hours_between(month_start, now, self._s.gpu_max_lifetime_seconds) >= self._s.gpu_monthly_cap_hours:
             problems.append(f"Monthly GPU budget used ({self._s.gpu_monthly_cap_hours:g} h). Resets on the 1st.")
-        if reason == "warm" and await self._repo.warm_count_for_user_since(user_id, day_start) >= self._s.gpu_warm_per_user_per_day:
+        # Warm cap only bites when it would actually start a new task — extending the warm
+        # window on a worker that's already up costs nothing extra.
+        if (
+            will_launch
+            and reason == "warm"
+            and await self._repo.warm_count_for_user_since(user_id, day_start) >= self._s.gpu_warm_per_user_per_day
+        ):
             problems.append(f"You have used your {self._s.gpu_warm_per_user_per_day} warm-ups for today.")
         if not problems:
             return None
@@ -113,8 +127,8 @@ class GpuController:
         now = self._now()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start = day_start.replace(day=1)
-        today = await self._repo.hours_between(day_start, now)
-        month = await self._repo.hours_between(month_start, now)
+        today = await self._repo.hours_between(day_start, now, self._s.gpu_max_lifetime_seconds)
+        month = await self._repo.hours_between(month_start, now, self._s.gpu_max_lifetime_seconds)
         warms = await self._repo.warm_count_for_user_since(user_id, day_start)
         actual, fetched_at = await self._actual_cost(now)
         sessions = [

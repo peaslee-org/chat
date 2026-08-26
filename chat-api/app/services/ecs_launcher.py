@@ -35,6 +35,8 @@ class EcsWorkerLauncher:
                 count=1,
                 capacityProviderStrategy=[{"capacityProvider": self._cp, "weight": 1}],
                 startedBy=started_by[:36],
+                propagateTags="TASK_DEFINITION",
+                enableExecuteCommand=False,
             )
         except (ClientError, BotoCoreError) as e:
             raise GpuLaunchError(str(e)) from e

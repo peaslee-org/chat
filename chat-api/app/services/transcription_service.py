@@ -285,8 +285,8 @@ class TranscriptionService:
             created_at=job.created_at,
             updated_at=job.updated_at,
             completed_at=job.completed_at,
-            worker_state=gpu_state.worker_state if gpu_state else "off",
-            estimated_wait_seconds=gpu_state.estimated_wait_seconds if gpu_state else 0,
+            worker_state=gpu_state.worker_state if gpu_state else None,
+            estimated_wait_seconds=gpu_state.estimated_wait_seconds if gpu_state else None,
             gpu_notice=gpu_state.notice if gpu_state else None,
         )
 

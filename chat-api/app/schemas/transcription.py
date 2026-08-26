@@ -79,8 +79,8 @@ class JobStatusResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
-    worker_state: str = "off"                 # off | starting | running
-    estimated_wait_seconds: int = 0
+    worker_state: Optional[str] = None         # off | starting | running; None when the GPU controller is disabled
+    estimated_wait_seconds: Optional[int] = None
     gpu_notice: Optional[str] = None
 
     model_config = {"from_attributes": True}
