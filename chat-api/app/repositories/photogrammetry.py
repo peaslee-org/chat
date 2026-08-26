@@ -102,9 +102,12 @@ class PhotogrammetryRepository:
         items = list(result.scalars().all())
         next_cursor = None
         if len(items) > limit:
-            last = items.pop()
+            items.pop()
+            last_returned = items[-1]
             next_cursor = base64.b64encode(
-                json.dumps({"created_at": last.created_at.isoformat(), "id": str(last.id)}).encode()
+                json.dumps(
+                    {"created_at": last_returned.created_at.isoformat(), "id": str(last_returned.id)}
+                ).encode()
             ).decode()
         return items, next_cursor
 
