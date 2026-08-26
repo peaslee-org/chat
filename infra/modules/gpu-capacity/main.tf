@@ -125,7 +125,7 @@ resource "aws_autoscaling_group" "gpu" {
       # capacity-optimized picks the pool most likely to have capacity; lowest-price with 2 pools
       # kept choosing AZs with none (2026-08-26). spot_instance_pools only applies to lowest-price.
       spot_allocation_strategy = var.spot_allocation_strategy
-      spot_instance_pools      = var.spot_allocation_strategy == "lowest-price" ? 2 : null
+      spot_instance_pools      = var.spot_allocation_strategy == "lowest-price" ? 2 : 0 # provider default is 2; AWS requires 0 for other strategies
     }
     launch_template {
       launch_template_specification {
