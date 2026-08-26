@@ -22,7 +22,10 @@ Use **pyannote-audio 4.x** (`pyannote/speaker-diarization-community-1`) running 
 
 ## Consequences
 
-- `transcription-worker` requires GPU Fargate (NVIDIA T4 or equivalent)
+> **Note (2026-08-25):** the worker runs as an EC2-launch-type ECS task on a shared spot GPU
+> capacity provider, not Fargate — Fargate has no GPU support. See ADR 004 for the operating model.
+
+- `transcription-worker` requires a GPU (NVIDIA T4 or equivalent)
 - The pyannote model is gated on HuggingFace Hub and requires a read token (stored in Secrets Manager)
 - `ShowSpeakerLabels` is **not set** in AWS Transcribe job parameters — Transcribe is only for timestamps
 - `services/diarizer.py` is the diarization entry point; `services/aligner.py` merges pyannote turns with Transcribe word timestamps

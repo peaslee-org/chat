@@ -172,14 +172,14 @@ User-provided estimate of the number of speakers in the audio (1–30). Passed t
 ### Language Code
 BCP-47 identifier for the spoken language (default `en-US`). Passed to AWS Transcribe's `LanguageCode` parameter.
 
-### Worker Pause Flag
-An S3 object (`worker_paused`) with content `"true"` or `"false"`, with a 60-second in-memory TTL. When `true`, the worker skips processing new jobs. Surfaced in `JobStatusResponse.worker_paused` for jobs in `transcribing` or `matching`.
+### Worker State
+`worker_state` (`off` | `starting` | `running`) is derived by the API from ECS `ListTasks` against the worker's task family on the shared `gpu-<env>` capacity provider — there is no stored flag. The API launches the worker with `RunTask` on job confirm, on `POST /api/v1/gpu/warm`, or when a status poll finds an active job with the worker off. Surfaced in `JobStatusResponse.worker_state` for jobs in `transcribing` or `matching`. Replaces the old S3 pause flag (removed with ADR 004).
 
 ### Visibility Extension
 A background thread in the worker that calls `sqs.change_message_visibility()` every 300 s, resetting the timeout to 600 s. Prevents a long-running job from having its SQS message become visible to another consumer.
 
 ### Spot Watcher
-`services/spot_watcher.py` — daemon thread that polls the EC2 instance metadata endpoint every 5 s for a Spot termination notice. On notice, immediately releases the SQS message (sets `VisibilityTimeout=0`) so another worker can pick it up. No-op in Fargate or local environments.
+`services/spot_watcher.py` — daemon thread that polls the EC2 instance metadata endpoint every 5 s for a Spot termination notice. On notice, immediately releases the SQS message (sets `VisibilityTimeout=0`) so another worker can pick it up. No-op in local (non-EC2) environments.
 
 ### Partial Transcript
 When a job fails after AWS Transcribe has already completed, `JobStatusResponse.partial_transcript_available` is `true`. The API can return whatever segments were written before failure.
@@ -189,7 +189,7 @@ When a job fails after AWS Transcribe has already completed, `JobStatusResponse.
 ## API Response Shapes
 
 ### `JobStatusResponse`
-Returned by `GET /api/v1/transcription/jobs/{job_id}`. Includes status, match quality counters (`matched_speaker_count`, `total_segment_count`), and `worker_paused`.
+Returned by `GET /api/v1/transcription/jobs/{job_id}`. Includes status, match quality counters (`matched_speaker_count`, `total_segment_count`), and `worker_state`.
 
 ### `TranscriptResponse`
 Returned by `GET /api/v1/transcription/jobs/{job_id}/transcript`. Contains a list of `SegmentResponse` objects and an optional pre-signed S3 URL for `transcript.txt`.

@@ -10,7 +10,7 @@ This repo contains two independent projects:
 |---|---|---|
 | `chat-api/` | FastAPI, Python, PostgreSQL, AWS Bedrock | Backend API |
 | `chat-vue/` | Vue 3, TypeScript, Tailwind CSS, Vite | Frontend SPA |
-| `transcription-worker/` | Python, pyannote-audio, SpeechBrain, PyTorch, SQS, S3 | Fargate GPU worker for audio transcription & speaker diarization |
+| `transcription-worker/` | Python, pyannote-audio, SpeechBrain, PyTorch, SQS, S3 | Run-to-completion GPU worker (ECS, EC2 launch type) for audio transcription & speaker diarization |
 
 Each sub-project has its own `CLAUDE.md` with detailed commands, architecture, and env var references. Read the relevant one before working in that project.
 
@@ -26,10 +26,12 @@ Browser (chat-vue SPA on S3 + CloudFront)
       → AWS Bedrock (LLM inference: Claude via anthropic.claude-3-sonnet-20240229-v1:0)
       → S3 (audio upload staging)
       → AWS Transcribe (word-level timestamps only)
-      → SQS → transcription-worker (ECS Fargate GPU, pyannote-audio 4.x + SpeechBrain ECAPA-TDNN)
+      → SQS → RunTask launches transcription-worker (ECS, EC2 launch type, shared `gpu-<env>` spot
+                  capacity provider; pyannote-audio 4.x + SpeechBrain ECAPA-TDNN)
                   → pyannote diarization (CUDA) + word aligner
                   → PostgreSQL (TranscriptSegment / SpeakerProfile writes)
                   → S3 (transcript.txt output, speaker embeddings)
+                  → worker exits (idle timeout, max lifetime, or spot notice); ASG scales back to 0
 ```
 
 **Auth:**
@@ -50,4 +52,4 @@ Browser (chat-vue SPA on S3 + CloudFront)
 - **Infrastructure:** Terraform under `infra/` manages ECR, ECS, EC2-hosted PostgreSQL, S3, CloudFront, Cognito, and SQS — all resources use the AWS default VPC (tagged `peaslee-org`). RDS was decommissioned 2026-03-15; the database DSN is a Secrets Manager secret injected by ECS (`database_url_secret_arn`); no credential passes through Terraform or its state. Each environment needs two gitignored files beside its `.tf`: `backend.hcl` (state bucket) and `terraform.tfvars` (account-specific names/ARNs) — copy the `.example` files.
 - **CI/CD:** GitHub Actions workflows in `.github/workflows/` — `api.yml` (chat-api), `worker.yml` (transcription-worker), `vue.yml` (chat-vue), `tf-validate.yml` (Terraform PRs).
 - **Observability:** LangSmith tracing is optional; set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` in `chat-api` to trace Bedrock calls via the `@traceable` decorator on `BedrockService.invoke()`
-- **Transcription worker CI/CD:** Push to `main` (changes under `transcription-worker/`) triggers `.github/workflows/worker.yml`; GitHub Actions OIDC → IAM role `transcription-prod-worker-github-actions`; deploys to ECS service `transcription-prod-worker` on cluster `chat-api-prod`
+- **Transcription worker CI/CD:** Push to `main` (changes under `transcription-worker/`) triggers `.github/workflows/worker.yml`; GitHub Actions OIDC → IAM role `transcription-prod-worker-github-actions`; the workflow only registers a new ECS task-definition revision — there's no service to roll, since the API launches the worker per job with `RunTask`. The image is also baked into the ECS GPU AMI (`scripts/deploy/build-gpu-ami.sh`); rebuild the AMI only when the base image or model layers change.

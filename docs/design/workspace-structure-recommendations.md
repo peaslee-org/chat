@@ -49,7 +49,9 @@ scripts/
 │   ├── migrate.sh         — run Alembic upgrade head via ECS exec (prod)
 │   ├── build-api.sh       — build + push chat-api Docker image to ECR
 │   ├── build-worker.sh    — build + push transcription-worker image to ECR
-│   └── transcription-worker.sh  — start/stop/pause/unpause GPU worker service
+│   ├── build-gpu-ami.sh   — bake the worker image into the ECS GPU AMI (rebuild only when
+│   │                         base/model layers change; see ADR 004)
+│   └── gpu-status.sh      — show worker_state (off/starting/running) for the GPU capacity provider
 └── ci/
     └── validate-tf.sh     — terraform fmt check + validate across all environments
 ```

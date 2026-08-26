@@ -1,6 +1,6 @@
 # transcription-worker
 
-Standalone Python Fargate worker. Polls an SQS queue and processes audio transcription and speaker diarization jobs. No HTTP server — runs as a long-lived polling loop.
+Standalone Python worker (ECS, EC2 launch type, on the shared GPU capacity provider). Polls an SQS queue and processes audio transcription and speaker diarization jobs. No HTTP server — and no longer a long-lived service either: it's a run-to-completion task, launched per job by the API and exiting itself when idle (see Lifecycle below).
 
 ## Key Commands
 
@@ -130,10 +130,10 @@ Models are duplicated from `chat-api` intentionally — this worker is deployed 
 
 ## Deployment
 
-- **CI/CD:** Push to `main` (any change under `transcription-worker/`) triggers root `.github/workflows/worker.yml`
+- **CI/CD:** Push to `main` (any change under `transcription-worker/`) triggers root `.github/workflows/worker.yml` — it only registers a new ECS task-definition revision; there is no service to roll, since the API launches the worker per job with `RunTask`
 - **Auth:** GitHub Actions OIDC → IAM role `transcription-prod-worker-github-actions`
-- **Registry:** ECR repo `transcription-worker-prod` (account `123456789012`, region `us-east-1`)
-- **Runtime:** ECS Fargate with GPU, cluster `chat-api-prod`, service `transcription-prod-worker`; root volume 80 GB
+- **Registry:** ECR repo `transcription-worker-prod` (account `123456789012`, region `us-east-1`); keeps 2 images
+- **Runtime:** ECS, EC2 launch type (GPU=1, bridge networking), cluster `chat-api-prod`, on the shared `gpu-<env>` spot capacity provider (`g4dn.xlarge`, min 0 max 2) — not a standing service. Root volume 80 GB. The worker image is also baked into the GPU AMI (`scripts/deploy/build-gpu-ami.sh`) so a cold start after idle doesn't also pull a multi-GB image; rebuild only when the base image or model layers change.
 - **Base image:** `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04` (Python 3.12); requires `>=3.12`
 - **Model pre-download:** Both SpeechBrain (ECAPA-TDNN) and pyannote (`pyannote/speaker-diarization-community-1`) are downloaded into the Docker image at build time via `HUGGINGFACE_TOKEN` build arg — no model download at runtime
 - **HuggingFace token:** passed as a GitHub Actions secret (`HF_TOKEN`) → Docker `--build-arg`; in ECS the token is injected via Secrets Manager (`huggingface_token_secret_arn`)
@@ -142,7 +142,7 @@ Models are duplicated from `chat-api` intentionally — this worker is deployed 
 
 - `PyannoteDiarizer` and `EcapaTdnnEmbedder` are both singletons (loaded once per worker process). First call initialises each model from the pre-baked image cache.
 - The worker is single-threaded for message processing; the visibility extender and SpotWatcher each run on daemon threads.
-- `SpotWatcher` is a no-op in non-EC2 environments (Fargate, local dev) — the metadata endpoint simply times out and is silently ignored.
+- `SpotWatcher` is a no-op in local (non-EC2) dev — the metadata endpoint simply times out and is silently ignored. In production the worker always runs on EC2 (spot), so `SpotWatcher` is always live there.
 - AWS Transcribe `ShowSpeakerLabels`/`MaxSpeakerLabels` are **not** set — speaker diarization is handled entirely by pyannote; Transcribe is used only for word timestamps.
 - `db.py` instantiates `Settings()` at module import time — ensure env vars are set before importing.
 - Transcript URI parsing handles both `s3://bucket/key` and HTTPS S3 URL formats from AWS Transcribe.

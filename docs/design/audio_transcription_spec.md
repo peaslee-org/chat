@@ -9,13 +9,13 @@
 
 ## Overview
 
-This feature ingests a primary audio file alongside short reference samples per named speaker, and produces a time-stamped transcript with speaker labels. AWS Transcribe handles transcription and diarization (producing anonymous labels: `spk_0`, `spk_1` …). A separate async Fargate worker resolves those labels to enrolled speaker names using voice embedding similarity via pgvector.
+This feature ingests a primary audio file alongside short reference samples per named speaker, and produces a time-stamped transcript with speaker labels. AWS Transcribe handles transcription and diarization (producing anonymous labels: `spk_0`, `spk_1` …). A separate async GPU worker (run-to-completion, launched per job) resolves those labels to enrolled speaker names using voice embedding similarity via pgvector.
 
 ---
 
 ## Architecture
 
-The feature extends the existing AWS architecture with four additions: a dedicated S3 audio bucket, an SQS queue, a Fargate speaker-ID worker, and the pgvector extension on the existing RDS instance. Auth, CDN, CI/CD, and the FastAPI service remain unchanged.
+The feature extends the existing AWS architecture with four additions: a dedicated S3 audio bucket, an SQS queue, a GPU speaker-ID worker (EC2 launch type, shared spot capacity provider), and the pgvector extension on the existing RDS instance. Auth, CDN, CI/CD, and the FastAPI service remain unchanged.
 
 **Flow summary:**
 
@@ -30,7 +30,7 @@ Browser → POST /api/v1/transcribe/jobs/{job_id}/confirm
         → FastAPI validates S3 object exists, starts AWS Transcribe job,
           enqueues SQS message → 200
 
-SQS → Fargate Worker
+SQS → RunTask launches GPU Worker (if not already running)
      → polls Transcribe (extending SQS visibility timeout every 5 min)
      → downloads diarized JSON
      → extracts per-label audio, generates ECAPA-TDNN embeddings
@@ -50,7 +50,7 @@ Browser → POST /api/v1/transcribe/speakers/{speaker_id}/samples/{sample_id}/co
         → FastAPI validates S3 object exists, validates duration ≥ 10 s via pydub,
           enqueues sample embedding job → 202 (sample status: processing)
 
-SQS → Fargate Worker (shared queue, different message type)
+SQS → RunTask launches GPU Worker (shared queue, different message type)
      → downloads sample audio, runs ECAPA-TDNN, stores embedding vector
      → updates speaker_samples.embedding, sets status: ready
 ```
@@ -62,9 +62,9 @@ SQS → Fargate Worker (shared queue, different message type)
 | Resource | Config |
 |---|---|
 | **S3 — audio bucket** | Separate from Vue SPA assets. Private, SSE-S3 encryption, versioning enabled. Lifecycle: S3-IA at 30 days, expire at 365 days. Additional lifecycle rule: objects under `segments/` prefix expire after 7 days (safety net for worker crash before cleanup). Pre-signed POST policy for all client uploads: 15-min TTL, `content-type` restricted to `audio/*`, `x-amz-content-length-range` enforced (1 byte – 2 GB). Pre-signed GET URLs for downloads: 60-min TTL. |
-| **SQS — jobs queue** | Standard queue. Visibility timeout 600 s initial; **worker must call `ChangeMessageVisibility` to extend by 600 s every 5 minutes while processing** (prevents duplicate pickup during long Transcribe jobs). DLQ with `maxReceiveCount = 3`. A CloudWatch alarm fires when DLQ depth > 0, triggering a job status update to `failed` via a Lambda or the next worker poll cycle. |
-| **ECS Fargate — speaker-ID worker** | New task definition. 2 vCPU / 4 GB (CPU-bound ML workload). Handles both transcription jobs and sample embedding tasks via message type field. Scales 1–3 tasks. ECAPA-TDNN model pinned to **SpeechBrain `speechbrain/spkrec-ecapa-voxceleb` checkpoint, commit `3c54e95`**, baked into the image at build time. Worker image ~2.5 GB due to PyTorch. |
-| **RDS — pgvector extension** | `CREATE EXTENSION IF NOT EXISTS vector;` on existing PostgreSQL instance. Enables `vector(256)` columns and cosine similarity (`<=>`) queries for speaker matching. |
+| **SQS — jobs queue** | Standard queue, 4-day message retention. Visibility timeout 600 s initial; **worker must call `ChangeMessageVisibility` to extend by 600 s every 5 minutes while processing** (prevents duplicate pickup during long Transcribe jobs). DLQ with `maxReceiveCount = 3`. A CloudWatch alarm fires when DLQ depth > 0, triggering a job status update to `failed` via a Lambda or the worker's next poll after being launched. |
+| **ECS — GPU worker (EC2 launch type)** | Task definition on the shared `gpu-<env>` spot capacity provider (GPU=1, bridge networking); Fargate has no GPU support. Launched per job via `RunTask` — not a standing service. Handles both transcription jobs and sample embedding tasks via message type field. ECAPA-TDNN model pinned to **SpeechBrain `speechbrain/spkrec-ecapa-voxceleb` checkpoint, commit `3c54e95`**, baked into the image at build time. Worker image ~2.5 GB due to PyTorch; the image is also baked into the GPU AMI so a cold start doesn't also pull it. |
+| **RDS — pgvector extension** | `CREATE EXTENSION IF NOT EXISTS vector;` on existing PostgreSQL instance. Enables `vector(192)` columns (see ADR 001) and cosine similarity (`<=>`) queries for speaker matching. |
 
 **IAM additions:**
 
@@ -81,8 +81,8 @@ Four new tables added to the existing RDS instance.
 `id` · `user_id` (Cognito sub) · `speaker_name` · `created_at`
 
 **`speaker_samples`** — reference audio per speaker
-`id` · `speaker_profile_id` · `s3_key` · `duration_seconds` · `status` (`processing` → `ready` / `failed`) · `embedding vector(256)` (NULL until worker completes) · `created_at`
-*Embedding extracted asynchronously by the Fargate worker (same SQS queue, `type: sample_embedding` message). Samples with `status != ready` are excluded from speaker matching.*
+`id` · `speaker_profile_id` · `s3_key` · `duration_seconds` · `status` (`processing` → `ready` / `failed`) · `embedding vector(192)` (NULL until worker completes) · `created_at`
+*Embedding extracted asynchronously by the worker (same SQS queue, `type: sample_embedding` message). Samples with `status != ready` are excluded from speaker matching.*
 *pgvector `ivfflat` index on `embedding` column. Switch to HNSW if per-user embedding count exceeds ~10k.*
 
 **`transcription_jobs`** — one record per job submission
@@ -188,12 +188,14 @@ Unmatched speakers (cosine distance > 0.25, or no enrolled speakers with `status
 | `SpeakerMatchSuccessRate` | Worker (custom metric) | < 70% over 1 hr → alert |
 | `DLQDepth` | SQS built-in (`ApproximateNumberOfMessagesVisible`) | > 0 → alert, trigger job failure sweep |
 | `WorkerErrorRate` | CloudWatch Logs metric filter on ERROR | > 5 errors / 5 min → alert |
+| GPU task running long | ECS `RunningTaskCount` on the worker task family | sustained > 4 hours → alert (the worker should have self-exited via `MAX_LIFETIME_SECONDS` well before this) |
+| GPU monthly spend | AWS Budgets, scoped to resources tagged `CostCenter=gpu` | over threshold → alert |
 
 All worker container logs go to CloudWatch log group `/ecs/transcription-worker` with 90-day retention.
 
 ### Failed Job Recovery
 
-- When a message lands on the DLQ (after 3 delivery attempts), a CloudWatch alarm triggers. A scheduled Lambda (or the next worker startup) sweeps `transcription_jobs` where `status IN ('transcribing', 'matching')` and `updated_at < NOW() - INTERVAL '2 hours'`, marking them `failed` with `error_message = "exceeded max retries"`.
+- When a message lands on the DLQ (after 3 delivery attempts), a CloudWatch alarm triggers. A scheduled Lambda sweeps `transcription_jobs` where `status IN ('transcribing', 'matching')` and `updated_at < NOW() - INTERVAL '2 hours'`, marking them `failed` with `error_message = "exceeded max retries"` — it no longer depends on a worker being up to run it, since the worker now exits between jobs instead of polling continuously.
 - Jobs in `failed` status where `transcribe_output_s3_key` is non-null expose partial results via `GET /jobs/{job_id}/transcript` (see API section).
 - **Jobs are not automatically retried.** Users must submit a new job. A future `POST /jobs/{job_id}/retry` endpoint can re-enqueue without re-uploading if `audio_s3_key` still exists in S3.
 

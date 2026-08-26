@@ -16,7 +16,24 @@ aws ecs update-service --cluster chat-api-prod --service chat-api-prod --force-n
 
 ## transcription-worker
 
-Push to `main` → GitHub Actions `worker.yml` → ECR push → ECS rolling deploy (automatic via OIDC).
+Push to `main` → GitHub Actions `worker.yml` → ECR push → registers a new ECS task-definition
+revision (automatic via OIDC). There is no service to roll: the API launches the worker per job
+with `RunTask`, so the next launch just picks up the new revision — nothing to restart.
+
+The worker's Docker image is also baked into the ECS GPU AMI (model weights + PyTorch, ~2.5 GB) so
+a cold start after idle doesn't also pull the image. Rebuild the AMI only when the base image or
+model layers change:
+
+```bash
+./scripts/deploy/build-gpu-ami.sh
+# then set the new AMI ID as gpu_ami_id and apply the prod environment
+```
+
+Check current worker state (`off` / `starting` / `running`) with:
+
+```bash
+./scripts/deploy/gpu-status.sh
+```
 
 ### Capturing fixtures from production
 

@@ -1,5 +1,10 @@
 # SQS Drain / DLQ Runbook
 
+The worker is launched per job (`RunTask`), not a standing service — if the DLQ is growing, check
+`./scripts/deploy/gpu-status.sh` (worker state `off`/`starting`/`running`) before assuming a
+processing bug; a job stuck without a worker running is a launch problem, not a drain problem.
+Main-queue retention is 4 days, so triage before that window closes.
+
 ## Check DLQ depth
 
 ```bash

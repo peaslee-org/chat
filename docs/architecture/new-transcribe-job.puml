@@ -33,7 +33,7 @@ participant "PostgreSQL\n(RDS)" as db
 participant "S3" as s3
 participant "AWS Transcribe" as transcribe
 participant "SQS" as sqs
-participant "transcription-worker\n(ECS GPU)" as worker
+participant "transcription-worker\n(ECS, EC2 GPU capacity provider)" as worker
 
 == 1. Create job record + get upload URL ==
 
@@ -80,11 +80,12 @@ spa -> spa : update job status → transcribing\nstartPolling(job_id)
 
 == 4. Client polls for status ==
 
-loop every 10 s (or 60 s if worker_paused)
+loop every 10 s (POLL_INTERVAL_NORMAL)
   spa -> api : GET /api/v1/transcribe/jobs/{job_id}
   api -> db : get_job(job_id, user_id)
-  db --> api : job (status, worker_paused flag)
-  api --> spa : 200 {status, worker_paused, ...}
+  db --> api : job (status)
+  api -> api : ListTasks worker family → worker_state\nRunTask if active job and worker off
+  api --> spa : 200 {status, worker_state, ...}
   spa -> spa : update job in list
 end
 

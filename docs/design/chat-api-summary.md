@@ -4,7 +4,7 @@ Implements the backend for audio transcription and speaker diarization.
 
 #### Database
 
-Adds four PostgreSQL tables with a `pgvector vector(256)` column for speaker embeddings:
+Adds four PostgreSQL tables with a `pgvector vector(192)` column for speaker embeddings (ADR 001):
 
 | Table | Purpose |
 |---|---|
