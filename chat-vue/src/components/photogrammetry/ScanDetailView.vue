@@ -2,9 +2,10 @@
 import { computed } from "vue"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 import ScanStatusBadge from "./ScanStatusBadge.vue"
+import NewScanForm from "./NewScanForm.vue"
 
 defineProps<{ showNewJobForm: boolean }>()
-defineEmits<{ "close-new-job-form": [] }>()
+const emit = defineEmits<{ "close-new-job-form": [] }>()
 
 const store = usePhotogrammetryStore()
 const job = computed(() => store.activeJob)
@@ -13,8 +14,7 @@ const job = computed(() => store.activeJob)
 <template>
   <section class="flex flex-col bg-gray-50 text-gray-900">
     <div v-if="showNewJobForm" class="p-6 overflow-y-auto">
-      <!-- NewScanForm mounts here in Task 10 -->
-      <p class="text-sm text-gray-500">New scan form</p>
+      <NewScanForm @submitted="emit('close-new-job-form')" />
     </div>
 
     <div v-else-if="!job" class="flex flex-1 items-center justify-center text-sm text-gray-500">

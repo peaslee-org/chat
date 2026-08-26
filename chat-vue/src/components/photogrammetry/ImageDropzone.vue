@@ -1,0 +1,89 @@
+<script setup lang="ts">
+import { computed, onUnmounted, ref, watch } from "vue"
+
+const props = withDefaults(defineProps<{ min?: number; max?: number }>(), { min: 5, max: 150 })
+const emit = defineEmits<{ "files-changed": [files: File[]] }>()
+
+const ACCEPT = "image/jpeg,image/png"
+const fileInput = ref<HTMLInputElement | null>(null)
+const files = ref<File[]>([])
+const isDragOver = ref(false)
+const thumbs = ref<string[]>([])
+
+const error = computed(() => {
+  if (files.value.length === 0) return null
+  if (files.value.length < props.min) return `Add at least ${props.min} photos (${files.value.length} so far).`
+  if (files.value.length > props.max) return `At most ${props.max} photos (${files.value.length} selected).`
+  return null
+})
+const totalMb = computed(() => (files.value.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1))
+
+function isImage(f: File): boolean {
+  return f.type === "image/jpeg" || f.type === "image/png" || /\.(jpe?g|png)$/i.test(f.name)
+}
+
+function addFiles(list: FileList | File[]) {
+  const incoming = Array.from(list).filter(isImage)
+  const seen = new Set(files.value.map(f => `${f.name}:${f.size}`))
+  files.value = [...files.value, ...incoming.filter(f => !seen.has(`${f.name}:${f.size}`))]
+}
+
+function clear() {
+  files.value = []
+}
+
+function onDrop(e: DragEvent) {
+  isDragOver.value = false
+  if (e.dataTransfer?.files) addFiles(e.dataTransfer.files)
+}
+
+function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files) addFiles(input.files)
+  input.value = ""
+}
+
+function revokeThumbs() {
+  thumbs.value.forEach(u => URL.revokeObjectURL(u))
+  thumbs.value = []
+}
+
+watch(files, (list) => {
+  revokeThumbs()
+  thumbs.value = list.slice(0, 12).map(f => URL.createObjectURL(f))
+  emit("files-changed", error.value ? [] : list)
+})
+
+onUnmounted(revokeThumbs)
+</script>
+
+<template>
+  <div>
+    <div
+      class="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors"
+      :class="isDragOver ? 'border-indigo-400 bg-indigo-50' : files.length ? 'border-green-300 bg-green-50 hover:border-green-400' : 'border-gray-300 hover:border-gray-400'"
+      @dragover.prevent="isDragOver = true"
+      @dragleave="isDragOver = false"
+      @drop.prevent="onDrop"
+      @click="fileInput?.click()"
+    >
+      <input ref="fileInput" type="file" :accept="ACCEPT" multiple class="hidden" @change="onFileChange" />
+      <div v-if="files.length" class="text-sm text-gray-700">
+        <span class="font-medium">{{ files.length }} photos</span>
+        <span class="text-gray-400 ml-2">({{ totalMb }} MB)</span>
+        <div class="mt-3 grid grid-cols-6 gap-1" @click.stop>
+          <img v-for="(src, i) in thumbs" :key="i" :src="src" class="aspect-square w-full rounded object-cover" alt="" />
+          <div v-if="files.length > thumbs.length" class="flex aspect-square items-center justify-center rounded bg-gray-200 text-xs text-gray-600">
+            +{{ files.length - thumbs.length }}
+          </div>
+        </div>
+        <button class="mt-2 text-xs text-gray-500 hover:text-red-600" @click.stop="clear">Clear</button>
+      </div>
+      <div v-else class="text-sm text-gray-500">
+        <p>Drop photos here or click to browse</p>
+        <p class="text-xs text-gray-400 mt-1">JPG or PNG · {{ min }}–{{ max }} photos orbiting one object</p>
+      </div>
+    </div>
+    <p v-if="error" class="mt-1 text-xs text-red-600">{{ error }}</p>
+  </div>
+</template>
