@@ -22,6 +22,8 @@ uv run pytest tests/unit -q                                               # all 
 uv run pytest tests/unit/services/test_transcription_service.py -q       # transcription service + regression tests
 uv run pytest tests/unit/api/test_transcribe_jobs.py -q                  # job endpoint HTTP layer
 uv run pytest tests/unit/api/test_transcribe_speakers.py -q              # speaker endpoint HTTP layer
+uv run pytest tests/unit/services/test_photogrammetry_service.py -q          # photogrammetry service + mock walk
+uv run pytest tests/unit/api/test_photogrammetry_jobs.py -q                  # photogrammetry endpoint HTTP layer
 ```
 
 Key test classes in `tests/unit/services/test_transcription_service.py`:
@@ -62,23 +64,29 @@ app/
   api/v1/          Versioned HTTP layer — thin, delegates to services
     endpoints/     chat.py, conversations.py, health.py, models.py
     transcribe/    jobs.py, speakers.py, dev.py (mock upload sink), deps.py
+    photogrammetry/ jobs.py, deps.py
   services/        Business logic
     chat.py        ChatService: orchestrates conversation repo + BedrockService
     conversation.py ConversationService: list/delete/get_messages
     bedrock.py     BedrockService: Bedrock invocation + model listing
     transcription_service.py  TranscriptionService (real) + LocalTranscriptionService (mock)
+    photogrammetry_service.py  PhotogrammetryService (real) + LocalPhotogrammetryService (mock)
     audio_storage.py          S3 presigned URLs, object existence check, Transcribe job start
     sqs_publisher.py          SQS publish for transcription jobs and speaker sample embeddings
   repositories/    Async SQLAlchemy queries only; no business logic
     conversation.py
     transcription.py
+    photogrammetry.py
   models/          SQLAlchemy ORM models (inherit from app/models/base.py)
     conversation.py
     transcription.py  SpeakerProfile, SpeakerSample (pgvector embedding), TranscriptionJob, TranscriptSegment
+    photogrammetry.py  PhotogrammetryJob
   schemas/         Pydantic request/response schemas
     chat.py, conversation.py, models.py, transcription.py
+    photogrammetry.py
   core/            security.py (Cognito JWKS verification), exceptions.py
   db/              session.py (engine + sessionmaker init'd at startup), Alembic migrations
+  assets/photogrammetry/  sample photo set + placeholder mesh for the mock
 ```
 
 **Request flow for chat:**
@@ -136,8 +144,13 @@ All settings are in `app/config.py` (`Settings` class). Copy `.env.example` to `
 | `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS` | Delay before mock sample transitions `processing` → `ready` (default: 3) |
 | `MOCK_JOB_TRANSCRIBING_DELAY_SECONDS` | Delay in mock job `transcribing` stage (default: 5) |
 | `MOCK_JOB_MATCHING_DELAY_SECONDS` | Delay in mock job `matching` stage (default: 3) |
+| `USE_MOCK_PHOTOGRAMMETRY` | Skip S3/ECS; jobs walk `queued` → `sfm` → `dense` → `mesh` → `texture` → `complete` on timers and the viewer gets the committed placeholder mesh (`app/assets/photogrammetry/`) |
+| `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` | Seconds spent in each mock stage: `queued` → `sfm` → `dense` → `mesh` → `texture` → `complete` (default: 2.0) |
+| `PHOTOGRAMMETRY_MAX_IMAGES` | Per-scan max image count (default: 150) |
+| `PHOTOGRAMMETRY_SAMPLE_PREFIX` | Shared sample photo set in the audio bucket, uploaded once by hand (`images/0001.jpg` …) |
+| `GPU_PHOTOGRAMMETRY_TASK_FAMILY` | ECS task family of the photogrammetry worker; leave empty until it is deployed (`confirm` → 503) |
 
-**GPU controller:** The transcription worker runs as a run-to-completion ECS task launched on-demand by the API via `app/services/gpu_controller.py` (using ECS `RunTask`). It launches when a transcription job is confirmed, when `/api/v1/gpu/warm` is called, or when a status poll detects an active job with an off worker. The controller enforces daily and monthly GPU-hour caps (from environment) and a per-user warm cap tracked in the `gpu_sessions` table. The GPU-related environment variables (`GPU_CONTROLLER_ENABLED`, `GPU_CLUSTER`, `GPU_WORKER_TASK_FAMILY`, `GPU_CAPACITY_PROVIDER`, the cap/rate settings, and `GPU_COST_TAG_KEY`/`GPU_COST_TAG_VALUE` — the cost-allocation tag Cost Explorer is queried by for the usage panel's actual month-to-date figure) are defined in `.env.example`. The `/api/v1/gpu/*` endpoints return 503 Service Unavailable unless `GPU_CONTROLLER_ENABLED=true` or `USE_MOCK_TRANSCRIPTION=true`.
+**GPU controller:** The transcription worker runs as a run-to-completion ECS task launched on-demand by the API via `app/services/gpu_controller.py` (using ECS `RunTask`). It launches when a transcription job is confirmed, when `/api/v1/gpu/warm` is called, or when a status poll detects an active job with an off worker. The controller enforces daily and monthly GPU-hour caps (from environment) and a per-user warm cap tracked in the `gpu_sessions` table. The GPU-related environment variables (`GPU_CONTROLLER_ENABLED`, `GPU_CLUSTER`, `GPU_WORKER_TASK_FAMILY`, `GPU_CAPACITY_PROVIDER`, the cap/rate settings, and `GPU_COST_TAG_KEY`/`GPU_COST_TAG_VALUE` — the cost-allocation tag Cost Explorer is queried by for the usage panel's actual month-to-date figure) are defined in `.env.example`. The `/api/v1/gpu/*` endpoints return 503 Service Unavailable unless `GPU_CONTROLLER_ENABLED=true` or `USE_MOCK_TRANSCRIPTION=true`. The photogrammetry router builds its own GpuController bound to GPU_PHOTOGRAMMETRY_TASK_FAMILY (same cluster, capacity provider and gpu_sessions ledger); while that setting is empty, confirm returns 503 "photogrammetry worker not deployed".
 
 **LangSmith tracing (optional):** set `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_API_KEY`, and `LANGCHAIN_PROJECT` to trace Bedrock invocations via the `@traceable` decorator on `BedrockService.invoke()`.
 
@@ -150,3 +163,4 @@ In production (`ENVIRONMENT=prod`), `/docs` (Swagger UI) is disabled.
 - **`USE_MOCK_BEDROCK=true`** — skips AWS Bedrock entirely, returns a canned response.
 - **`USE_MOCK_TRANSCRIPTION=true`** — uses `LocalTranscriptionService` instead of the real one. Jobs are completed in-process via `asyncio.create_task`: `transcribing` → `matching` → `complete` with configurable delays. Seeded with 4 mock transcript segments. Samples transition to `ready` after `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`. Also enables the mock GPU launcher for the `/api/v1/gpu/*` endpoints, so the Warm button and GPU state queries work locally without AWS resources.
 - **`/api/v1/transcribe/dev-upload/{path}`** — PUT/GET sink registered at app startup when mock transcription is enabled; acts as a no-op S3 replacement so browser presigned-URL uploads succeed.
+- **`USE_MOCK_PHOTOGRAMMETRY=true`** — uses `LocalPhotogrammetryService`. Confirmed jobs walk `queued → processing (sfm → dense → mesh → texture) → complete` with `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` per step, then the placeholder `app/assets/photogrammetry/{mesh.glb,preview.png}` is copied into the dev-upload sink under the job's `output/` keys; every status response carries `mock: true`. `POST /jobs/sample` copies the committed sample photos into the sink and confirms. The `dev-upload` sink is registered when either mock flag is set and its GET serves stored files (the viewer loads the GLB from it).
