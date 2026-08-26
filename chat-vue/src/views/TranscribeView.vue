@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from "vue"
 import RunSidebar from "@/components/transcribe/RunSidebar.vue"
 import RunDetailView from "@/components/transcribe/RunDetailView.vue"
+import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
 import { useTranscribeStore } from "@/stores/transcribe"
 
 const store = useTranscribeStore()
@@ -45,22 +46,25 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden" :class="{ 'select-none': isDragging }">
-    <RunSidebar
-      :style="{ width: sidebarWidth + 'px' }"
-      :show-new-job-form="showNewJobForm"
-      @new="handleNew"
-    />
-    <div
-      class="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-indigo-500"
-      :class="isDragging ? 'bg-indigo-500' : 'bg-gray-700'"
-      @mousedown.prevent="startDrag"
-    />
-    <RunDetailView
-      class="flex-1 overflow-hidden"
-      :show-new-job-form="showNewJobForm"
-      @close-new-job-form="showNewJobForm = false"
-    />
+  <div class="flex h-screen flex-col overflow-hidden">
+    <GpuStatusBar />
+    <div class="flex min-h-0 flex-1 overflow-hidden" :class="{ 'select-none': isDragging }">
+      <RunSidebar
+        :style="{ width: sidebarWidth + 'px' }"
+        :show-new-job-form="showNewJobForm"
+        @new="handleNew"
+      />
+      <div
+        class="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-indigo-500"
+        :class="isDragging ? 'bg-indigo-500' : 'bg-gray-700'"
+        @mousedown.prevent="startDrag"
+      />
+      <RunDetailView
+        class="flex-1 overflow-hidden"
+        :show-new-job-form="showNewJobForm"
+        @close-new-job-form="showNewJobForm = false"
+      />
+    </div>
 
     <!-- Toast notifications -->
     <Teleport to="body">

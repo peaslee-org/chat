@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from "vue"
 import { useTranscribeStore } from "@/stores/transcribe"
+import { workerStateLabel } from "@/lib/workerState"
 import NewJobForm from "./NewJobForm.vue"
 import TranscribeJobCard from "./TranscribeJobCard.vue"
 import TranscriptDisplay from "./TranscriptDisplay.vue"
@@ -44,12 +45,17 @@ const elapsedLabel = computed(() => {
   return `${m}m ${s}s`
 })
 
-const workerPaused = computed(() => !!store.activeJob?.worker_paused)
+const workerHintActive = computed(() =>
+  !!store.activeJob?.worker_state &&
+  store.activeJob.worker_state !== "running" &&
+  ["transcribing", "matching"].includes(store.activeJob.status)
+)
 
 const statusMessage = computed(() => {
   if (!store.activeJob) return ""
-  if (workerPaused.value && ["transcribing", "matching"].includes(store.activeJob.status)) {
-    return "Transcription service is paused. Your job is queued and will be processed automatically when the service resumes."
+  if (workerHintActive.value) {
+    const label = workerStateLabel(store.activeJob.worker_state, store.activeJob.estimated_wait_seconds)
+    return store.activeJob.gpu_notice ? `${label} — ${store.activeJob.gpu_notice}` : label
   }
   switch (store.activeJob.status) {
     case "pending":     return "Uploading audio…"

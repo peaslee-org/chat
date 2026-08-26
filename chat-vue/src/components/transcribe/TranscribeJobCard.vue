@@ -48,7 +48,8 @@ async function handleDelete(e: Event) {
         <JobStatusBadge
           :status="job.status"
           :logs="store.jobLogs[job.job_id]"
-          :worker-paused="job.worker_paused"
+          :worker-state="job.worker_state"
+          :estimated-wait-seconds="job.estimated_wait_seconds"
           :is-polling="store.pollingActive.has(job.job_id)"
         />
         <button

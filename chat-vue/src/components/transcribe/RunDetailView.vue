@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue"
 import { useTranscribeStore } from "@/stores/transcribe"
+import { workerStateLabel } from "@/lib/workerState"
 import {
   useMatchingThresholds,
   computeTurns,
@@ -114,8 +115,8 @@ function onJobSubmitted() {
           v-if="activeJob && ['pending', 'transcribing', 'matching'].includes(activeJob.status)"
           class="text-sm text-gray-500 text-center py-8"
         >
-          <template v-if="activeJob.worker_paused && ['transcribing', 'matching'].includes(activeJob.status)">
-            Transcription service is paused. Your job is queued and will be processed automatically when the service resumes.
+          <template v-if="activeJob.worker_state && activeJob.worker_state !== 'running' && ['transcribing', 'matching'].includes(activeJob.status)">
+            {{ workerStateLabel(activeJob.worker_state, activeJob.estimated_wait_seconds) }}<span v-if="activeJob.gpu_notice"> — {{ activeJob.gpu_notice }}</span>
           </template>
           <template v-else>
             Transcription in progress — checking every 5 seconds…

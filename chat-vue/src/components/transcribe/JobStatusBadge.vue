@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue"
-import type { TranscriptionJob, JobLogEntry } from "@/types"
+import type { TranscriptionJob, JobLogEntry, WorkerState } from "@/types"
+import { workerStateLabel } from "@/lib/workerState"
 
 const props = defineProps<{
   status: TranscriptionJob['status']
   logs?: JobLogEntry[]
-  workerPaused?: boolean
+  workerState?: WorkerState
+  estimatedWaitSeconds?: number
   isPolling?: boolean
 }>()
 
 const inFlight = computed(() => props.status === 'transcribing' || props.status === 'matching')
-const isPaused  = computed(() => inFlight.value && !!props.workerPaused)
-const isActivelyPolling = computed(() => inFlight.value && !!props.isPolling && !isPaused.value)
+const hasWorkerHint = computed(() => inFlight.value && !!props.workerState && props.workerState !== 'running')
+const isActivelyPolling = computed(() => inFlight.value && !!props.isPolling && !hasWorkerHint.value)
 const displayLabel = computed(() => {
-  if (isPaused.value) return 'paused'
+  if (hasWorkerHint.value) return workerStateLabel(props.workerState, props.estimatedWaitSeconds)
   if (isActivelyPolling.value) return 'polling'
   return props.status
 })
@@ -63,9 +65,9 @@ onUnmounted(() => document.removeEventListener('click', handleOutsideClick, true
       class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
       :class="{
         'bg-gray-100 text-gray-600': status === 'pending',
-        'bg-amber-100 text-amber-700': isPaused,
-        'bg-blue-100 text-blue-700': !isPaused && status === 'transcribing',
-        'bg-purple-100 text-purple-700': !isPaused && status === 'matching',
+        'bg-amber-100 text-amber-700': hasWorkerHint,
+        'bg-blue-100 text-blue-700': !hasWorkerHint && status === 'transcribing',
+        'bg-purple-100 text-purple-700': !hasWorkerHint && status === 'matching',
         'bg-green-100 text-green-800': status === 'complete',
         'bg-red-100 text-red-700': status === 'failed',
         'cursor-pointer hover:brightness-95 select-none': logs?.length,
@@ -77,8 +79,8 @@ onUnmounted(() => document.removeEventListener('click', handleOutsideClick, true
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <!-- in-flight: paused state — pause icon, no animation -->
-      <svg v-else-if="isPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+      <!-- in-flight: worker not running yet — pause icon, no animation -->
+      <svg v-else-if="hasWorkerHint" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
         <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
       </svg>
       <!-- in-flight: actively polling — spinner with animation -->

@@ -301,7 +301,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
         return
       }
       if (pollingIntervals.value.has(jobId)) {
-        const interval = updated.worker_paused ? POLL_INTERVAL_PAUSED : POLL_INTERVAL_NORMAL
+        const interval = updated.worker_state === "off" ? POLL_INTERVAL_PAUSED : POLL_INTERVAL_NORMAL
         pollingIntervals.value.set(jobId, setTimeout(tick, interval))
       }
     }

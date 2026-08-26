@@ -92,7 +92,31 @@ export interface TranscriptionJob {
   created_at: string
   updated_at: string
   completed_at: string | null
-  worker_paused?: boolean
+  worker_state?: WorkerState
+  estimated_wait_seconds?: number
+  gpu_notice?: string | null
+}
+
+export type WorkerState = 'off' | 'starting' | 'running'
+
+export interface GpuState {
+  worker_state: WorkerState
+  estimated_wait_seconds: number
+  warm_until: string | null
+  notice: string | null
+}
+
+export interface GpuSessionSummary {
+  started_at: string; ended_at: string | null; reason: string; started_by: string
+  end_reason: string | null; hours: number
+}
+
+export interface GpuUsage {
+  today_hours: number; month_hours: number; daily_cap_hours: number; monthly_cap_hours: number
+  warms_today_for_user: number; warm_cap_per_user_per_day: number
+  estimated_month_cost_usd: number; hourly_rate_usd: number
+  actual_month_to_date_usd: number | null; actual_fetched_at: string | null
+  sessions: GpuSessionSummary[]
 }
 
 export interface JobListResponse {
