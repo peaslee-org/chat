@@ -15,6 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_MOCK_API?: string
   readonly VITE_POLL_INTERVAL_MS?: string
   readonly VITE_POLL_INTERVAL_PAUSED_MS?: string
+  readonly VITE_PHOTOGRAMMETRY_POLL_INTERVAL_MS?: string
 }
 
 interface ImportMeta {

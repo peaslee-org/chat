@@ -178,3 +178,46 @@ export interface TurnDistanceData {
 export interface TurnDistancesResponse {
   turns: TurnDistanceData[]
 }
+
+// ── Photogrammetry ────────────────────────────────────────────────────────
+
+export type PhotogrammetryJobStatus = 'pending' | 'queued' | 'processing' | 'complete' | 'failed'
+export type PhotogrammetryStage = 'sfm' | 'dense' | 'mesh' | 'texture'
+
+export interface PhotogrammetryJob {
+  job_id: string
+  name: string
+  status: PhotogrammetryJobStatus
+  stage: PhotogrammetryStage | null
+  image_count: number
+  preview_url: string | null
+  error_message: string | null
+  mock: boolean
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  worker_state?: WorkerState | null
+  estimated_wait_seconds?: number | null
+  gpu_notice?: string | null
+}
+
+export interface UploadTarget {
+  filename: string
+  key: string
+  url: string
+}
+
+export interface PhotogrammetryJobCreateResponse {
+  job_id: string
+  uploads: UploadTarget[]
+}
+
+export interface PhotogrammetryJobListResponse {
+  items: PhotogrammetryJob[]
+  next_cursor: string | null
+}
+
+export interface MeshUrlResponse {
+  url: string
+  expires_at: string
+}
