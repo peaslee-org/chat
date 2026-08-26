@@ -19,6 +19,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/photogrammetry',
+      name: 'photogrammetry',
+      component: () => import('@/views/PhotogrammetryView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/profile',
       name: 'profile',
       component: () => import('@/views/profile/ProfileView.vue'),

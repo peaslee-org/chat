@@ -32,7 +32,7 @@ async function handleDelete(e: Event, jobId: string) {
 
 <template>
   <aside class="flex flex-col bg-gray-900 text-white shrink-0 overflow-hidden">
-    <!-- Chat / Transcribe nav tabs -->
+    <!-- Chat / Transcribe / Scan nav tabs -->
     <nav class="flex border-b border-gray-700">
       <RouterLink
         to="/"
@@ -47,6 +47,13 @@ async function handleDelete(e: Event, jobId: string) {
         :class="$route.path.startsWith('/transcribe') ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-200'"
       >
         Transcribe
+      </RouterLink>
+      <RouterLink
+        to="/photogrammetry"
+        class="flex-1 py-2 text-center text-sm font-medium transition-colors"
+        :class="$route.path.startsWith('/photogrammetry') ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-200'"
+      >
+        Scan
       </RouterLink>
     </nav>
 
