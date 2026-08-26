@@ -658,7 +658,7 @@ Add under `tests/unit/api/`:
 
 ## transcription-worker Service
 
-New top-level directory `transcription-worker/` alongside `chat-api/`. **Separate Docker image** — ~2.5 GB due to PyTorch/SpeechBrain.
+New top-level directory `transcription-worker/` alongside `chat-api/`. **Separate Docker image** — ~7 GB compressed (CUDA + PyTorch + baked models).
 
 ### Directory Structure
 

@@ -20,7 +20,7 @@ Push to `main` → GitHub Actions `worker.yml` → ECR push → registers a new 
 revision (automatic via OIDC). There is no service to roll: the API launches the worker per job
 with `RunTask`, so the next launch just picks up the new revision — nothing to restart.
 
-The worker's Docker image is also baked into the ECS GPU AMI (model weights + PyTorch, ~2.5 GB) so
+The worker's Docker image is also baked into the ECS GPU AMI (CUDA + PyTorch + baked models, ~7 GB compressed) so
 a cold start after idle doesn't also pull the image. Rebuild the AMI only when the base image or
 model layers change:
 

@@ -10,7 +10,7 @@ Region: `us-east-1` | Account: `123456789012`
 |---|---|---|---|
 | **ECS** | cluster `chat-api-prod` | Shared cluster, two launch types | Per-vCPU/GB-hour + per-instance |
 | **ECS Service** | `chat-api-prod` (on cluster above) | FastAPI backend, standard on-demand launch type | — |
-| **ECS Capacity Provider** | `gpu-<env>` (spot ASG, `g4dn.xlarge`, min 0 max 2, managed scaling) | GPU pool the worker's `RunTask` launches onto (EC2 instances — no hardware acceleration on the on-demand type above) — not a standing service | Per-instance-hour while scaled up |
+| **ECS Capacity Provider** | `gpu-<env>` (spot ASG, `g4dn.xlarge`, min 0 max 2, managed scaling) | GPU pool the worker's `RunTask` launches onto — EC2 instances (the chat-api service above runs on Fargate, no hardware acceleration there; this row is the GPU pool) — not a standing service | Per-instance-hour while scaled up |
 | **ECR** | `chat-api-prod` | Docker images for chat-api | Per GB stored |
 | **ECR** | `transcription-worker-prod` | Docker images for transcription-worker | Per GB stored |
 | **RDS PostgreSQL** | `chat-api-prod.xxxxxxxxxxxx.us-east-1.rds.amazonaws.com` | Primary DB (PostgreSQL + pgvector) | db.t3.micro or similar |

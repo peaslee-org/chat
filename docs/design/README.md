@@ -64,4 +64,4 @@ pending → transcribing → matching → complete
 - Python 3.11+
 - PostgreSQL with `pgvector` extension
 - AWS account with Transcribe, S3, SQS, and ECS (EC2 GPU capacity provider) access
-- Docker (worker image ~2.5 GB due to PyTorch)
+- Docker (worker image ~7 GB compressed — CUDA + PyTorch + baked models)
