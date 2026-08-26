@@ -66,23 +66,6 @@ variable "github_repo" {
   default     = "transcription-worker"
 }
 
-variable "worker_ami_id" {
-  type        = string
-  description = <<-EOT
-    AMI ID for the ECS GPU launch template (al2023-ami-ecs-gpu-hvm-* in us-east-1).
-    Pinned intentionally — do NOT use a dynamic data lookup. The host NVIDIA driver
-    in this AMI must be compatible with CUDA 12.8.1 used by the worker container.
-    To update: find the latest AMI with:
-      aws ec2 describe-images \
-        --owners amazon \
-        --filters "Name=name,Values=al2023-ami-ecs-gpu-hvm-*" "Name=architecture,Values=x86_64" \
-        --query "sort_by(Images, &CreationDate)[-1].{ImageId:ImageId,Name:Name,Created:CreationDate}" \
-        --output table
-    Then verify the NVIDIA driver version in the AMI release notes is compatible,
-    update this value, and apply.
-  EOT
-}
-
 variable "sample_files_path" {
   type        = string
   description = "Local path to the directory containing sample WAV files (conversation.wav, barry.wav, jane.wav). Used by Terraform to upload them once to the samples/ S3 prefix."
@@ -94,8 +77,14 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "worker_desired_count" {
+variable "idle_exit_seconds" {
   type        = number
-  description = "Desired count of the worker service. 0 parks the worker (the GPU ASG is scaled by transcription-worker.sh); 1 runs it."
-  default     = 1
+  description = "Seconds the worker waits on an empty queue before exiting (lets the GPU pool scale to zero)."
+  default     = 900
+}
+
+variable "max_lifetime_seconds" {
+  type        = number
+  description = "Maximum seconds the worker task runs before exiting regardless of queue state."
+  default     = 10800
 }

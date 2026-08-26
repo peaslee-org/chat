@@ -29,14 +29,13 @@ module "transcription" {
   cors_allowed_origins         = var.cors_allowed_origins
   worker_memory                = var.worker_memory
   worker_cpu                   = var.worker_cpu
-  worker_desired_count         = var.worker_desired_count
   image_tag                    = var.image_tag
   alarm_email                  = var.alarm_email
   huggingface_token_secret_arn = var.huggingface_token_secret_arn
   github_repo                  = "chat"
   sample_files_path            = "${path.module}/../../../chat-vue/public/samples"
-  # Pinned — see the variable description before updating.
-  worker_ami_id = var.worker_ami_id
+  idle_exit_seconds            = var.idle_exit_seconds
+  max_lifetime_seconds         = var.max_lifetime_seconds
 }
 
 output "audio_bucket_name" {

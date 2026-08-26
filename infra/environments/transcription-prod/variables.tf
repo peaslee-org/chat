@@ -18,18 +18,6 @@ variable "cors_allowed_origins" {
   description = "Browser origins allowed to PUT directly to S3."
 }
 
-variable "worker_ami_id" {
-  type        = string
-  description = <<-EOT
-    AMI for the ECS GPU launch template (al2023-ami-ecs-gpu-hvm-* in the region). Pinned on
-    purpose — a new AMI creates a new launch template version and the next instance boots from it.
-    Look up the current one with:
-      aws ec2 describe-images --owners amazon \
-        --filters "Name=name,Values=al2023-ami-ecs-gpu-hvm-*" "Name=architecture,Values=x86_64" \
-        --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text
-  EOT
-}
-
 variable "worker_memory" {
   type        = number
   description = "Memory (MB) for the ECS Fargate task."
@@ -60,8 +48,14 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "worker_desired_count" {
+variable "idle_exit_seconds" {
   type        = number
-  description = "Desired count of the worker service. 0 parks the worker; 1 runs it."
-  default     = 1
+  description = "Seconds the worker waits on an empty queue before exiting (lets the GPU pool scale to zero)."
+  default     = 900
+}
+
+variable "max_lifetime_seconds" {
+  type        = number
+  description = "Maximum seconds the worker task runs before exiting regardless of queue state."
+  default     = 10800
 }

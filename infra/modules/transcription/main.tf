@@ -76,7 +76,6 @@ resource "aws_iam_role_policy" "worker_github_actions" {
         Action = [
           "ecs:RegisterTaskDefinition",
           "ecs:TagResource",
-          "ecs:UpdateService",
         ]
         Resource = "*"
       },
@@ -84,18 +83,12 @@ resource "aws_iam_role_policy" "worker_github_actions" {
         Sid      = "IAMPassRole"
         Effect   = "Allow"
         Action   = "iam:PassRole"
-        Resource = "*"
+        Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn]
         Condition = {
           StringLike = {
             "iam:PassedToService" = "ecs-tasks.amazonaws.com"
           }
         }
-      },
-      {
-        Sid      = "S3PauseFlag"
-        Effect   = "Allow"
-        Action   = "s3:PutObject"
-        Resource = "${aws_s3_bucket.audio.arn}/worker_paused"
       },
     ]
   })
@@ -146,21 +139,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "audio" {
   }
 }
 
-# ── Pause flag ────────────────────────────────────────────────────────────────
-# Permanent object; content ("true"/"false") is managed at runtime by
-# transcription-worker.sh and the worker CI/CD workflow. Terraform only
-# creates it once — ignore_changes prevents any plan from resetting it.
-
-resource "aws_s3_object" "worker_paused" {
-  bucket  = aws_s3_bucket.audio.id
-  key     = "worker_paused"
-  content = "false"
-
-  lifecycle {
-    ignore_changes = [content, etag]
-  }
-}
-
 # ── Sample audio objects ──────────────────────────────────────────────────────
 # These files are uploaded once and never deleted; the lifecycle rule above only
 # targets the audio/ prefix so the samples/ prefix is permanently retained.
@@ -200,8 +178,8 @@ resource "aws_sqs_queue" "dlq" {
 
 resource "aws_sqs_queue" "main" {
   name                       = "transcription-${var.environment}"
-  visibility_timeout_seconds = 600   # matches worker SQS_VISIBILITY_TIMEOUT
-  message_retention_seconds  = 86400 # 24 hours
+  visibility_timeout_seconds = 600    # matches worker SQS_VISIBILITY_TIMEOUT
+  message_retention_seconds  = 345600 # 4 days
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
@@ -249,6 +227,32 @@ resource "aws_iam_role_policy" "api_transcription" {
         Action   = "transcribe:StartTranscriptionJob"
         Resource = "*"
       },
+      {
+        Sid       = "GpuRunWorker"
+        Effect    = "Allow"
+        Action    = "ecs:RunTask"
+        Resource  = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name}-worker:*"
+        Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_id } }
+      },
+      {
+        Sid       = "GpuReadTasks"
+        Effect    = "Allow"
+        Action    = ["ecs:ListTasks", "ecs:DescribeTasks"]
+        Resource  = "*"
+        Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_id } }
+      },
+      {
+        Sid      = "GpuPassWorkerRoles"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn]
+      },
+      {
+        Sid      = "GpuCostExplorer"
+        Effect   = "Allow"
+        Action   = "ce:GetCostAndUsage"
+        Resource = "*"
+      },
     ]
   })
 }
@@ -263,7 +267,7 @@ resource "aws_ecr_repository" "worker" {
     scan_on_push = true
   }
 
-  tags = { Environment = var.environment }
+  tags = { Environment = var.environment, CostCenter = "gpu" }
 }
 
 resource "aws_ecr_lifecycle_policy" "worker" {
@@ -272,11 +276,11 @@ resource "aws_ecr_lifecycle_policy" "worker" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep last 10 images"
+      description  = "Keep last 2 images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 10
+        countNumber = 2
       }
       action = { type = "expire" }
     }]
@@ -445,141 +449,10 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
   tags = { Environment = var.environment }
 }
 
-# ── Security group ────────────────────────────────────────────────────────────
-
-resource "aws_security_group" "worker" {
-  name        = "${local.name}-worker"
-  description = "Transcription worker outbound-only (S3, SQS, Transcribe, RDS, CloudWatch)"
-  vpc_id      = var.vpc_id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Environment = var.environment }
-}
-
-# ── IAM: EC2 instance role (ECS agent) ───────────────────────────────────────
-
-resource "aws_iam_role" "ec2_instance" {
-  name = "${local.name}-ec2-instance"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ec2_ecs_agent" {
-  role       = aws_iam_role.ec2_instance.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
-}
-
-resource "aws_iam_role_policy_attachment" "ec2_ssm" {
-  role       = aws_iam_role.ec2_instance.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_instance_profile" "ec2_instance" {
-  name = "${local.name}-ec2-instance"
-  role = aws_iam_role.ec2_instance.name
-}
-
-# ── EC2: GPU Spot launch template + ASG ───────────────────────────────────────
-
-resource "aws_launch_template" "worker_gpu" {
-  name_prefix   = "${local.name}-worker-gpu-"
-  image_id      = var.worker_ami_id
-  instance_type = "g4dn.xlarge"
-
-  # ECS GPU AMI default is 30 GB — too small for a 6.87 GB compressed CUDA/ML
-  # image (~20 GB extracted) plus OS + ECS agent + space for the previous image
-  # during rolling deploys. 80 GB gives comfortable headroom.
-  block_device_mappings {
-    device_name = "/dev/xvda"
-    ebs {
-      volume_size           = 80
-      volume_type           = "gp3"
-      delete_on_termination = true
-    }
-  }
-
-  iam_instance_profile {
-    arn = aws_iam_instance_profile.ec2_instance.arn
-  }
-
-  network_interfaces {
-    associate_public_ip_address = true
-    security_groups             = [aws_security_group.worker.id]
-  }
-
-  user_data = base64encode(join("\n", [
-    "#!/bin/bash",
-    "echo ECS_CLUSTER=chat-api-${var.environment} >> /etc/ecs/ecs.config",
-    "echo ECS_ENABLE_GPU_SUPPORT=true >> /etc/ecs/ecs.config",
-  ]))
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name        = "${local.name}-worker-gpu"
-      Environment = var.environment
-    }
-  }
-
-  tags = { Environment = var.environment }
-}
-
-resource "aws_autoscaling_group" "worker_gpu" {
-  name                = "${local.name}-worker-gpu"
-  desired_capacity    = 1
-  min_size            = 0
-  max_size            = 1
-  vpc_zone_identifier = var.subnet_ids
-
-  mixed_instances_policy {
-    instances_distribution {
-      on_demand_base_capacity                  = 0
-      on_demand_percentage_above_base_capacity = 0
-      spot_allocation_strategy                 = "lowest-price"
-    }
-    launch_template {
-      launch_template_specification {
-        launch_template_id = aws_launch_template.worker_gpu.id
-        version            = "$Latest"
-      }
-    }
-  }
-
-  tag {
-    key                 = "AmazonECSManaged"
-    value               = true
-    propagate_at_launch = true
-  }
-
-  tag {
-    key                 = "Environment"
-    value               = var.environment
-    propagate_at_launch = true
-  }
-
-  wait_for_capacity_timeout = "0"
-
-  lifecycle {
-    create_before_destroy = true
-    # desired_capacity is managed externally via transcription-worker.sh — never let Terraform touch it.
-    ignore_changes = [desired_capacity]
-  }
-}
-
-# ── ECS: worker task definition + service ────────────────────────────────────
+# ── ECS: worker task definition ──────────────────────────────────────────────
+# No service, no ASG: the API task role RunTasks this on demand onto the
+# shared GPU capacity pool (modules/gpu-capacity, owned by the prod
+# environment). CI (worker.yml) registers new revisions with image_tag.
 
 resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name}-worker"
@@ -605,6 +478,8 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "TRANSCRIBE_SQS_QUEUE_URL", value = aws_sqs_queue.main.url },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "DEV_CAPTURE_FIXTURES_S3_PREFIX", value = "dev-fixtures" },
+      { name = "IDLE_EXIT_SECONDS", value = tostring(var.idle_exit_seconds) },
+      { name = "MAX_LIFETIME_SECONDS", value = tostring(var.max_lifetime_seconds) },
     ]
 
     secrets = concat(
@@ -624,28 +499,5 @@ resource "aws_ecs_task_definition" "worker" {
     }
   }])
 
-  tags = { Environment = var.environment }
-}
-
-resource "aws_ecs_service" "worker" {
-  name            = "${local.name}-worker"
-  cluster         = var.ecs_cluster_id
-  task_definition = aws_ecs_task_definition.worker.arn
-  desired_count   = var.worker_desired_count
-  launch_type     = "EC2"
-
-  # Single GPU instance: stop old task before starting new one.
-  # AZ rebalancing must be disabled — it blocks maximumPercent <= 100.
-  availability_zone_rebalancing      = "DISABLED"
-  deployment_minimum_healthy_percent = 0
-  deployment_maximum_percent         = 100
-  enable_execute_command             = true
-
-  depends_on = [aws_autoscaling_group.worker_gpu]
-
-  lifecycle {
-    ignore_changes = [task_definition]
-  }
-
-  tags = { Environment = var.environment }
+  tags = { Environment = var.environment, CostCenter = "gpu" }
 }
