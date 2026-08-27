@@ -1,9 +1,10 @@
-from fastapi import Depends
+from fastapi import Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.dependencies import get_db
 from app.repositories.gpu import GpuSessionRepository
+from app.schemas.gpu import GpuFamily
 from app.services.cost_explorer import CostExplorerClient
 from app.services.ecs_launcher import EcsWorkerLauncher, MockEcsWorkerLauncher
 from app.services.gpu_controller import GpuController
@@ -50,3 +51,9 @@ def build_controller(db, s, family: str) -> GpuController | None:
 
 def get_gpu_controller(db: AsyncSession = Depends(get_db)) -> GpuController | None:
     return build_controller(db, get_settings(), "transcription")
+
+
+def get_gpu_controller_by_family(
+    family: GpuFamily = Query("transcription"), db: AsyncSession = Depends(get_db)
+) -> GpuController | None:
+    return build_controller(db, get_settings(), family)
