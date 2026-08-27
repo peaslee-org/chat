@@ -99,6 +99,8 @@ export interface TranscriptionJob {
 
 export type WorkerState = 'off' | 'starting' | 'running'
 
+export type GpuFamily = "transcription" | "photogrammetry"
+
 export interface GpuState {
   worker_state: WorkerState
   estimated_wait_seconds: number
@@ -108,7 +110,7 @@ export interface GpuState {
 
 export interface GpuSessionSummary {
   started_at: string; ended_at: string | null; reason: string; started_by: string
-  end_reason: string | null; hours: number
+  end_reason: string | null; hours: number; family: GpuFamily
 }
 
 export interface GpuUsage {

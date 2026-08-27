@@ -2,6 +2,10 @@
 import { computed, onMounted, onUnmounted, ref } from "vue"
 import { useGpuStore } from "@/stores/gpu"
 import { workerStateLabel } from "@/lib/workerState"
+import type { GpuFamily } from "@/types"
+
+const props = withDefaults(defineProps<{ family?: GpuFamily }>(), { family: "transcription" })
+const showWarm = computed(() => props.family === "transcription")
 
 const gpu = useGpuStore()
 const showUsage = ref(false)
@@ -18,7 +22,7 @@ const dot = computed(() => ({
   running: "bg-green-500", starting: "bg-amber-400 animate-pulse", off: "bg-gray-500",
 }[gpu.state?.worker_state ?? "off"]))
 
-onMounted(() => { gpu.startPolling(); void gpu.refreshUsage(); clock = setInterval(() => (now.value = Date.now()), 1000) })
+onMounted(() => { gpu.startPolling(props.family); void gpu.refreshUsage(); clock = setInterval(() => (now.value = Date.now()), 1000) })
 onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
 </script>
 
@@ -27,6 +31,7 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
     <span class="inline-block h-2.5 w-2.5 rounded-full" :class="dot" />
     <span>{{ label }}<span v-if="idleIn"> · idle-out in {{ idleIn }}</span></span>
     <button
+      v-if="showWarm"
       class="rounded bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-500 disabled:opacity-50"
       :disabled="gpu.warming || gpu.state?.worker_state === 'starting'"
       :title="gpu.state?.worker_state === 'running' ? 'Extend the idle timer' : 'Start the GPU now so your first job does not wait'"

@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { computed, ref } from "vue"
 import axios from "axios"
 import * as api from "@/lib/gpuApi"
-import type { GpuState, GpuUsage } from "@/types"
+import type { GpuFamily, GpuState, GpuUsage } from "@/types"
 
 const STATE_POLL_MS = 30_000
 
@@ -11,13 +11,14 @@ export const useGpuStore = defineStore("gpu", () => {
   const usage = ref<GpuUsage | null>(null)
   const warming = ref(false)
   const error = ref<string | null>(null)
+  const family = ref<GpuFamily>("transcription")
   let timer: ReturnType<typeof setTimeout> | null = null
   let polling = false
 
   const idleOutAt = computed(() => (state.value?.warm_until ? new Date(state.value.warm_until) : null))
 
   async function refreshState() {
-    try { state.value = await api.getGpuState(); error.value = null }
+    try { state.value = await api.getGpuState(family.value); error.value = null }
     catch (e) { if (!(axios.isAxiosError(e) && e.response?.status === 503)) error.value = "GPU status unavailable" }
   }
   async function refreshUsage() {
@@ -26,7 +27,7 @@ export const useGpuStore = defineStore("gpu", () => {
   async function warm() {
     warming.value = true
     try {
-      state.value = await api.warmGpu(); error.value = null
+      state.value = await api.warmGpu(family.value); error.value = null
       await refreshUsage()
     } catch (e) {
       error.value = axios.isAxiosError(e) && e.response?.status === 429
@@ -34,8 +35,10 @@ export const useGpuStore = defineStore("gpu", () => {
         : "Could not warm the GPU"
     } finally { warming.value = false }
   }
-  function startPolling() {
+  function startPolling(f: GpuFamily = "transcription") {
     stopPolling()
+    family.value = f
+    state.value = null
     polling = true
     const tick = async () => {
       await refreshState()
@@ -52,5 +55,5 @@ export const useGpuStore = defineStore("gpu", () => {
     if (timer) { clearTimeout(timer); timer = null }
   }
 
-  return { state, usage, warming, error, idleOutAt, refreshState, refreshUsage, warm, startPolling, stopPolling }
+  return { state, usage, warming, error, family, idleOutAt, refreshState, refreshUsage, warm, startPolling, stopPolling }
 })

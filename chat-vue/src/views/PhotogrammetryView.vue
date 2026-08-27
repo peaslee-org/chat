@@ -39,7 +39,7 @@ onMounted(async () => {
 
 <template>
   <div class="flex h-screen flex-col overflow-hidden">
-    <GpuStatusBar />
+    <GpuStatusBar family="photogrammetry" />
     <div class="flex min-h-0 flex-1 overflow-hidden" :class="{ 'select-none': isDragging }">
       <ScanSidebar
         :style="{ width: sidebarWidth + 'px' }"
