@@ -125,8 +125,14 @@ the container end-to-end before an AMI bake.
 Multi-stage `photogrammetry-worker/Dockerfile`, build context = **repo root**
 (`docker build -f photogrammetry-worker/Dockerfile .`) so `COPY gpu-worker/` works:
 
-1. `FROM colmap/colmap:20260729.7651` (CUDA build) — apt `cmake libeigen3-dev libcgal-dev libopencv-dev libboost-*` etc., clone OpenMVS **`v2.4.0`** (+ VCG at its pinned commit), `cmake -DOpenMVS_USE_CUDA=ON`, `make -j`. This layer is the ~30-min one; `--cache-from :latest` keeps it out of every push after the first.
-2. `FROM nvidia/cuda:<same version as the COLMAP image's base, read from its labels>-runtime-ubuntu22.04` — copy `/usr/local/bin/colmap`, the OpenMVS binaries and their shared libs; `pip install ./gpu-worker ./photogrammetry-worker` (`trimesh`, `pillow`, `numpy`, `boto3`, `sqlalchemy`, `psycopg2-binary`, `pydantic-settings`); `CMD ["python", "main.py"]`.
+1. `FROM nvidia/cuda:12.9.1-devel-ubuntu24.04` — the COLMAP image's own Ubuntu/CUDA line — apt `cmake
+   libeigen3-dev libcgal-dev libopencv-dev libboost-*` etc., clone OpenMVS **`v2.4.0`** (+ VCG),
+   `cmake -DOpenMVS_USE_CUDA=ON`, install to `/opt/openmvs`. This layer is the ~30-min one;
+   `--cache-from :latest` keeps it out of every push after the first.
+2. `FROM colmap/colmap:20260729.7651` (Ubuntu 24.04, CUDA 12.9.1 **runtime** — it has no `nvcc`, which
+   is why OpenMVS compiles in stage 1) — copy `/opt/openmvs/{bin,lib}` in, apt the OpenMVS runtime
+   libraries and `python3.12`, `pip install ./gpu-worker` + `trimesh pillow numpy boto3 sqlalchemy
+   psycopg2-binary pydantic-settings`; `CMD ["python", "main.py"]`.
 
 Target size ≈ 7 GB. The `worker.yml` transcription build moves to the same root-context form.
 
