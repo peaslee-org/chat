@@ -86,9 +86,10 @@ module "ecr" {
 
 
 locals {
-  cluster_name          = "chat-api-${var.environment}"             # mirrors modules/ecs local.name
-  gpu_capacity_provider = "gpu-${var.environment}"                  # mirrors modules/gpu-capacity local.name
-  worker_task_family    = "transcription-${var.environment}-worker" # owned by the transcription-prod state
+  cluster_name               = "chat-api-${var.environment}"              # mirrors modules/ecs local.name
+  gpu_capacity_provider      = "gpu-${var.environment}"                   # mirrors modules/gpu-capacity local.name
+  worker_task_family         = "transcription-${var.environment}-worker"  # owned by the transcription-prod state
+  photogrammetry_task_family = "photogrammetry-${var.environment}-worker" # owned by the transcription-prod state
 }
 
 module "ecs" {
@@ -121,6 +122,8 @@ module "ecs" {
     { name = "GPU_HOURLY_RATE_USD", value = tostring(var.gpu_hourly_rate_usd) },
     { name = "GPU_IDLE_EXIT_SECONDS", value = tostring(var.gpu_idle_exit_seconds) },
     { name = "GPU_MAX_LIFETIME_SECONDS", value = tostring(var.gpu_max_lifetime_seconds) },
+    { name = "GPU_PHOTOGRAMMETRY_TASK_FAMILY", value = var.photogrammetry_sqs_queue_url == "" ? "" : local.photogrammetry_task_family },
+    { name = "PHOTOGRAMMETRY_SQS_QUEUE_URL", value = var.photogrammetry_sqs_queue_url },
   ]
 }
 

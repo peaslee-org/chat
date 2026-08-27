@@ -38,6 +38,19 @@ module "transcription" {
   max_lifetime_seconds         = var.max_lifetime_seconds
 }
 
+module "photogrammetry" {
+  source                  = "../../modules/photogrammetry"
+  environment             = var.environment
+  aws_region              = var.aws_region
+  audio_bucket_name       = module.transcription.bucket_name
+  audio_bucket_arn        = "arn:aws:s3:::${module.transcription.bucket_name}"
+  database_url_secret_arn = var.database_url_secret_arn
+  github_repo             = "chat"
+  image_tag               = var.photogrammetry_image_tag
+  idle_exit_seconds       = var.idle_exit_seconds
+  max_lifetime_seconds    = var.max_lifetime_seconds
+}
+
 output "audio_bucket_name" {
   value = module.transcription.bucket_name
 }
@@ -53,3 +66,7 @@ output "dlq_url" {
 output "worker_ecr_url" {
   value = module.transcription.worker_ecr_url
 }
+
+output "photogrammetry_queue_url" { value = module.photogrammetry.queue_url }
+output "photogrammetry_worker_ecr_url" { value = module.photogrammetry.worker_ecr_url }
+output "photogrammetry_github_actions_role_arn" { value = module.photogrammetry.worker_github_actions_role_arn }

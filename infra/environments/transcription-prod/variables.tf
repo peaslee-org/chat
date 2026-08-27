@@ -59,3 +59,9 @@ variable "max_lifetime_seconds" {
   description = "Maximum seconds the worker task runs before exiting regardless of queue state. Must equal prod's gpu_max_lifetime_seconds — both feed the same worker via MAX_LIFETIME_SECONDS / GPU_MAX_LIFETIME_SECONDS."
   default     = 10800
 }
+
+variable "photogrammetry_image_tag" {
+  type        = string
+  description = "Image tag the photogrammetry task definition points at. CI deploys immutable tags and registers new revisions outside Terraform; set this to the deployed tag so plan stays clean."
+  default     = "latest"
+}

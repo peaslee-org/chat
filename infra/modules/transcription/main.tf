@@ -137,6 +137,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "audio" {
       days = 30
     }
   }
+
+  rule {
+    id     = "expire-photogrammetry-objects"
+    status = "Enabled"
+
+    filter {
+      prefix = "photogrammetry/"
+    }
+
+    expiration {
+      days = 30
+    }
+  }
 }
 
 # ── Sample audio objects ──────────────────────────────────────────────────────

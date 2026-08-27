@@ -144,3 +144,9 @@ variable "gpu_on_demand_percentage" {
   type        = number
   default     = 0
 }
+
+variable "photogrammetry_sqs_queue_url" {
+  type        = string
+  default     = ""
+  description = "Photogrammetry worker queue URL from the transcription-prod state; empty keeps the feature off (confirm returns 503)"
+}
