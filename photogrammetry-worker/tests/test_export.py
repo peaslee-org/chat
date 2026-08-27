@@ -26,7 +26,11 @@ def test_obj_to_glb_writes_binary_gltf_with_texture(tmp_path):
     assert data[:4] == b"glTF"
     mesh = trimesh.load(out, force="mesh")
     assert len(mesh.faces) == 2
-    assert getattr(mesh.visual, "material", None) is not None
+    mat = mesh.visual.material
+    assert mat is not None
+    # trimesh's GLB round-trip yields a PBRMaterial with the texture on baseColorTexture.
+    assert mat.baseColorTexture.size == (2, 2)
+    assert mesh.visual.uv.shape == (len(mesh.vertices), 2)
 
 
 def test_make_preview_downscales_long_edge_and_keeps_aspect(tmp_path):
