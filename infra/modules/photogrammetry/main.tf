@@ -104,23 +104,31 @@ resource "aws_iam_role_policy" "worker_github_actions" {
       "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"] },
       { Sid = "ECSRead", Effect = "Allow", Action = ["ecs:DescribeTaskDefinition"], Resource = "*" },
       { Sid = "ECSDeploy", Effect = "Allow", Action = ["ecs:RegisterTaskDefinition", "ecs:TagResource"], Resource = "*" },
-      { Sid = "IAMPassRole", Effect = "Allow", Action = "iam:PassRole",
-      Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn] },
+      { Sid      = "IAMPassRole", Effect = "Allow", Action = "iam:PassRole",
+        Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn],
+      Condition = { StringLike = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
     ]
   })
 }
 
 # ── IAM: let the API RunTask this family ──────────────────────────────────────
+# ecs:ListTasks/DescribeTasks for the launcher's status poll are granted unscoped by
+# the transcription module's inline policy on this same role (api_transcription);
+# this module relies on it.
 resource "aws_iam_role_policy" "api_photogrammetry" {
   name = "photogrammetry"
   role = data.aws_iam_role.api_task.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Sid = "GpuRunWorker", Effect = "Allow", Action = "ecs:RunTask",
-      Resource = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name}-worker:*" },
-      { Sid = "GpuPassWorkerRoles", Effect = "Allow", Action = "iam:PassRole",
-      Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn] },
+      { Sid      = "GpuRunWorker", Effect = "Allow", Action = "ecs:RunTask",
+        Resource = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name}-worker:*",
+      Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_arn } } },
+      { Sid      = "GpuPassWorkerRoles", Effect = "Allow", Action = "iam:PassRole",
+        Resource = [aws_iam_role.worker_execution.arn, aws_iam_role.worker_task.arn],
+      Condition = { StringLike = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
+      { Sid = "GpuTagTasks", Effect = "Allow", Action = "ecs:TagResource", Resource = "*",
+      Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } } },
       { Sid = "PublishJobs", Effect = "Allow", Action = "sqs:SendMessage", Resource = aws_sqs_queue.main.arn },
     ]
   })

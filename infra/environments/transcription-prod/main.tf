@@ -45,6 +45,7 @@ module "photogrammetry" {
   audio_bucket_name       = module.transcription.bucket_name
   audio_bucket_arn        = "arn:aws:s3:::${module.transcription.bucket_name}"
   database_url_secret_arn = var.database_url_secret_arn
+  ecs_cluster_arn         = data.aws_ecs_cluster.api.arn
   github_repo             = "chat"
   image_tag               = var.photogrammetry_image_tag
   idle_exit_seconds       = var.idle_exit_seconds

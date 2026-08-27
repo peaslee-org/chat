@@ -21,6 +21,11 @@ variable "database_url_secret_arn" {
   description = "Secrets Manager secret holding DATABASE_URL; injected by ECS, never read by Terraform."
 }
 
+variable "ecs_cluster_arn" {
+  type        = string
+  description = "ARN of the chat-api ECS cluster the worker task runs in."
+}
+
 variable "github_org" {
   type    = string
   default = "peaslee-org"
