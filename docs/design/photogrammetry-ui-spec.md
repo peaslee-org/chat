@@ -1,6 +1,6 @@
 # Photogrammetry UI — design spec
 
-**Date:** 2026-08-26 · **Status:** implemented 2026-08-26 (plan docs/superpowers/plans/2026-08-26-photogrammetry-ui.md); worker spec pending
+**Date:** 2026-08-26 · **Status:** implemented 2026-08-26 (plan docs/superpowers/plans/2026-08-26-photogrammetry-ui.md); worker spec: `photogrammetry-worker-spec.md` (2026-08-27)
 
 ## Goal
 

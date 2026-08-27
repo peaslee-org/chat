@@ -15,17 +15,17 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   `warm_until`; bar keeps the label across polls and adds a hover title with the absolute time,
   "not known yet" while `starting`. Touches: worker `services/gpu_session.py`, `worker_loop.py`,
   `models.py`; API migration + `gpu_controller.py` + `repositories/gpu.py`; `GpuStatusBar.vue`.
-- [ ] Photogrammetry worker container (COLMAP → OpenMVS → texturing) — its own spec; see
+- [ ] **→ `docs/design/photogrammetry-worker-spec.md`** Photogrammetry worker container (COLMAP → OpenMVS → texturing); see
   `docs/design/photogrammetry-ui-spec.md` §6–7 for the contract it must implement.
 
 ## API (chat-api)
 
-- [ ] **`GpuController` is not safe for two task families.** Module-global `_state_cache` and
+- [ ] **→ worker spec §3** **`GpuController` is not safe for two task families.** Module-global `_state_cache` and
   the family-agnostic `close_open_sessions()` reconcile in `ensure_worker` would let the
   photogrammetry and transcription controllers poison each other's cache and close each other's
   `gpu_sessions` rows. Key both by family (or add a `family` column) **before**
   `GPU_PHOTOGRAMMETRY_TASK_FAMILY` is ever set. (spec §7)
-- [ ] **Phantom GPU hours from sessions that never got an instance.** `GpuSessionRepository.hours_between`
+- [ ] **→ worker spec §3** **Phantom GPU hours from sessions that never got an instance.** `GpuSessionRepository.hours_between`
   sums every row's span; a `RunTask` that waits for capacity and is later reconciled
   (`end_reason = unknown`) still counts up to `max_session_seconds`. Observed 2026-08-26: two such
   rows ≈ 3.5 h against the caps/estimate with zero GPU time. Count from `started_processing_at`
@@ -42,7 +42,7 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Vue (chat-vue)
 
-- [ ] `GpuStatusBar` on `/photogrammetry` is the transcription worker's bar (reused unchanged);
+- [ ] **→ worker spec §3** `GpuStatusBar` on `/photogrammetry` is the transcription worker's bar (reused unchanged);
   parameterise `/gpu/*` by family or hide *Warm* there once the photogrammetry worker exists.
 - [ ] Photogrammetry store: no polling cutoff for a job stuck in `pending`; sibling uploads are
   not cancelled when one fails; dropzone not keyboard-focusable; dragover flicker over children.
@@ -57,7 +57,7 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   observed 2026-08-27: exit 11:16 → ASG 0 at 11:32). Options: worker terminates its own
   instance on exit (`ec2:TerminateInstances` scoped by tag, `InstanceInitiatedShutdownBehavior`),
   or a custom scale-in alarm on `CapacityProviderReservation` with fewer datapoints.
-- [ ] Bucket lifecycle rule for `photogrammetry/` (worker spec).
+- [ ] **→ worker spec §4** Bucket lifecycle rule for `photogrammetry/`.
 - [ ] `gpu_on_demand_percentage` back to 0 once spot placement scores recover.
 
 ## Local dev
