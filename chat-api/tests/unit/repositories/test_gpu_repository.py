@@ -10,13 +10,18 @@ NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
 SINCE = datetime(2026, 9, 10, 0, 0, tzinfo=timezone.utc)
 
 
-def make_repo(rowcount=None, scalar=0):
+def make_repo(rowcount=None, scalar=0, family="transcription"):
     db = MagicMock()
     result = MagicMock()
     result.rowcount = rowcount
     result.scalar_one = MagicMock(return_value=scalar)
     db.execute = AsyncMock(return_value=result)
-    return GpuSessionRepository(db), db
+    return GpuSessionRepository(db, family=family), db
+
+
+def compiled(db):
+    stmt = db.execute.await_args.args[0]
+    return str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
 
 async def test_close_open_sessions_returns_rowcount():
@@ -60,3 +65,47 @@ async def test_hours_between_converts_seconds_to_hours():
     repo, db = make_repo(scalar=5400)  # 1.5h in seconds
     hours = await repo.hours_between(SINCE, NOW, max_session_seconds=10800)
     assert hours == 1.5
+
+
+async def test_close_open_sessions_is_family_scoped():
+    repo, db = make_repo(rowcount=0, family="photogrammetry")
+    await repo.close_open_sessions(NOW)
+    assert "family = 'photogrammetry'" in compiled(db)
+
+
+async def test_extend_warm_is_family_scoped():
+    repo, db = make_repo(family="transcription")
+    await repo.extend_warm(NOW)
+    assert "family = 'transcription'" in compiled(db)
+
+
+async def test_warm_count_is_family_scoped():
+    repo, db = make_repo(family="transcription")
+    await repo.warm_count_for_user_since("u", SINCE)
+    assert "family = 'transcription'" in compiled(db)
+
+
+async def test_hours_between_sums_all_families_and_ignores_rows_without_instance():
+    repo, db = make_repo(scalar=0, family="photogrammetry")
+    await repo.hours_between(SINCE, NOW, max_session_seconds=10800)
+    sql = compiled(db)
+    assert "family" not in sql
+    assert "instance_id IS NOT NULL" in sql
+    assert "coalesce(gpu_sessions.started_processing_at, gpu_sessions.started_at)" in sql
+
+
+async def test_sessions_since_is_not_family_scoped():
+    repo, db = make_repo(family="photogrammetry")
+    db.execute.return_value.scalars.return_value.all.return_value = []
+    await repo.sessions_since(SINCE)
+    # select(GpuSession) always lists the `family` column; the intent here is no family
+    # *predicate* (no "family = ..." filter), not the column's absence from the SELECT list.
+    assert "family =" not in compiled(db)
+
+
+async def test_create_stamps_family():
+    repo, db = make_repo(family="photogrammetry")
+    db.add = MagicMock()
+    db.flush = AsyncMock()
+    row = await repo.create(task_arn="arn", started_by="u", reason="job", warm_until=None)
+    assert row.family == "photogrammetry"
