@@ -161,6 +161,19 @@ async def test_get_state_caches_for_30s():
     assert (await ctl.get_state()).worker_state == "running"
 
 
+async def test_usage_defaults_family_to_transcription_when_not_stamped():
+    """Pin current behaviour: the controller does not yet stamp family onto sessions it reads
+    back, so GpuSessionSummary's own default carries it. Will tighten when the controller starts
+    stamping the real value."""
+    ctl, repo, _ = make()
+    repo.sessions_since = AsyncMock(return_value=[
+        MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None)
+    ])
+    u = await ctl.usage("u1")
+    assert len(u.sessions) == 1
+    assert u.sessions[0].family == "transcription"
+
+
 async def test_usage_estimates_and_snapshots():
     ctl, repo, _ = make(day_hours=1.5, month_hours=4.0)
     cost = MagicMock()

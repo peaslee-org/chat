@@ -21,7 +21,7 @@ class GpuSessionSummary(BaseModel):
     started_by: str
     end_reason: Optional[str]
     hours: float
-    family: str
+    family: str = "transcription"
 
     model_config = {"from_attributes": True}
 
