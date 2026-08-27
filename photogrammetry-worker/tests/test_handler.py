@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from botocore.exceptions import ClientError
 from PIL import Image
 
 from gpu_worker.sqs import Interrupted
@@ -45,18 +46,28 @@ class FakeRecon:
 
 class FakeS3:
     def __init__(self, keys):
-        self.keys, self.uploaded = keys, []
+        self.keys, self.uploaded, self.downloaded = keys, [], []
     def list_keys(self, prefix): return [k for k in self.keys if k.startswith(prefix)]
     def download(self, key, dest):
+        self.downloaded.append(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (800, 600)).save(dest)
     def upload_file(self, path, key, content_type): self.uploaded.append((key, content_type, Path(path).stat().st_size > 0))
 
 
-def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=None):
+class FailingDownloadS3(FakeS3):
+    """download() raises a transient S3 ClientError (M15)."""
+    def download(self, key, dest):
+        raise ClientError({"Error": {"Code": "SlowDown", "Message": "x"}}, "GetObject")
+
+
+def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=None, s3_cls=FakeS3,
+         include_placeholder=False):
     job_id = uuid.uuid4()
     prefix = f"photogrammetry/{USER}/{job_id}/input/"
     keys = keys if keys is not None else [f"{prefix}{i:04d}.jpg" for i in range(1, image_count + 1)]
+    if include_placeholder:
+        keys = [prefix] + keys
     job = MagicMock(id=job_id, user_id=USER, status=status, stage=None, image_count=image_count,
                     input_prefix=prefix, mesh_s3_key=None, preview_s3_key=None, error_message=None, completed_at=None)
     session = MagicMock()
@@ -70,7 +81,7 @@ def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=N
     def recon_factory(work, deadline):
         r = FakeRecon(work, **(recon_kwargs or {})); recons.append(r); return r
 
-    s3 = FakeS3(keys)
+    s3 = s3_cls(keys)
     deps = Deps(session_factory=factory, s3=s3, reconstruction_factory=recon_factory,
                 work_root=tmp_path / "work", use_gpu=False, job_timeout_seconds=3600)
     return job, s3, recons, deps
@@ -177,3 +188,24 @@ def test_error_message_is_capped_at_1000_chars(tmp_path):
                 work_root=deps.work_root, use_gpu=False, job_timeout_seconds=3600)
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
     assert len(job.error_message) == 1000
+
+
+def test_directory_placeholder_key_is_ignored_and_never_downloaded(tmp_path):
+    """M11: S3 "folders" show up in list_keys as a zero-byte object ending in "/"."""
+    job, s3, recons, deps = make(tmp_path, image_count=10, include_placeholder=True)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert job.input_prefix not in s3.downloaded
+    assert len(s3.downloaded) == 10
+
+
+def test_transient_s3_error_during_download_leaves_job_processing_for_redelivery(tmp_path):
+    """M15: a ClientError/BotoCoreError while listing or downloading must not be swallowed by
+    the generic except Exception (which would fail the job); it re-raises so SQS redelivers,
+    and the row is left `processing` so the load step restarts it."""
+    job, s3, recons, deps = make(tmp_path, s3_cls=FailingDownloadS3)
+    with pytest.raises(ClientError):
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "processing"
+    assert recons == []
+    assert not (tmp_path / "work" / str(job.id)).exists()   # scratch still removed

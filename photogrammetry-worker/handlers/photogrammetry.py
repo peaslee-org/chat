@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from gpu_worker.sqs import Interrupted
 from models import PhotogrammetryJob
 from pipeline.export import make_preview, obj_to_glb
@@ -61,7 +63,8 @@ def process_photogrammetry_job(body: dict, deps: Deps) -> None:
     images = work / "images"
     output_prefix = f"photogrammetry/{user_id}/{job_id}/output/"
     try:
-        keys = deps.s3.list_keys(input_prefix)
+        # S3 "folders" are placeholder zero-byte objects with a trailing "/" — not photos.
+        keys = [key for key in deps.s3.list_keys(input_prefix) if not key.endswith("/")]
         if len(keys) < image_count:
             raise StageError("fetch", f"{len(keys)} of {image_count} photos found in storage")
         for key in keys:
@@ -96,6 +99,11 @@ def process_photogrammetry_job(body: dict, deps: Deps) -> None:
     except Interrupted:
         logger.warning("Job %s interrupted — back to queued", job_id)
         _update(deps, job_id, status="queued", stage=None)
+        raise
+    except (ClientError, BotoCoreError):
+        # Transient S3 (e.g. SlowDown) — leave the row `processing` and re-raise so the SQS
+        # shell doesn't ack; redelivery restarts the job from the load step.
+        logger.warning("Job %s hit a transient S3 error — leaving for redelivery", job_id, exc_info=True)
         raise
     except Exception as e:   # StageError, JobTimeout, anything else deterministic
         message = str(e)[:ERROR_MAX_CHARS] or e.__class__.__name__
