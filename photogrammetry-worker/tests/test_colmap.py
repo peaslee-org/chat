@@ -8,10 +8,12 @@ class FakeRunner:
     """Records commands; `model_analyzer` output comes from `analyses` keyed by model dir name."""
     def __init__(self, analyses):
         self.cmds = []
+        self.calls = []
         self.analyses = analyses
 
     def run(self, cmd, cwd, tool=None):
         self.cmds.append(cmd)
+        self.calls.append((cmd, cwd, tool))
         if cmd[1] == "model_analyzer":
             name = Path(cmd[cmd.index("--path") + 1]).name
             return f"Cameras: 1\nImages: 22\nRegistered images: {self.analyses[name]}\nPoints: 100\n"
@@ -30,9 +32,16 @@ def test_sparse_reconstruct_runs_extract_match_map_with_gpu_flags(tmp_path):
     subcommands = [c[1] for c in r.cmds]
     assert subcommands[:3] == ["feature_extractor", "exhaustive_matcher", "mapper"]
     assert "--SiftExtraction.use_gpu" in r.cmds[0] and r.cmds[0][r.cmds[0].index("--SiftExtraction.use_gpu") + 1] == "0"
-    assert "--SiftMatching.use_gpu" in r.cmds[1]
+    assert "--SiftMatching.use_gpu" in r.cmds[1] and r.cmds[1][r.cmds[1].index("--SiftMatching.use_gpu") + 1] == "0"
     assert "--ImageReader.single_camera" in r.cmds[0]
     assert model == SparseModel(path=tmp_path / "sparse" / "0", registered_images=20)
+    assert all(c[1] == tmp_path for c in r.calls)
+    assert [c[2] for c in r.calls] == [
+        "colmap feature_extractor",
+        "colmap exhaustive_matcher",
+        "colmap mapper",
+        "colmap model_analyzer",
+    ]
 
 
 def test_picks_model_with_most_registered_images(tmp_path):
@@ -42,11 +51,19 @@ def test_picks_model_with_most_registered_images(tmp_path):
     assert model.path.name == "1" and model.registered_images == 17
 
 
+def test_tie_keeps_first_in_sorted_order(tmp_path):
+    make_sparse(tmp_path, ["0", "1"])
+    r = FakeRunner({"0": 9, "1": 9})
+    model = sparse_reconstruct(r, tmp_path, tmp_path / "images", use_gpu=True)
+    assert model.path.name == "0" and model.registered_images == 9
+
+
 def test_no_model_means_zero_registered(tmp_path):
     (tmp_path / "sparse").mkdir()
     r = FakeRunner({})
     model = sparse_reconstruct(r, tmp_path, tmp_path / "images", use_gpu=True)
     assert model.registered_images == 0
+    assert model.path == tmp_path / "sparse" / "0"
 
 
 def test_undistort_writes_dense_workspace(tmp_path):
@@ -55,3 +72,4 @@ def test_undistort_writes_dense_workspace(tmp_path):
     cmd = r.cmds[0]
     assert cmd[1] == "image_undistorter" and dense == tmp_path / "dense"
     assert cmd[cmd.index("--output_type") + 1] == "COLMAP"
+    assert r.calls[0][1] == tmp_path and r.calls[0][2] == "colmap image_undistorter"

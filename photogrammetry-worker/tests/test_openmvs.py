@@ -18,6 +18,7 @@ def test_chain_produces_expected_paths(tmp_path):
     obj = texture_mesh(r, dense, scene_dense, refined)
     assert [c[0][0] for c in r.calls] == ["InterfaceCOLMAP", "DensifyPointCloud", "ReconstructMesh", "RefineMesh", "TextureMesh"]
     assert all(c[1] == dense for c in r.calls)
+    assert [c[2] for c in r.calls] == ["InterfaceCOLMAP", "DensifyPointCloud", "ReconstructMesh", "RefineMesh", "TextureMesh"]
     assert scene == dense / "scene.mvs" and scene_dense == dense / "scene_dense.mvs"
     assert mesh == dense / "scene_dense_mesh.ply" and refined == dense / "scene_dense_mesh_refine.ply"
     assert obj == dense / "scene_textured.obj"
