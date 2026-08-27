@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Bake the transcription-worker image into the ECS GPU base AMI so a cold start pulls nothing.
-# Usage: AWS_PROFILE=<admin> scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag> <subnet-id> <sg-id> <instance-profile> [env]
+# Bake worker images into the ECS GPU base AMI so a cold start pulls nothing.
+# Usage: AWS_PROFILE=<admin> scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag>[,<image-uri:tag>…] <subnet-id> <sg-id> <instance-profile> [env]
 # Prints the new AMI id last. Keeps this AMI and the previous one; deregisters older ones (+ snapshots).
 set -euo pipefail
-BASE_AMI=$1; IMAGE=$2; SUBNET=$3; SG=$4; PROFILE=$5; ENV=${6:-prod}
+BASE_AMI=$1; IMAGES=$2; IFS=',' read -r -a IMAGE_LIST <<< "$IMAGES"; IMAGE=${IMAGE_LIST[0]}; SUBNET=$3; SG=$4; PROFILE=$5; ENV=${6:-prod}
 REGION=${AWS_REGION:-us-east-1}
 TAG=${IMAGE##*:}; NAME="gpu-${ENV}-$(date -u +%Y%m%d)-${TAG:0:7}"
 REGISTRY=${IMAGE%%/*}
@@ -12,7 +12,7 @@ USERDATA=$(cat <<EOS
 #!/bin/bash
 set -e
 aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${REGISTRY}
-docker pull ${IMAGE}
+for IMG in ${IMAGE_LIST[*]}; do docker pull \$IMG; done
 systemctl stop ecs
 rm -rf /var/lib/ecs/data/*
 touch /var/tmp/bake-done
@@ -41,7 +41,7 @@ done
 # One-time spot instances cannot be stopped; create-image on the running instance reboots it
 # for a consistent snapshot (the ECS agent is already stopped and its state cleared by user-data).
 AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --name "$NAME" \
-  --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGE//\//_}}]" \
+  --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGES//\//_}}]" \
   --query ImageId --output text)
 # `aws ec2 wait image-available` gives up after 10 min; an 80 GB root snapshot can take longer.
 echo "Waiting for $AMI to become available (up to 40 min) …"

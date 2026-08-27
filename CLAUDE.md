@@ -11,6 +11,8 @@ This repo contains two independent projects:
 | `chat-api/` | FastAPI, Python, PostgreSQL, AWS Bedrock | Backend API |
 | `chat-vue/` | Vue 3, TypeScript, Tailwind CSS, Vite | Frontend SPA |
 | `transcription-worker/` | Python, pyannote-audio, SpeechBrain, PyTorch, SQS, S3 | Run-to-completion GPU worker (ECS, EC2 launch type) for audio transcription & speaker diarization |
+| `gpu-worker/` | Python, boto3, SQLAlchemy, SQS | Shared package (`gpu_worker`) for the run-to-completion loop, session ledger, and SQS wiring used by both worker images |
+| `photogrammetry-worker/` | Python, COLMAP, OpenMVS, trimesh, Pillow, SQS, S3 | Run-to-completion GPU worker (ECS, EC2 launch type) for photo → mesh reconstruction (COLMAP → OpenMVS → texturing) |
 
 Each sub-project has its own `CLAUDE.md` with detailed commands, architecture, and env var references. Read the relevant one before working in that project.
 

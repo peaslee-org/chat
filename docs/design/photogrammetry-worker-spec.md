@@ -1,6 +1,7 @@
 # Photogrammetry worker — design spec
 
-**Date:** 2026-08-27 · **Status:** approved in brainstorm 2026-08-27; plan pending · **Implements:**
+**Date:** 2026-08-27 · **Status:** implemented on branch photogrammetry-worker (plan
+docs/superpowers/plans/2026-08-27-photogrammetry-worker.md); cutover per §4 pending · **Implements:**
 the contract in `photogrammetry-ui-spec.md` §1 and the constraints in its §7
 
 ## Goal
@@ -255,6 +256,9 @@ with `family="transcription"` — the only observable difference is the new colu
 through the whole pipeline against the local API + throwaway pgvector container — slow, but the
 proof that the container works before a bake is spent. `alembic upgrade → downgrade → upgrade`
 on the same container.
+
+On fitlet the image build and CPU smoke were deferred (root disk ~7 GB free vs ≈10 GB of images);
+the first build runs in CI and the CPU smoke is a runbook step.
 
 ### Acceptance — Neil drives the UI, Claude verifies CLI (as runbook §9)
 
