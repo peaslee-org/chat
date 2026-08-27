@@ -11,7 +11,7 @@ from app.services.ecs_launcher import GpuLaunchError
 logger = logging.getLogger(__name__)
 
 _STATE_CACHE_TTL = 30.0
-_state_cache: tuple[float, list[str]] | None = None   # (expiry_monotonic, task statuses)
+_state_cache: dict[str, tuple[float, list[str]]] = {}   # family -> (expiry_monotonic, task statuses)
 
 _STARTING = {"PROVISIONING", "PENDING", "ACTIVATING"}
 
@@ -31,27 +31,29 @@ def _state_from(statuses: list[str]) -> WorkerState:
 
 
 class GpuController:
-    def __init__(self, repo, launcher, settings, cost_client=None,
+    def __init__(self, repo, launcher, settings, family: str = "transcription", cost_client=None,
                  now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self._repo = repo
         self._launcher = launcher
         self._s = settings
+        self._family = family
         self._cost = cost_client
         self._now = now
 
     # ── state ────────────────────────────────────────────────────────────────
 
     async def get_state(self) -> GpuStateResponse:
-        global _state_cache
         mono = time.monotonic()
-        if _state_cache is None or mono >= _state_cache[0]:
+        cached = _state_cache.get(self._family)
+        if cached is None or mono >= cached[0]:
             try:
                 statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
             except GpuLaunchError as e:
                 logger.warning("ListTasks failed: %s", e)
                 return self._response("off", notice="GPU status unavailable")
-            _state_cache = (mono + _STATE_CACHE_TTL, statuses)
-        return self._response(_state_from(_state_cache[1]))
+            cached = (mono + _STATE_CACHE_TTL, statuses)
+            _state_cache[self._family] = cached
+        return self._response(_state_from(cached[1]))
 
     def _response(self, state: WorkerState, notice: Optional[str] = None,
                   warm_until: Optional[datetime] = None) -> GpuStateResponse:
@@ -63,14 +65,13 @@ class GpuController:
     # ── launch ───────────────────────────────────────────────────────────────
 
     async def ensure_worker(self, reason: str, user_id: str, is_admin: bool = False) -> GpuStateResponse:
-        global _state_cache
         now = self._now()
         await self._repo.advisory_lock()
         try:
             statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
         except GpuLaunchError as e:
             logger.error("ListTasks failed: %s", e)
-            _state_cache = None
+            _state_cache.pop(self._family, None)
             return self._response("off", notice="GPU unavailable, retrying on next poll")
         state = _state_from(statuses)
         if state == "off":
@@ -87,7 +88,7 @@ class GpuController:
                 task_arn = await asyncio.to_thread(self._launcher.run_worker_task, user_id)
             except GpuLaunchError as e:
                 logger.error("RunTask failed: %s", e)
-                _state_cache = None
+                _state_cache.pop(self._family, None)
                 return self._response("off", notice="GPU unavailable, retrying on next poll")
             warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds) if reason == "warm" else None
             await self._repo.create(task_arn=task_arn, started_by=user_id, reason=reason, warm_until=warm_until)
@@ -95,7 +96,7 @@ class GpuController:
         elif reason == "warm":
             warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds)
             await self._repo.extend_warm(warm_until)
-        _state_cache = None
+        _state_cache.pop(self._family, None)
         return self._response(state, notice=notice, warm_until=warm_until)
 
     async def _check_caps(self, reason: str, user_id: str, is_admin: bool, will_launch: bool) -> Optional[str]:
@@ -134,7 +135,7 @@ class GpuController:
         sessions = [
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
-                end_reason=s.end_reason,
+                end_reason=s.end_reason, family=s.family,
                 hours=round(((s.ended_at or now) - s.started_at).total_seconds() / 3600.0, 2),
             )
             for s in await self._repo.sessions_since(month_start)

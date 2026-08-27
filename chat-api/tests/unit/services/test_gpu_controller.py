@@ -10,7 +10,8 @@ from app.services.gpu_controller import GpuCapExceeded, GpuController
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
 
 
-def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_sessions=0):
+def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_sessions=0,
+         family="transcription"):
     repo = MagicMock()
     repo.advisory_lock = AsyncMock()
     repo.hours_between = AsyncMock(
@@ -33,8 +34,8 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
         gpu_wait_estimate_starting_seconds=120, gpu_wait_estimate_off_seconds=180,
         gpu_cost_tag_key="CostCenter", gpu_cost_tag_value="gpu",
     )
-    gc._state_cache = None
-    return GpuController(repo, launcher, settings, now=lambda: NOW), repo, launcher
+    gc._state_cache.clear()
+    return GpuController(repo, launcher, settings, family=family, now=lambda: NOW), repo, launcher
 
 
 async def test_ensure_worker_launches_when_nothing_running():
@@ -157,17 +158,42 @@ async def test_get_state_caches_for_30s():
     assert (await ctl.get_state()).worker_state == "starting"
     launcher.list_worker_tasks.return_value = ["RUNNING"]
     assert (await ctl.get_state()).worker_state == "starting"      # cached
-    gc._state_cache = None
+    gc._state_cache.clear()
     assert (await ctl.get_state()).worker_state == "running"
 
 
+async def test_state_cache_is_per_family():
+    a, _, la = make(tasks=["RUNNING"], family="transcription")
+    b, _, lb = make(tasks=[], family="photogrammetry")
+    assert (await a.get_state()).worker_state == "running"
+    assert (await b.get_state()).worker_state == "off"      # not served from a's cache
+    assert la.list_worker_tasks.call_count == 1 and lb.list_worker_tasks.call_count == 1
+
+
+async def test_ensure_worker_invalidates_only_its_family():
+    a, _, la = make(tasks=["RUNNING"], family="transcription")
+    b, _, _ = make(tasks=[], family="photogrammetry")
+    await a.get_state(); await b.get_state()
+    await b.ensure_worker("job", "u")
+    await a.get_state()
+    assert la.list_worker_tasks.call_count == 1           # a's cache survived b's launch
+
+
+async def test_usage_summary_carries_family():
+    ctl, repo, _ = make(family="photogrammetry")
+    s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None, family="photogrammetry")
+    repo.sessions_since = AsyncMock(return_value=[s])
+    usage = await ctl.usage("u")
+    assert usage.sessions[0].family == "photogrammetry"
+
+
 async def test_usage_defaults_family_to_transcription_when_not_stamped():
-    """Pin current behaviour: the controller does not yet stamp family onto sessions it reads
-    back, so GpuSessionSummary's own default carries it. Will tighten when the controller starts
-    stamping the real value."""
+    """The controller reads family off each session; a transcription-scoped repo's sessions
+    carry family="transcription"."""
     ctl, repo, _ = make()
     repo.sessions_since = AsyncMock(return_value=[
-        MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None)
+        MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
+                   family="transcription")
     ])
     u = await ctl.usage("u1")
     assert len(u.sessions) == 1

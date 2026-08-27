@@ -20,8 +20,9 @@ def is_admin(user: dict) -> bool:
     return "admin" in (user.get("cognito:groups") or [])
 
 
-def _get_launcher(s) -> EcsWorkerLauncher:
-    key = (s.gpu_cluster, s.gpu_worker_task_family, s.gpu_capacity_provider, s.aws_region)
+def launcher_for(s, family: str) -> EcsWorkerLauncher:
+    task_family = s.gpu_worker_task_family if family == "transcription" else s.gpu_photogrammetry_task_family
+    key = (s.gpu_cluster, task_family, s.gpu_capacity_provider, s.aws_region)
     launcher = _launchers.get(key)
     if launcher is None:
         launcher = _launchers[key] = EcsWorkerLauncher(*key)
@@ -35,10 +36,17 @@ def _get_cost_client(s) -> CostExplorerClient:
     return client
 
 
-def get_gpu_controller(db: AsyncSession = Depends(get_db)) -> GpuController | None:
-    s = get_settings()
+def build_controller(db, s, family: str) -> GpuController | None:
     if s.use_mock_transcription:
-        return GpuController(GpuSessionRepository(db), _mock_launcher, s)
+        return GpuController(GpuSessionRepository(db, family), _mock_launcher, s, family=family)
     if not s.gpu_controller_enabled:
         return None
-    return GpuController(GpuSessionRepository(db), _get_launcher(s), s, cost_client=_get_cost_client(s))
+    task_family = s.gpu_worker_task_family if family == "transcription" else s.gpu_photogrammetry_task_family
+    if not task_family:
+        return None
+    return GpuController(GpuSessionRepository(db, family), launcher_for(s, family), s, family=family,
+                         cost_client=_get_cost_client(s))
+
+
+def get_gpu_controller(db: AsyncSession = Depends(get_db)) -> GpuController | None:
+    return build_controller(db, get_settings(), "transcription")
