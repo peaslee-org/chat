@@ -33,6 +33,12 @@ class SQSPublisher:
             }),
         )
 
+    def publish_photogrammetry_job(self, job_id: UUID) -> None:
+        self.sqs.send_message(
+            QueueUrl=self.queue_url,
+            MessageBody=json.dumps({"type": "photogrammetry_job", "job_id": str(job_id)}),
+        )
+
 
 class MockSQSPublisher:
     """No-op SQS publisher for local dev (USE_MOCK_TRANSCRIPTION=true)."""
@@ -43,4 +49,7 @@ class MockSQSPublisher:
         pass
 
     def publish_sample_embedding(self, sample_id: UUID, s3_key: str) -> None:
+        pass
+
+    def publish_photogrammetry_job(self, job_id: UUID) -> None:
         pass

@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     photogrammetry_sample_prefix: str = "samples/photogrammetry/"
     # ECS task family of the photogrammetry worker; empty = not deployed (confirm returns 503)
     gpu_photogrammetry_task_family: str = ""
+    photogrammetry_sqs_queue_url: str = ""   # worker queue; empty = not deployed (confirm returns 503)
 
     # LangSmith
     langchain_tracing_v2: bool = False

@@ -9,7 +9,8 @@ def make_settings(**over):
     d = dict(use_mock_photogrammetry=False, mock_upload_base_url="http://localhost:8000",
              local_storage_path="/tmp/x", gpu_controller_enabled=True, use_mock_transcription=False,
              gpu_cluster="c", gpu_photogrammetry_task_family="photogrammetry-worker",
-             gpu_capacity_provider="cp", aws_region="us-east-1")
+             gpu_capacity_provider="cp", aws_region="us-east-1",
+             photogrammetry_sqs_queue_url="https://sqs.test/pg")
     d.update(over)
     return MagicMock(**d)
 
@@ -39,6 +40,7 @@ def test_real_service_with_task_family_builds_cached_launcher():
     s = make_settings()
     with patch.object(deps, "get_settings", return_value=s), \
          patch.object(deps, "AudioStorageService"), \
+         patch.object(deps, "SQSPublisher"), \
          patch.object(deps.gpu_deps, "EcsWorkerLauncher") as launcher_cls, \
          patch.object(deps.gpu_deps, "_get_cost_client", return_value=MagicMock()):
         svc1 = deps.get_photogrammetry_service(db=MagicMock())
@@ -46,3 +48,20 @@ def test_real_service_with_task_family_builds_cached_launcher():
     assert svc1._gpu is not None and svc2._gpu is not None
     assert svc1._gpu._family == "photogrammetry"
     launcher_cls.assert_called_once_with("c", "photogrammetry-worker", "cp", "us-east-1")
+
+
+def test_real_service_without_queue_url_has_no_gpu():
+    s = make_settings(photogrammetry_sqs_queue_url="")
+    with patch.object(deps, "get_settings", return_value=s), patch.object(deps, "AudioStorageService"):
+        svc = deps.get_photogrammetry_service(db=MagicMock())
+    assert svc._gpu is None
+
+
+def test_real_service_with_family_and_queue_builds_publisher():
+    s = make_settings(photogrammetry_sqs_queue_url="https://sqs.test/pg")
+    with patch.object(deps, "get_settings", return_value=s), patch.object(deps, "AudioStorageService"), \
+         patch.object(deps, "SQSPublisher") as P, patch("app.api.v1.gpu.deps.EcsWorkerLauncher"), \
+         patch("app.api.v1.gpu.deps._get_cost_client"):
+        svc = deps.get_photogrammetry_service(db=MagicMock())
+    assert svc._gpu is not None
+    P.assert_called_once_with("https://sqs.test/pg", "us-east-1")

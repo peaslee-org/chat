@@ -46,11 +46,12 @@ def default_job_name(now: Optional[datetime] = None) -> str:
 class PhotogrammetryService:
     is_mock = False
 
-    def __init__(self, repo: PhotogrammetryRepository, storage, settings, gpu=None):
+    def __init__(self, repo: PhotogrammetryRepository, storage, settings, gpu=None, sqs=None):
         self._repo = repo
         self._storage = storage
         self._settings = settings
         self._gpu = gpu
+        self._sqs = sqs
 
     # ── create / confirm ─────────────────────────────────────────────────────
 
@@ -95,6 +96,8 @@ class PhotogrammetryService:
     async def _queue(self, job_id: UUID, user_id: str) -> None:
         await self._repo.update_job_status(job_id, "queued")
         await self._repo.db.commit()
+        if self._sqs is not None:
+            self._sqs.publish_photogrammetry_job(job_id)  # after the commit so the worker finds the row
         try:
             await self._gpu.ensure_worker("job", user_id)
         except GpuCapExceeded:
@@ -202,7 +205,7 @@ class LocalPhotogrammetryService(PhotogrammetryService):
     is_mock = True
 
     def __init__(self, repo: PhotogrammetryRepository, storage, settings):
-        super().__init__(repo, storage, settings, gpu=None)
+        super().__init__(repo, storage, settings, gpu=None, sqs=None)
 
     async def confirm_job(self, user_id: str, job_id: UUID) -> None:
         job = await self._get_or_404(user_id, job_id)

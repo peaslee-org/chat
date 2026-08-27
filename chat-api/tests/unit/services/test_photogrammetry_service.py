@@ -43,7 +43,7 @@ def make_job(**overrides):
     return job
 
 
-def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None):
+def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None, sqs=None):
     repo = MagicMock()
     repo.count_active_jobs = AsyncMock(return_value=active_jobs)
     repo.create_job = AsyncMock(
@@ -73,7 +73,7 @@ def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None
     settings.photogrammetry_max_images = max_images
     settings.photogrammetry_sample_prefix = "samples/photogrammetry/"
 
-    return PhotogrammetryService(repo, storage, settings, gpu), repo, storage
+    return PhotogrammetryService(repo, storage, settings, gpu, sqs), repo, storage
 
 
 FILES = ["IMG_1.JPG", "b.png", "c.jpeg", "d.jpg", "e.jpg", "f.jpg"]
@@ -157,6 +157,19 @@ class TestConfirmJob:
         await svc.confirm_job("user1", job.id)  # must not raise
         repo.update_job_status.assert_awaited_once_with(job.id, "queued")
 
+    async def test_confirm_publishes_after_commit_then_ensures_worker(self):
+        order = []
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock(side_effect=lambda *a, **k: order.append("ensure"))
+        sqs = MagicMock()
+        sqs.publish_photogrammetry_job = MagicMock(side_effect=lambda job_id: order.append("publish"))
+        job = make_job(status="pending", image_count=6)
+        svc, repo, storage = make_service(gpu=gpu, job=job, keys=[f"k{i}" for i in range(6)], sqs=sqs)
+        repo.db.commit = AsyncMock(side_effect=lambda: order.append("commit"))
+        await svc.confirm_job("user1", job.id)
+        assert order[:3] == ["commit", "publish", "ensure"]
+        sqs.publish_photogrammetry_job.assert_called_once_with(job.id)
+
 
 class TestStatusAndMesh:
     async def test_status_includes_preview_url_and_mock_false(self):
@@ -219,6 +232,16 @@ class TestSampleJob:
         assert kwargs["name"] == "Sample scan"
         repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
         gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+
+    async def test_sample_job_publishes(self):
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        sqs = MagicMock()
+        svc, repo, storage = make_service(
+            gpu=gpu, keys=["samples/photogrammetry/images/0001.jpg"] * 8, sqs=sqs
+        )
+        r = await svc.create_sample_job("user1")
+        sqs.publish_photogrammetry_job.assert_called_once_with(r.job_id)
 
 
 def make_local(*, job=None, active_jobs=0):
