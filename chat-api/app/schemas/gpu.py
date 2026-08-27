@@ -4,6 +4,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel
 
 WorkerState = Literal["off", "starting", "running"]
+GpuFamily = Literal["transcription", "photogrammetry"]
 
 
 class GpuStateResponse(BaseModel):
@@ -20,6 +21,7 @@ class GpuSessionSummary(BaseModel):
     started_by: str
     end_reason: Optional[str]
     hours: float
+    family: str
 
     model_config = {"from_attributes": True}
 

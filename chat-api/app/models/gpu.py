@@ -17,6 +17,7 @@ class GpuSession(Base):
     instance_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     started_by: Mapped[str] = mapped_column(String(255), nullable=False)   # cognito sub | "system"
     reason: Mapped[str] = mapped_column(String(20), nullable=False)        # job | warm | resume
+    family: Mapped[str] = mapped_column(String(32), nullable=False, server_default="transcription")  # transcription | photogrammetry
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
