@@ -166,14 +166,15 @@ worker's claim is under-counted; accepted (TODO decision, 2026-08-27).
 - `_state_cache: dict[str, tuple[float, list[str]]]` keyed by `family`; every read and every
   invalidation in `get_state` / `ensure_worker` goes through the key.
 - `_check_caps` unchanged (already reads the summed hours).
-- `GpuSessionSummary` gains `family`; the usage panel shows which worker burned the hours.
+- `GpuSessionSummary` carries `family` so the usage data says which worker burned the hours; the
+  panel itself shows totals only.
 - `deps.py` (transcribe: `family="transcription"`; photogrammetry: `family="photogrammetry"`).
 
 ### Two families, one pool
 
 `gpu_max_size` stays 2. Each task requests one whole GPU; a photogrammetry launch while
-transcription is busy drives the ASG to 2 — two g4dn.xlarge = 8 vCPU = exactly the raised
-On-Demand G/VT limit. Nothing to change; a third family would need a quota case.
+transcription is busy drives the ASG to 2 — two g4dn.xlarge is exactly the account's current
+On-Demand G/VT quota; a third family needs a quota increase.
 
 ### Status bar
 
@@ -201,6 +202,8 @@ Inputs: bucket id/arn, cluster id, VPC/subnets, `database_url_secret_arn`, GitHu
 | CloudWatch alarm | DLQ `ApproximateNumberOfMessagesVisible ≥ 1` → the existing `gpu-<env>-alerts` SNS topic |
 
 In the transcription module (owner of the bucket): lifecycle rule `photogrammetry/` → expire 30 d.
+This expires `output/mesh.glb` and `preview.png` as well as the inputs — a job older than 30 days
+shows `complete` but its mesh URL 404s. Accepted for v1; follow-up in `docs/TODO.md`.
 
 ### API environment (`environments/prod`)
 

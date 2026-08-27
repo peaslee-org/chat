@@ -29,6 +29,8 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] Malformed `cursor` → 500 (both repositories); return 422.
 - [ ] Mock walk (`LocalPhotogrammetryService`) has no `failed` transition; a mid-walk exception
   leaves the job `processing` (transcribe mock does the same).
+- [ ] Photogrammetry rows outlive their S3 objects (30-day lifecycle on `photogrammetry/`): mark
+  rows `expired` (or split the output prefix — a contract change) so the viewer doesn't get a 404.
 
 ## Vue (chat-vue)
 
@@ -46,8 +48,8 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   instance on exit (`ec2:TerminateInstances` scoped by tag, `InstanceInitiatedShutdownBehavior`),
   or a custom scale-in alarm on `CapacityProviderReservation` with fewer datapoints.
 - [ ] `gpu_on_demand_percentage` back to 0 once spot placement scores recover.
-- [ ] Photogrammetry: `gpu_max_size` 2 is exactly the raised G/VT quota (2 × g4dn.xlarge = 8 vCPU);
-  a third family needs a quota case.
+- [ ] Photogrammetry: `gpu_max_size` 2 — two g4dn.xlarge is exactly the account's current
+  On-Demand G/VT quota; a third family needs a quota increase.
 
 ## Local dev
 
