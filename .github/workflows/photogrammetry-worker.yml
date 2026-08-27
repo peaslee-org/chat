@@ -1,0 +1,78 @@
+name: Deploy — photogrammetry-worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'photogrammetry-worker/**'
+      - 'gpu-worker/**'
+      - '.github/workflows/photogrammetry-worker.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # required for OIDC token exchange
+      contents: read
+
+    env:
+      AWS_REGION:       us-east-1
+      ECR_REPOSITORY:   photogrammetry-prod-worker
+      ECS_CLUSTER:      chat-api-prod
+      TASK_FAMILY:      photogrammetry-prod-worker
+      CONTAINER_NAME:   photogrammetry-worker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Configure AWS credentials (OIDC)
+        # default-region not set here — handled via env.AWS_REGION below
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_PHOTOGRAMMETRY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        id: build
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          DOCKER_BUILDKIT: "1"
+        run: |
+          IMAGE_URI="$REGISTRY/$ECR_REPOSITORY"
+          docker build \
+            --cache-from "$IMAGE_URI:latest" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t "$IMAGE_URI:$IMAGE_TAG" \
+            -t "$IMAGE_URI:latest" \
+            -f photogrammetry-worker/Dockerfile .
+          docker push "$IMAGE_URI:$IMAGE_TAG"
+          docker push "$IMAGE_URI:latest"
+          echo "image=$IMAGE_URI:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Render new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition-family: ${{ env.TASK_FAMILY }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Register new task definition revision
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          # no service/cluster: the API launches this family's latest revision with RunTask
