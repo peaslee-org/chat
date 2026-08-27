@@ -1,0 +1,33 @@
+"""photogrammetry_jobs as the worker sees it. The API owns the schema (chat-api Alembic l2m3n4o5p6q7)."""
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, Enum as SAEnum, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+JOB_STATUSES = ("pending", "queued", "processing", "complete", "failed")
+STAGES = ("sfm", "dense", "mesh", "texture")
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class PhotogrammetryJob(Base):
+    __tablename__ = "photogrammetry_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(
+        SAEnum(*JOB_STATUSES, name="photogrammetry_job_status", create_type=False), nullable=False
+    )
+    stage: Mapped[Optional[str]] = mapped_column(String(20))
+    image_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_prefix: Mapped[str] = mapped_column(String(1024), nullable=False)
+    mesh_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
+    preview_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
