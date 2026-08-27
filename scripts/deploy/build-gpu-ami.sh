@@ -40,8 +40,9 @@ done
 [[ "$OUT" == *done* ]] || { echo "bake did not finish in 20 min"; exit 1; }
 # One-time spot instances cannot be stopped; create-image on the running instance reboots it
 # for a consistent snapshot (the ECS agent is already stopped and its state cleared by user-data).
+# tag value: '/' and ',' → '_' (shorthand syntax treats ',' as a delimiter)
 AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --name "$NAME" \
-  --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGES//\//_}}]" \
+  --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=$NAME},{Key=CostCenter,Value=gpu},{Key=Image,Value=${IMAGES//[\/,]/_}}]" \
   --query ImageId --output text)
 # `aws ec2 wait image-available` gives up after 10 min; an 80 GB root snapshot can take longer.
 echo "Waiting for $AMI to become available (up to 40 min) …"
