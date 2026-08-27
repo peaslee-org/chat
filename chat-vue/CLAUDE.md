@@ -33,6 +33,10 @@ npm run preview                # serves dist/ on http://localhost:4173
 
 There are no tests.
 
+## Local dev auth bypass
+
+`VITE_DEV_AUTH_BYPASS=true` in `.env.local` (honoured only by a Vite **dev** build — `import.meta.env.DEV`) makes `auth.isAuthenticated` true with no token, so the router guard passes, `login()` is a no-op, `logout()` just reloads `/`, and axios sends no `Authorization` header. Pair it with `DEV_AUTH_BYPASS=true` + `ENVIRONMENT=dev` in `chat-api/.env`, which accepts header-less requests as `DEV_AUTH_USER_SUB`. `isAdmin` stays false under bypass.
+
 ## Mock API (traffic capture + replay)
 
 **Record traffic from any deployed build:**

@@ -67,7 +67,8 @@ The recorder captures every axios call made through `apiClient` — chat, transc
    VITE_MOCK_API=true
    ```
 
-3. Start the dev server:
+3. (Optional, no Cognito needed) add `VITE_DEV_AUTH_BYPASS=true` here too and set `DEV_AUTH_BYPASS=true`, `ENVIRONMENT=dev` in `chat-api/.env` — see *Local dev auth bypass* in `chat-vue/CLAUDE.md`.
+4. Start the dev server:
 
    ```bash
    npm run dev
@@ -238,6 +239,7 @@ Regenerate the sample assets with `scripts/dev/make-photogrammetry-sample.py` (s
 | [chat-api/app/services/audio_storage.py](../chat-api/app/services/audio_storage.py) | `LocalAudioStorageService` — filesystem-backed upload/read/delete |
 | [chat-api/app/api/v1/transcribe/dev.py](../chat-api/app/api/v1/transcribe/dev.py) | `PUT`/`GET /dev-upload/*` sink — writes uploads to `LOCAL_STORAGE_PATH` and serves stored files back (mock mesh/preview) |
 | [chat-api/app/dependencies.py](../chat-api/app/dependencies.py) | `DEV_AUTH_BYPASS` guard in `get_current_user` |
+| [chat-vue/src/stores/auth.ts](../chat-vue/src/stores/auth.ts) | `VITE_DEV_AUTH_BYPASS` — dev-build-only counterpart: no Cognito redirect, no `Authorization` header |
 | [chat-api/app/config.py](../chat-api/app/config.py) | `dev_auth_bypass`, `local_storage_path`, `mock_worker_external` settings |
 | [transcription-worker/dev_worker.py](../transcription-worker/dev_worker.py) | Standalone DB-polling worker — no ML, no SQS |
 | [transcription-worker/handlers/transcription.py](../transcription-worker/handlers/transcription.py) | `_maybe_capture()` — writes fixture JSON when `DEV_CAPTURE_FIXTURES_DIR` is set |

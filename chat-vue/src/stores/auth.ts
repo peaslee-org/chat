@@ -4,10 +4,16 @@ import axios from 'axios'
 import { cognitoConfig } from '@/config/cognito'
 import { generateCodeVerifier, generateCodeChallenge } from '@/lib/pkce'
 
+// Local-dev auth bypass: pairs with chat-api's DEV_AUTH_BYPASS (which accepts requests with no
+// Authorization header as sub `dev-auth-user-sub`). Only honoured in a Vite dev build — a
+// production bundle ignores the variable entirely.
+export const devAuthBypass =
+  import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH_BYPASS === 'true'
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('id_token'))
 
-  const isAuthenticated = computed(() => token.value !== null)
+  const isAuthenticated = computed(() => devAuthBypass || token.value !== null)
 
   const isAdmin = computed<boolean>(() => {
     if (!token.value) return false
@@ -22,6 +28,7 @@ export const useAuthStore = defineStore('auth', () => {
   })
 
   async function login(): Promise<void> {
+    if (devAuthBypass) return
     const verifier = await generateCodeVerifier()
     const challenge = await generateCodeChallenge(verifier)
     sessionStorage.setItem('pkce_verifier', verifier)
@@ -63,6 +70,10 @@ export const useAuthStore = defineStore('auth', () => {
   function logout(): void {
     token.value = null
     localStorage.removeItem('id_token')
+    if (devAuthBypass) {
+      window.location.href = '/'
+      return
+    }
     window.location.href = cognitoConfig.logoutUrl
   }
 
