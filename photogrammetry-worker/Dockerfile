@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/cdcseacave/VCG.git vcglib \
  && git clone --depth 1 --branch ${OPENMVS_TAG} https://github.com/cdcseacave/openMVS.git openMVS
+# USE_PYTHON=OFF: v2.4.0 defaults the Python bindings ON, which makes FIND_PACKAGE(Python3 ... REQUIRED)
+# fail on a builder without python3-dev (first CI build, 2026-08-27). The worker calls the CLI tools
+# only. VIEWER/TESTS off: no GUI in a worker, and both shorten the ~30 min build.
 RUN cmake -S openMVS -B openMVS/build -DCMAKE_BUILD_TYPE=Release -DVCG_ROOT=/src/vcglib -DOpenMVS_USE_CUDA=ON \
+      -DOpenMVS_USE_PYTHON=OFF -DOpenMVS_BUILD_VIEWER=OFF -DOpenMVS_ENABLE_TESTS=OFF \
  && cmake --build openMVS/build -j"$(nproc)" \
  && cmake --install openMVS/build --prefix /opt/openmvs
 
