@@ -6,6 +6,7 @@ os.environ.setdefault("AUDIO_BUCKET_NAME", "b")
 os.environ.setdefault("PHOTOGRAMMETRY_SQS_QUEUE_URL", "https://sqs.test/q")
 
 import main  # noqa: E402
+from gpu_worker.spot_watcher import SpotWatcher  # noqa: E402
 from pipeline.reconstruct import Reconstruction  # noqa: E402
 
 
@@ -15,4 +16,7 @@ def test_handlers_and_deps_wiring(tmp_path):
         deps = main.build_deps(main.settings)
     recon = deps.reconstruction_factory(tmp_path, 10.0)
     assert isinstance(recon, Reconstruction)
+    assert recon._r._deadline == 10.0
+    assert recon._r._interrupted is SpotWatcher.interrupted
+    assert recon._gpu is True
     assert deps.job_timeout_seconds == 3600 and deps.use_gpu is True

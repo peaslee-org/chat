@@ -62,7 +62,7 @@ Runs in a scratch directory `/tmp/pg/<job_id>` on the instance's 80 GB root, rem
 
 | Step | Row `stage` | Command(s) | Rule |
 |---|---|---|---|
-| load | — | `SELECT … FOR UPDATE`; if status ∉ {`queued`, `processing`} → ack and return | idempotent on redelivery |
+| load | — | load the row (plain `get`; concurrent delivery is prevented by the SQS visibility timeout, extended while the job runs); if status ∉ {`queued`, `processing`} → ack and return | idempotent on redelivery |
 | fetch | `sfm` (status → `processing`) | list `input_prefix`; download; fail if fewer than `image_count` objects | |
 | SfM | `sfm` | `colmap feature_extractor` (SIFT, GPU) → `colmap exhaustive_matcher` → `colmap mapper` | take the model with the most registered images; **fail if registered < 60 % of `image_count`** ("Only N of M photos could be matched — add overlap and try again") |
 | dense | `dense` | `colmap image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | resolution level fixed for the 16 GB T4 |
