@@ -1,6 +1,7 @@
 """run_sqs_worker: dispatch by body.type, delete only on success, never on Interrupted."""
 import json
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -80,3 +81,28 @@ def test_receive_uses_long_poll_of_one():
     _, sqs, _ = run([], {})
     kw = sqs.receive_message.call_args.kwargs
     assert kw["MaxNumberOfMessages"] == 1 and kw["WaitTimeSeconds"] == 20
+
+
+def test_extender_extends_visibility_while_handler_runs():
+    FakeWatcher.interrupted.clear()
+    sqs = make_sqs([{"type": "a"}])
+    store = FakeStore()
+
+    def slow(body, msg):
+        time.sleep(0.08)
+
+    run_sqs_worker(
+        queue_url="https://sqs.test/q", region="us-east-1", handlers={"a": slow},
+        session_store=store, idle_exit_seconds=0, max_lifetime_seconds=10800,
+        visibility_timeout=123, visibility_extension_interval=0.01,
+        sqs_client=sqs, watcher_factory=FakeWatcher, idle_watcher_factory=FakeWatcher.idle_watcher,
+    )
+
+    sqs.change_message_visibility.assert_any_call(
+        QueueUrl="https://sqs.test/q", ReceiptHandle="rh-0", VisibilityTimeout=123
+    )
+    assert sqs.change_message_visibility.call_count >= 1
+
+    call_count_after_return = sqs.change_message_visibility.call_count
+    time.sleep(0.05)
+    assert sqs.change_message_visibility.call_count == call_count_after_return
