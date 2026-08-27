@@ -9,7 +9,9 @@ WORKDIR /app
 RUN python3.12 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
-COPY pyproject.toml .
+COPY gpu-worker/ /app/gpu-worker/
+RUN pip install --no-cache-dir /app/gpu-worker
+COPY transcription-worker/pyproject.toml .
 
 ARG HUGGINGFACE_TOKEN
 
@@ -43,7 +45,7 @@ snapshot_download(\
     local_dir='/app/speechbrain_model',\
 )"
 
-COPY . .
+COPY transcription-worker/ .
 ENV SPEECHBRAIN_CACHE=/app/speechbrain_model
 ENV SPEECHBRAIN_CHECKPOINT=/app/speechbrain_model
 CMD ["python", "main.py"]

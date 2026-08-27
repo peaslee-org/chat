@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'transcription-worker/**'
+      - 'gpu-worker/**'
       - '.github/workflows/worker.yml'
 
 jobs:
@@ -50,7 +51,6 @@ jobs:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
           DOCKER_BUILDKIT: "1"
-        working-directory: transcription-worker
         run: |
           IMAGE_URI="$REGISTRY/$ECR_REPOSITORY"
           docker build \
@@ -59,7 +59,7 @@ jobs:
             --build-arg HUGGINGFACE_TOKEN="${{ secrets.HUGGINGFACE_TOKEN }}" \
             -t "$IMAGE_URI:$IMAGE_TAG" \
             -t "$IMAGE_URI:latest" \
-            .
+            -f transcription-worker/Dockerfile .
           docker push "$IMAGE_URI:$IMAGE_TAG"
           docker push "$IMAGE_URI:latest"
           echo "image=$IMAGE_URI:$IMAGE_TAG" >> "$GITHUB_OUTPUT"

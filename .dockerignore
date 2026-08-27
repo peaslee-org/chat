@@ -1,0 +1,6 @@
+**/.venv
+**/__pycache__
+**/.git
+chat-vue/node_modules
+chat-vue/dist
+infra/**/.terraform

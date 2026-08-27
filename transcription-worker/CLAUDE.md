@@ -15,13 +15,12 @@ python3 -m pytest tests/ -q
 python3 -m pytest tests/test_transcribe_poller.py -q
 python3 -m pytest tests/test_matcher.py -q
 python3 -m pytest tests/test_aligner.py -q
-python3 -m pytest tests/test_spot_watcher.py -q
 
 # Run locally (requires env vars)
 python main.py
 
-# Build Docker image (requires HuggingFace token for pyannote model download)
-docker build --build-arg HUGGINGFACE_TOKEN=hf_xxx -t transcription-worker .
+# Build Docker image (requires HuggingFace token for pyannote model download; build context is the repo root)
+docker build -f transcription-worker/Dockerfile --build-arg HUGGINGFACE_TOKEN=hf_xxx -t transcription-worker .
 
 # Run container locally
 docker run --env-file .env transcription-worker
@@ -36,7 +35,8 @@ Unit tests live in `tests/` and require only `pytest` and `scipy` (no SpeechBrai
 | `tests/test_transcribe_poller.py` | `parse_words`: word timestamp extraction; `parse_diarized_transcript` (legacy) |
 | `tests/test_matcher.py` | `match_speaker`: threshold logic, multi-sample averaging, best-candidate selection |
 | `tests/test_aligner.py` | `align_words_to_turns`: bisect assignment, gap words, overlap detection via `find_overlaps` |
-| `tests/test_spot_watcher.py` | SpotWatcher: metadata poll loop, SQS release on interruption notice, no-op on non-EC2 |
+
+Lifecycle (loop, spot watcher, ledger, SQS shell) lives in `../gpu-worker` — run its tests there.
 
 ## Environment Variables
 

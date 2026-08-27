@@ -153,20 +153,3 @@ class TranscriptionJobEvent(Base):
     __table_args__ = (
         Index("ix_job_events_job_occurred", "job_id", "occurred_at"),
     )
-
-
-class GpuSession(Base):
-    """One row per worker task launch; created by chat-api's RunTask, completed by the worker."""
-    __tablename__ = "gpu_sessions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_arn = Column(String(255), nullable=False, unique=True)
-    instance_id = Column(String(32), nullable=True)
-    started_by = Column(String(255), nullable=False)          # cognito sub or "system"
-    reason = Column(String(20), nullable=False)               # job | warm | resume
-    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    started_processing_at = Column(DateTime(timezone=True), nullable=True)
-    last_seen_at = Column(DateTime(timezone=True), nullable=True)
-    warm_until = Column(DateTime(timezone=True), nullable=True)
-    ended_at = Column(DateTime(timezone=True), nullable=True)
-    end_reason = Column(String(20), nullable=True)            # idle | max_lifetime | spot_interruption | error

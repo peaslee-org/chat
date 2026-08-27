@@ -12,6 +12,7 @@ dependencies = [
     "pgvector>=0.3",
     "pydub>=0.25",
     "scipy>=1.11.0",
+    "gpu-worker",
     # pyannote.audio, torch, torchaudio, speechbrain installed separately in Dockerfile (large packages)
 ]
 
@@ -23,3 +24,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+gpu-worker = { path = "../gpu-worker", editable = true }
