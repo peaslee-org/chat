@@ -1,7 +1,10 @@
 """Runner: stderr → StageError, deadline → JobTimeout, spot notice → Interrupted; children are killed."""
+import logging
+import subprocess
 import sys
 import threading
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -48,3 +51,12 @@ def test_tool_defaults_to_command_name(tmp_path):
     with pytest.raises(StageError) as e:
         r.run([PY, "-c", "import sys; sys.exit(1)"], cwd=tmp_path)
     assert e.value.tool == Path(PY).name
+
+
+def test_kill_logs_when_child_does_not_reap(caplog):
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="stuck", timeout=10)
+    with caplog.at_level(logging.WARNING):
+        Runner._kill(proc)
+    assert any("4242" in record.getMessage() for record in caplog.records)

@@ -59,4 +59,4 @@ class Runner:
         try:
             proc.communicate(timeout=10)
         except subprocess.TimeoutExpired:
-            pass
+            logger.warning("Killed child pid %s did not exit within 10 s — leaving it for the OS", proc.pid)
