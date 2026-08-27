@@ -20,10 +20,15 @@ def make(deadline_in=3600, poll=0.05):
     return r, ev
 
 
-def test_success_returns_stdout(tmp_path):
+def test_success_returns_combined_output(tmp_path):
     r, _ = make()
-    out = r.run([PY, "-c", "print('hello')"], cwd=tmp_path, tool="py")
-    assert out.strip() == "hello"
+    out = r.run(
+        [PY, "-c", "import sys; print('hello'); print('world', file=sys.stderr)"],
+        cwd=tmp_path,
+        tool="py",
+    )
+    assert "hello" in out
+    assert "world" in out
 
 
 def test_nonzero_exit_raises_stage_error_with_first_stderr_line(tmp_path):
@@ -51,6 +56,14 @@ def test_tool_defaults_to_command_name(tmp_path):
     with pytest.raises(StageError) as e:
         r.run([PY, "-c", "import sys; sys.exit(1)"], cwd=tmp_path)
     assert e.value.tool == Path(PY).name
+
+
+def test_success_logs_tool_and_output_tail(tmp_path, caplog):
+    r, _ = make()
+    with caplog.at_level(logging.INFO):
+        r.run([PY, "-c", "print('hello')"], cwd=tmp_path, tool="colmap mapper")
+    ok_records = [rec for rec in caplog.records if "ok" in rec.getMessage()]
+    assert any("colmap mapper" in rec.getMessage() and "hello" in rec.getMessage() for rec in ok_records)
 
 
 def test_kill_logs_when_child_does_not_reap(caplog):

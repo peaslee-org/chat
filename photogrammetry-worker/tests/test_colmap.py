@@ -5,7 +5,11 @@ from pipeline.colmap import SparseModel, sparse_reconstruct, undistort
 
 
 class FakeRunner:
-    """Records commands; `model_analyzer` output comes from `analyses` keyed by model dir name."""
+    """Records commands; `model_analyzer` output comes from `analyses` keyed by model dir name.
+
+    This text stands in for `Runner.run`'s combined stdout+stderr output — real COLMAP
+    (glog) writes the `Registered images:` line to stderr, which `Runner.run` merges in.
+    """
     def __init__(self, analyses):
         self.cmds = []
         self.calls = []
@@ -17,6 +21,22 @@ class FakeRunner:
         if cmd[1] == "model_analyzer":
             name = Path(cmd[cmd.index("--path") + 1]).name
             return f"Cameras: 1\nImages: 22\nRegistered images: {self.analyses[name]}\nPoints: 100\n"
+        return ""
+
+
+class FakeRunnerStderrLine(FakeRunner):
+    """As FakeRunner, but shaped like real COLMAP: the `Registered images:` line is
+    written to stderr and only present because `Runner.run` merges stdout + stderr into
+    one string. Proves `sparse_reconstruct` doesn't assume the count is on stdout."""
+
+    def run(self, cmd, cwd, tool=None):
+        self.cmds.append(cmd)
+        self.calls.append((cmd, cwd, tool))
+        if cmd[1] == "model_analyzer":
+            name = Path(cmd[cmd.index("--path") + 1]).name
+            # stdout would be "" here; this is what real COLMAP puts on stderr, and
+            # Runner.run hands back stdout + stderr concatenated.
+            return "\n" + f"Cameras: 1\nImages: 22\nRegistered images: {self.analyses[name]}\nPoints: 100\n"
         return ""
 
 
@@ -64,6 +84,13 @@ def test_no_model_means_zero_registered(tmp_path):
     model = sparse_reconstruct(r, tmp_path, tmp_path / "images", use_gpu=True)
     assert model.registered_images == 0
     assert model.path == tmp_path / "sparse" / "0"
+
+
+def test_registered_images_found_when_only_on_stderr(tmp_path):
+    make_sparse(tmp_path, ["0"])
+    r = FakeRunnerStderrLine({"0": 20})
+    model = sparse_reconstruct(r, tmp_path, tmp_path / "images", use_gpu=False)
+    assert model == SparseModel(path=tmp_path / "sparse" / "0", registered_images=20)
 
 
 def test_undistort_writes_dense_workspace(tmp_path):

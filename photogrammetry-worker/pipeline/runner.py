@@ -33,6 +33,12 @@ class Runner:
         self._timeout_message = timeout_message
 
     def run(self, cmd: list[str], cwd: Path, tool: str | None = None) -> str:
+        """Run `cmd`, returning combined stdout+stderr text.
+
+        COLMAP (>= 3.9, glog) writes its progress — including the `Registered images:`
+        line `pipeline/colmap.py` greps for — to stderr, not stdout. Callers that need
+        tool output must not assume it lands on one stream or the other.
+        """
         tool = tool or Path(cmd[0]).name
         logger.info("[%s] %s", tool, " ".join(cmd))
         proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -51,7 +57,9 @@ class Runner:
             first = next((line for line in stderr.splitlines() if line.strip()), f"{tool} exited with {proc.returncode}")
             logger.error("[%s] failed (%s):\n%s", tool, proc.returncode, stderr[-4000:])
             raise StageError(tool, first[:1000])
-        return stdout
+        combined = stdout + stderr
+        logger.info("[%s] ok\n%s", tool, combined[-4000:])
+        return combined
 
     @staticmethod
     def _kill(proc: subprocess.Popen) -> None:
