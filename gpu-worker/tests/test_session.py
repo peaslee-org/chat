@@ -41,6 +41,13 @@ def test_missing_row_is_tolerated():
     store.close("idle")
 
 
+def test_close_sets_end():
+    row = MagicMock(ended_at=None, end_reason=None)
+    store, _ = make_store(row)
+    store.close("idle")
+    assert row.end_reason == "idle" and isinstance(row.ended_at, datetime)
+
+
 def test_db_errors_are_swallowed():
     store, _ = make_store(raise_on_enter=True)
     store.claim()
