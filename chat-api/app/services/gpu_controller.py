@@ -136,7 +136,12 @@ class GpuController:
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
                 end_reason=s.end_reason, family=s.family,
-                hours=round(((s.ended_at or now) - s.started_at).total_seconds() / 3600.0, 2),
+                # Matches hours_between's phantom-hours rule: a row that never got an instance
+                # cost nothing, and the clock starts when the worker claimed it, not on enqueue.
+                hours=(
+                    0.0 if s.instance_id is None
+                    else round(((s.ended_at or now) - (s.started_processing_at or s.started_at)).total_seconds() / 3600.0, 2)
+                ),
             )
             for s in await self._repo.sessions_since(month_start)
         ]

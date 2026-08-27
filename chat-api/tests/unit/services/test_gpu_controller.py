@@ -181,7 +181,8 @@ async def test_ensure_worker_invalidates_only_its_family():
 
 async def test_usage_summary_carries_family():
     ctl, repo, _ = make(family="photogrammetry")
-    s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None, family="photogrammetry")
+    s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
+                   family="photogrammetry", instance_id="i-1", started_processing_at=None)
     repo.sessions_since = AsyncMock(return_value=[s])
     usage = await ctl.usage("u")
     assert usage.sessions[0].family == "photogrammetry"
@@ -193,11 +194,35 @@ async def test_usage_defaults_family_to_transcription_when_not_stamped():
     ctl, repo, _ = make()
     repo.sessions_since = AsyncMock(return_value=[
         MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                   family="transcription")
+                   family="transcription", instance_id="i-1", started_processing_at=None)
     ])
     u = await ctl.usage("u1")
     assert len(u.sessions) == 1
     assert u.sessions[0].family == "transcription"
+
+
+async def test_usage_hours_is_zero_for_a_session_that_never_got_an_instance():
+    """M7 / phantom-hours rule: a row with instance_id IS NULL cost nothing, matching
+    GpuSessionRepository.hours_between's exclusion of such rows."""
+    ctl, repo, _ = make()
+    s = MagicMock(started_at=NOW, ended_at=NOW + timedelta(hours=1), reason="job", started_by="u",
+                   end_reason=None, family="transcription", instance_id=None, started_processing_at=None)
+    repo.sessions_since = AsyncMock(return_value=[s])
+    u = await ctl.usage("u1")
+    assert u.sessions[0].hours == 0.0
+
+
+async def test_usage_hours_starts_the_clock_at_started_processing_at():
+    """M7 / phantom-hours rule: the session's clock starts when the worker claimed it
+    (started_processing_at), not on enqueue (started_at)."""
+    ctl, repo, _ = make()
+    s = MagicMock(
+        started_at=NOW, started_processing_at=NOW + timedelta(minutes=10), ended_at=NOW + timedelta(hours=1),
+        reason="job", started_by="u", end_reason=None, family="transcription", instance_id="i-1",
+    )
+    repo.sessions_since = AsyncMock(return_value=[s])
+    u = await ctl.usage("u1")
+    assert u.sessions[0].hours == 0.83
 
 
 async def test_usage_estimates_and_snapshots():
