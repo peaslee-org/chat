@@ -1,0 +1,24 @@
+[project]
+name = "gpu-worker"
+version = "0.1.0"
+description = "Lifecycle code shared by the GPU workers: SQS loop, idle exit, spot release, gpu_sessions ledger"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34.0",
+    "requests>=2.31",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gpu_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
