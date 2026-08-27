@@ -25,6 +25,11 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   photogrammetry and transcription controllers poison each other's cache and close each other's
   `gpu_sessions` rows. Key both by family (or add a `family` column) **before**
   `GPU_PHOTOGRAMMETRY_TASK_FAMILY` is ever set. (spec §7)
+- [ ] **Phantom GPU hours from sessions that never got an instance.** `GpuSessionRepository.hours_between`
+  sums every row's span; a `RunTask` that waits for capacity and is later reconciled
+  (`end_reason = unknown`) still counts up to `max_session_seconds`. Observed 2026-08-26: two such
+  rows ≈ 3.5 h against the caps/estimate with zero GPU time. Count from `started_processing_at`
+  (the worker's claim) instead of `started_at`, and treat rows with no `instance_id` as 0 h.
 - [ ] `repositories/transcription.py` `list_jobs` / `list_speakers`: keyset cursor is built from
   the popped overflow row, so page 2 skips one item. Fixed in `repositories/photogrammetry.py`
   (cursor from the last *returned* row); port the fix + test.
