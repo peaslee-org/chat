@@ -2,7 +2,7 @@
 FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS build
 ARG OPENMVS_TAG=v2.4.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git cmake build-essential ca-certificates libeigen3-dev libcgal-dev libboost-iostreams-dev \
+      git cmake build-essential pkg-config ca-certificates libeigen3-dev libcgal-dev libnanoflann-dev libboost-iostreams-dev \
       libboost-program-options-dev libboost-system-dev libboost-serialization-dev libopencv-dev \
       libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev \
     && rm -rf /var/lib/apt/lists/*
