@@ -20,6 +20,11 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## API (chat-api)
 
+- [ ] Photogrammetry worker: `except (ClientError, BotoCoreError): raise` in the download block retries *every* S3
+  error via SQS — a permanent one (`AccessDenied`, `NoSuchKey`) spins 3× to the DLQ and leaves the row
+  `processing` with no user-visible failure. Allowlist transient codes (`SlowDown`, `Throttling*`,
+  `RequestTimeout`) for re-raise; fail the row for the rest. Also declare `botocore` in
+  `photogrammetry-worker/pyproject.toml` (imported directly, only transitively pinned today).
 - [ ] `repositories/transcription.py` `list_jobs` / `list_speakers`: keyset cursor is built from
   the popped overflow row, so page 2 skips one item. Fixed in `repositories/photogrammetry.py`
   (cursor from the last *returned* row); port the fix + test.

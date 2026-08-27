@@ -2796,7 +2796,7 @@ Verify: `bash -n scripts/deploy/build-gpu-ami.sh` and a dry echo of the user-dat
 
 - [ ] **Step 2: `docs/TODO.md`**
 
-Remove the five items marked `→ worker spec …` (they are implemented by this plan). Add under **Infra**: "Photogrammetry: `gpu_max_size` 2 is exactly the raised G/VT quota (2 × g4dn.xlarge = 8 vCPU); a third family needs a quota case." Under **Worker image**: "Headless mesh-render `preview.png` (pyrender + EGL) — replaces the first-photo preview (worker spec decision 4)."
+Remove the five items marked `→ worker spec …` (they are implemented by this plan). Add under **Infra**: "Photogrammetry: `gpu_max_size` 2 is exactly the account's current On-Demand G/VT quota; a third family needs a quota increase." Under **Worker image**: "Headless mesh-render `preview.png` (pyrender + EGL) — replaces the first-photo preview (worker spec decision 4)."
 
 - [ ] **Step 3: Spec status**
 
