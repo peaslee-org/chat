@@ -48,6 +48,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **ECS managed scaling launches 2 instances for 1 task** from zero (observed 2026-08-26 and
   2026-08-27); the spare idles ~10 min until scale-in. Check the capacity provider's
   `minimum_scaling_step_size` / target and the estimate with mixed instance types.
+- [ ] **~15 min scale-in lag after the worker exits** (ECS managed scale-in = 15 low datapoints;
+  observed 2026-08-27: exit 11:16 → ASG 0 at 11:32). Options: worker terminates its own
+  instance on exit (`ec2:TerminateInstances` scoped by tag, `InstanceInitiatedShutdownBehavior`),
+  or a custom scale-in alarm on `CapacityProviderReservation` with fewer datapoints.
 - [ ] Bucket lifecycle rule for `photogrammetry/` (worker spec).
 - [ ] `gpu_on_demand_percentage` back to 0 once spot placement scores recover.
 
