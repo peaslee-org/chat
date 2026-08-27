@@ -65,7 +65,7 @@ run docker build \
   -t "$IMAGE_URI:$GIT_SHA" \
   -t "$IMAGE_URI:latest" \
   ${EXTRA_TAG:+-t "$IMAGE_URI:$EXTRA_TAG"} \
-  "$ROOT/transcription-worker"
+  -f "$ROOT/transcription-worker/Dockerfile" "$ROOT"
 
 run docker push "$IMAGE_URI:$GIT_SHA"
 run docker push "$IMAGE_URI:latest"

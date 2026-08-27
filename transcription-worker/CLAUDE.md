@@ -63,7 +63,7 @@ Lifecycle (loop, spot watcher, ledger, SQS shell) lives in `../gpu-worker` — r
 ## Architecture
 
 ```
-main.py  (SQS poll loop, visibility extender thread, SpotWatcher)
+main.py  (dispatches to HANDLERS; SQS poll loop, visibility extender, SpotWatcher live in ../gpu-worker's gpu_worker.sqs.run_sqs_worker)
   ├─ handlers/transcription.py   type="transcription_job"
   │    └─ TranscribePoller → PyannoteDiarizer → align_words_to_turns
   │         → EcapaTdnnEmbedder → match_speaker → DB + S3
@@ -85,7 +85,7 @@ main.py  (SQS poll loop, visibility extender thread, SpotWatcher)
 
 | Path | Role |
 |---|---|
-| `main.py` | Entry point; SQS poll loop; dispatches to `HANDLERS` dict; visibility extender background thread; SpotWatcher per message |
+| `main.py` | Entry point; dispatches to `HANDLERS` dict via `gpu_worker.sqs.run_sqs_worker` (SQS poll loop, visibility extender thread, SpotWatcher per message — see `../gpu-worker/gpu_worker/sqs.py`) |
 | `config.py` | `pydantic-settings` `Settings` class; all config via env vars |
 | `db.py` | Sync SQLAlchemy engine; `get_session()` context manager with auto-commit/rollback |
 | `models.py` | SQLAlchemy models duplicated from `chat-api`: `SpeakerProfile`, `SpeakerSample`, `TranscriptionJob`, `TranscriptSegment` |
@@ -97,7 +97,6 @@ main.py  (SQS poll loop, visibility extender thread, SpotWatcher)
 | `services/matcher.py` | `match_speaker()`: cosine distance against averaged per-profile embeddings; returns profile ID or None |
 | `services/s3_client.py` | Thin boto3 S3 wrapper: download, upload bytes/text, delete, list |
 | `services/transcribe_poller.py` | Polls AWS Transcribe until COMPLETED/FAILED; `parse_words()` extracts word timestamps; `parse_diarized_transcript()` kept for backward compat |
-| `services/spot_watcher.py` | `SpotWatcher`: daemon thread polling EC2 metadata every 5 s; on Spot termination notice releases SQS message immediately (VisibilityTimeout=0) |
 
 ## Transcription Pipeline (step by step)
 
@@ -141,7 +140,7 @@ Models are duplicated from `chat-api` intentionally — this worker is deployed 
 ## Notes
 
 - `PyannoteDiarizer` and `EcapaTdnnEmbedder` are both singletons (loaded once per worker process). First call initialises each model from the pre-baked image cache.
-- The worker is single-threaded for message processing; the visibility extender and SpotWatcher each run on daemon threads.
+- The worker is single-threaded for message processing; the visibility extender and `SpotWatcher` (both now in `../gpu-worker/gpu_worker/sqs.py` and `gpu_worker/spot_watcher.py`) each run on daemon threads.
 - `SpotWatcher` is a no-op in local (non-EC2) dev — the metadata endpoint simply times out and is silently ignored. In production the worker always runs on EC2 (spot), so `SpotWatcher` is always live there.
 - AWS Transcribe `ShowSpeakerLabels`/`MaxSpeakerLabels` are **not** set — speaker diarization is handled entirely by pyannote; Transcribe is used only for word timestamps.
 - `db.py` instantiates `Settings()` at module import time — ensure env vars are set before importing.
