@@ -14,11 +14,15 @@ export const useGpuStore = defineStore("gpu", () => {
   const family = ref<GpuFamily>("transcription")
   let timer: ReturnType<typeof setTimeout> | null = null
   let polling = false
+  // Bumped every time polling starts or stops so an in-flight request from a stale
+  // family/generation can recognize it's obsolete when its response lands and drop it
+  // instead of overwriting state.value or re-arming setTimeout.
+  let generation = 0
 
   const idleOutAt = computed(() => (state.value?.warm_until ? new Date(state.value.warm_until) : null))
 
-  async function refreshState() {
-    try { state.value = await api.getGpuState(family.value); error.value = null }
+  async function refreshState(f: GpuFamily = family.value) {
+    try { state.value = await api.getGpuState(f); error.value = null }
     catch (e) { if (!(axios.isAxiosError(e) && e.response?.status === 503)) error.value = "GPU status unavailable" }
   }
   async function refreshUsage() {
@@ -37,21 +41,32 @@ export const useGpuStore = defineStore("gpu", () => {
   }
   function startPolling(f: GpuFamily = "transcription") {
     stopPolling()
+    generation += 1
+    const gen = generation
     family.value = f
     state.value = null
     polling = true
     const tick = async () => {
-      await refreshState()
-      // stopPolling() may have run while the request above was in flight — timer was
-      // null at that instant so it couldn't cancel us; re-check the flag before
-      // rescheduling so we don't resurrect the loop after the component unmounted.
-      if (!polling) return
+      try {
+        const s = await api.getGpuState(f)
+        // A family switch or unmount since this request went out bumped `generation` —
+        // drop the response instead of overwriting state.value with the stale family's
+        // data or rescheduling a second, now-orphaned polling loop.
+        if (gen !== generation) return
+        state.value = s
+        error.value = null
+      } catch (e) {
+        if (gen !== generation) return
+        if (!(axios.isAxiosError(e) && e.response?.status === 503)) error.value = "GPU status unavailable"
+      }
+      if (gen !== generation || !polling) return
       timer = setTimeout(tick, STATE_POLL_MS)
     }
     void tick()
   }
   function stopPolling() {
     polling = false
+    generation += 1
     if (timer) { clearTimeout(timer); timer = null }
   }
 
