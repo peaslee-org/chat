@@ -51,8 +51,8 @@ def test_sparse_reconstruct_runs_extract_match_map_with_gpu_flags(tmp_path):
     model = sparse_reconstruct(r, tmp_path, tmp_path / "images", use_gpu=False)
     subcommands = [c[1] for c in r.cmds]
     assert subcommands[:3] == ["feature_extractor", "exhaustive_matcher", "mapper"]
-    assert "--SiftExtraction.use_gpu" in r.cmds[0] and r.cmds[0][r.cmds[0].index("--SiftExtraction.use_gpu") + 1] == "0"
-    assert "--SiftMatching.use_gpu" in r.cmds[1] and r.cmds[1][r.cmds[1].index("--SiftMatching.use_gpu") + 1] == "0"
+    assert "--FeatureExtraction.use_gpu" in r.cmds[0] and r.cmds[0][r.cmds[0].index("--FeatureExtraction.use_gpu") + 1] == "0"
+    assert "--FeatureMatching.use_gpu" in r.cmds[1] and r.cmds[1][r.cmds[1].index("--FeatureMatching.use_gpu") + 1] == "0"
     assert "--ImageReader.single_camera" in r.cmds[0]
     assert model == SparseModel(path=tmp_path / "sparse" / "0", registered_images=20)
     assert all(c[1] == tmp_path for c in r.calls)

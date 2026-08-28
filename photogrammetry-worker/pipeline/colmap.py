@@ -20,10 +20,10 @@ def sparse_reconstruct(runner, work: Path, images: Path, use_gpu: bool) -> Spars
     runner.run([
         "colmap", "feature_extractor", "--database_path", str(db), "--image_path", str(images),
         "--ImageReader.camera_model", "SIMPLE_RADIAL", "--ImageReader.single_camera", "1",
-        "--SiftExtraction.use_gpu", gpu,
+        "--FeatureExtraction.use_gpu", gpu,
     ], cwd=work, tool="colmap feature_extractor")
     runner.run([
-        "colmap", "exhaustive_matcher", "--database_path", str(db), "--SiftMatching.use_gpu", gpu,
+        "colmap", "exhaustive_matcher", "--database_path", str(db), "--FeatureMatching.use_gpu", gpu,
     ], cwd=work, tool="colmap exhaustive_matcher")
     runner.run([
         "colmap", "mapper", "--database_path", str(db), "--image_path", str(images), "--output_path", str(sparse),
