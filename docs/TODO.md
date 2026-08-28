@@ -18,8 +18,8 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   `mesh.glb` 889 KB) — that run is the smoke for this image. Until the rebake every cold start pulls
   the image (~5½ min on top of the ~5 min instance start).) **Bake script gotcha:** the AMI name is
   `gpu-<env>-<date>-<first image tag>`, so a same-day rebake with the same first image fails at
-  `CreateImage` (`InvalidAMIName.Duplicate`) *after* the pull — list the changed image first, or add
-  `%H%M` to `NAME` in `scripts/deploy/build-gpu-ami.sh`.
+  `CreateImage` (`InvalidAMIName.Duplicate`) *after* the pull. Fixed in `40b6228`: names carry the UTC
+  `HHMM`, and the script refuses an existing name before launching; `BAKE_MARKET` is validated.
 
 - [ ] **Root-cause OpenMVS seam leveling in our build.** Both passes rewrite every face's pixels as ~0
   (black faces, stray saturated texels) in the v2.4.0-on-noble image (OpenCV 4.6, GCC 13); the raw
