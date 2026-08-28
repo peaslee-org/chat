@@ -12,18 +12,21 @@ const emit = defineEmits<{ "close-new-job-form": [] }>()
 const store = usePhotogrammetryStore()
 const job = computed(() => store.activeJob)
 const meshUrl = ref<string | null>(null)
+const hasPreviewDownload = ref(false)
 const meshError = ref<string | null>(null)
 
 watch(
   [() => job.value?.job_id, () => job.value?.status],
   async ([jobId, status]) => {
     meshUrl.value = null
+    hasPreviewDownload.value = false
     meshError.value = null
     if (jobId && status === "complete") {
       try {
-        const url = await store.fetchMeshUrl(jobId)
+        const urls = await store.fetchMeshUrls(jobId)
         if (job.value?.job_id !== jobId) return
-        meshUrl.value = url
+        meshUrl.value = urls.url
+        hasPreviewDownload.value = urls.previewDownloadUrl !== null
       } catch {
         if (job.value?.job_id !== jobId) return
         meshError.value = "Could not load the mesh URL"
@@ -32,6 +35,23 @@ watch(
   },
   { immediate: true },
 )
+
+/**
+ * Re-resolve the URL at click time (the store refreshes it within 30 s of expiry) so a tab
+ * left open past the 15-minute presign never hands S3 a stale link. The URL is presigned
+ * with Content-Disposition: attachment, so assigning it saves the file and leaves the page.
+ */
+async function download(which: "mesh" | "preview"): Promise<void> {
+  const jobId = job.value?.job_id
+  if (!jobId) return
+  try {
+    const urls = await store.fetchMeshUrls(jobId)
+    const url = which === "mesh" ? urls.downloadUrl : urls.previewDownloadUrl
+    if (url) window.location.assign(url)
+  } catch {
+    meshError.value = "Could not get a download link"
+  }
+}
 </script>
 
 <template>
@@ -49,7 +69,21 @@ watch(
         <h2 class="truncate text-base font-semibold">{{ job.name }}</h2>
         <ScanStatusBadge :status="job.status" :stage="job.stage" :worker-state="job.worker_state" :estimated-wait-seconds="job.estimated_wait_seconds" />
         <span class="text-xs text-gray-500">{{ job.image_count }} photos</span>
-        <span v-if="job.gpu_notice" class="ml-auto text-xs text-amber-700">{{ job.gpu_notice }}</span>
+        <span v-if="job.gpu_notice" class="text-xs text-amber-700">{{ job.gpu_notice }}</span>
+        <div v-if="job.status === 'complete'" class="ml-auto flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            :disabled="!meshUrl"
+            @click="download('mesh')"
+          >Download GLB</button>
+          <button
+            v-if="hasPreviewDownload"
+            type="button"
+            class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            @click="download('preview')"
+          >Download preview</button>
+        </div>
       </header>
       <div class="flex-1 overflow-auto p-6">
         <template v-if="job.status === 'failed'">

@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { computed, reactive, ref } from "vue"
 import axios from "axios"
 import * as api from "@/lib/photogrammetryApi"
-import type { PhotogrammetryJob } from "@/types"
+import type { MeshUrls, PhotogrammetryJob } from "@/types"
 
 export interface Toast {
   id: number
@@ -26,7 +26,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
   const nextCursor = ref<string | null>(null)
   const activeJobId = ref<string | null>(null)
   const uploadProgress = ref<UploadProgress | null>(null)
-  const meshUrls = ref<Record<string, { url: string; expiresAt: number }>>({})
+  const meshUrls = ref<Record<string, MeshUrls>>({})
   const toasts = ref<Toast[]>([])
   const pollingActive = reactive(new Set<string>())
   const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -125,13 +125,19 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     if (activeJobId.value === jobId) activeJobId.value = null
   }
 
-  /** Presigned GLB URL, cached until 30 s before it expires. */
-  async function fetchMeshUrl(jobId: string): Promise<string> {
+  /** Presigned viewer + download URLs for a complete job, cached until 30 s before they expire. */
+  async function fetchMeshUrls(jobId: string): Promise<MeshUrls> {
     const cached = meshUrls.value[jobId]
-    if (cached && cached.expiresAt - Date.now() > 30_000) return cached.url
+    if (cached && cached.expiresAt - Date.now() > 30_000) return cached
     const res = await api.getMeshUrl(jobId)
-    meshUrls.value[jobId] = { url: res.url, expiresAt: new Date(res.expires_at).getTime() }
-    return res.url
+    const entry: MeshUrls = {
+      url: res.url,
+      downloadUrl: res.download_url,
+      previewDownloadUrl: res.preview_download_url,
+      expiresAt: new Date(res.expires_at).getTime(),
+    }
+    meshUrls.value[jobId] = entry
+    return entry
   }
 
   // ── Polling ───────────────────────────────────────────────────────────
@@ -181,7 +187,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
 
   return {
     jobs, nextCursor, activeJobId, activeJob, uploadProgress, pollingActive, toasts, meshUrls,
-    loadJobs, submitScan, submitSampleJob, selectJob, deleteJob, fetchMeshUrl,
+    loadJobs, submitScan, submitSampleJob, selectJob, deleteJob, fetchMeshUrls,
     resumePollingForActiveJobs, dismissToast,
   }
 })

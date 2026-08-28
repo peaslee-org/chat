@@ -220,6 +220,16 @@ export interface PhotogrammetryJobListResponse {
 }
 
 export interface MeshUrlResponse {
-  url: string
+  url: string                           // plain GET, for <model-viewer>
+  download_url: string                  // same GLB, served as an attachment
+  preview_download_url: string | null   // preview.png as an attachment, when it exists
   expires_at: string
+}
+
+/** Store-side cache entry for MeshUrlResponse (camelCase, epoch-ms expiry). */
+export interface MeshUrls {
+  url: string
+  downloadUrl: string
+  previewDownloadUrl: string | null
+  expiresAt: number
 }
