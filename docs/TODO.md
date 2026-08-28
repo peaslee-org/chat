@@ -11,6 +11,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   still unpinned) — a rebuild must reproduce the image that passed acceptance.
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
+- [ ] Photogrammetry robustness (spec 2026-08-28): resumable stages, no-cycling rule, mesh budget
+  (refine ≤ 400 k faces, decimate above 500 k), photo orientation normalisation. **Smoke = sample
+  job + a re-run of the 51-photo set** (expect the rotation warning, no refine, complete). Then
+  bake + pins.
 
 - [x] ~~Rebake the GPU AMI with photogrammetry image `8f81e78`~~ done 2026-08-28: LT v5, task-def `:11`. (Was: task family `:10`, built by CI
   2026-08-28 14:52 Z; carries `27a23f1` y-up + `b301e89` seam leveling off). The sample scan re-run at
@@ -51,8 +55,13 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   `models.py`; API migration + `gpu_controller.py` + `repositories/gpu.py`; `GpuStatusBar.vue`.
 - [ ] Headless mesh-render `preview.png` (pyrender + EGL) — replaces the first-photo preview
   (worker spec decision 4).
+- [ ] Mixed cameras: `--ImageReader.single_camera_per_folder` with one folder per pixel size
+  instead of skipping.
 
 ## API (chat-api)
+
+- [ ] Photogrammetry `warnings` column + field (migration `o5p6q7r8s9t0`). Deploy **first** — the
+  worker writes the column.
 
 - [ ] **`POST /gpu/release` 200 means "flag written", not "worker acknowledged"** — a worker on an image
   without the watcher (any transcription image before `7d7fa01`) never reads it. Either return the
@@ -94,9 +103,15 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **Deploy the GLB / preview download buttons** (`9ba40c9`, built 2026-08-28, unpushed) — after the
   API batch above.
 
+- [ ] Warnings on the scan view, ⚠ on the card, toasts for new warnings. After the API deploy.
+
 - [ ] Photogrammetry store: no polling cutoff for a job stuck in `pending`; sibling uploads are
   not cancelled when one fails; dropzone not keyboard-focusable; dragover flicker over children.
 - [ ] Delete "✕" in `RunSidebar` / `ScanJobCard` is a span inside a button (not keyboard-operable).
+- [ ] `npm run type-check` and the `vue-tsc` step of `npm run build` check nothing — the root
+  `tsconfig.json` is solution-style (`files: []`) and neither passes `-p tsconfig.app.json`/`-b`.
+  Make the script `vue-tsc -p tsconfig.app.json --noEmit` (four pre-existing errors in
+  `transcribe/*.vue` will surface).
 
 ## Infra (terraform)
 
@@ -104,6 +119,9 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   Until it is applied the photogrammetry viewer cannot `fetch()` the GLB cross-origin and stays on
   its poster image — the 3D preview has never rendered in production; go-live acceptance only
   checked the `/mesh` API call. Standalone, no image rebuild.
+
+- [ ] photogrammetry task-def: host-path scratch volume `/var/lib/photogrammetry` → `/tmp/pg`
+  (new revision; overlay plan/apply, then bump the overlay task-def pin).
 
 - [ ] **ECS managed scaling launches 2 instances for 1 task** from zero (observed 2026-08-26 and
   2026-08-27); the spare idles ~10 min until scale-in. Check the capacity provider's

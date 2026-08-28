@@ -4,7 +4,9 @@ Standalone Python worker: a run-to-completion ECS task on the shared `gpu-<env>`
 provider, launched per job by the API's `RunTask` and exiting itself when idle (see Lifecycle
 below). No HTTP server. Takes a confirmed job's photos from S3, runs COLMAP → OpenMVS → texturing,
 and writes `mesh.glb` + `preview.png` back to S3, walking the job row through
-`processing/sfm → dense → mesh → texture → complete`.
+`processing/sfm → dense → mesh → texture → complete`. Stages are checkpointed in the scratch dir
+(`<stage>.done` markers), so a restarted job resumes from the first incomplete stage instead of
+redoing finished work; a stage that crashed mid-run is failed rather than re-run.
 
 ## Key Commands
 
@@ -50,14 +52,15 @@ from pipeline.export import obj_to_glb, make_preview
 work, images = Path("/tmp/pgsmoke/work"), Path("/tmp/pgsmoke/images")
 r = Reconstruction(Runner(time.monotonic() + 7200, threading.Event()), work, use_gpu=False)
 m = r.sfm(images); print("registered", m.registered_images)
-d = r.dense(images, m); ply = r.mesh(d, refine=False); obj = r.texture(d, ply)
+d = r.dense(images, m); ply, faces = r.reconstruct_mesh(d); obj = r.texture(d, ply)
 print(obj_to_glb(obj, work / "mesh.glb").stat().st_size, make_preview(sorted(images.iterdir())[0], work / "preview.png"))
 PY
 ```
 
 Expected: build succeeds, both binaries print usage; `registered N` with N ≥ 14 (60% of 22),
 a non-trivial `mesh.glb`, and `preview.png`. Slow on CPU (tens of minutes). If an OpenMVS output
-name differs, fix `pipeline/openmvs.py` + its test.
+name differs, fix `pipeline/openmvs.py` + its test. The smoke skips `r.refine_mesh(d, ply)` (also
+available); `texture(..., decimate=<ratio>)` decimates the mesh above the face budget.
 
 ## Environment Variables
 
