@@ -1,6 +1,7 @@
 """GLB export from a textured OBJ; preview downscale keeps aspect."""
 from pathlib import Path
 
+import numpy as np
 import trimesh
 from PIL import Image
 
@@ -31,6 +32,19 @@ def test_obj_to_glb_writes_binary_gltf_with_texture(tmp_path):
     # trimesh's GLB round-trip yields a PBRMaterial with the texture on baseColorTexture.
     assert mat.baseColorTexture.size == (2, 2)
     assert mesh.visual.uv.shape == (len(mesh.vertices), 2)
+
+
+def test_obj_to_glb_rotates_colmap_frame_to_gltf_y_up(tmp_path):
+    """COLMAP/OpenMVS coordinates are y-down, z-forward; glTF is y-up. Without the basis
+    change the reconstruction renders upside down (observed on the sample scan 2026-08-28)."""
+    obj = write_textured_quad(tmp_path)  # quad in the z=0 plane, vertices y ∈ [0, 1]
+    mesh = trimesh.load(obj_to_glb(obj, tmp_path / "mesh.glb"), force="mesh")
+    # y and z flip, x is untouched: (1, 1, 0) → (1, -1, 0)
+    assert np.allclose(mesh.vertices.min(axis=0), [0, -1, 0])
+    assert np.allclose(mesh.vertices.max(axis=0), [1, 0, 0])
+    # a proper rotation, not a mirror: the face normal rotates with it (+z → -z) and winding holds
+    assert np.allclose(mesh.face_normals[0], [0, 0, -1])
+    assert mesh.visual.uv.shape == (len(mesh.vertices), 2)  # texture coordinates survive
 
 
 def test_make_preview_downscales_long_edge_and_keeps_aspect(tmp_path):
