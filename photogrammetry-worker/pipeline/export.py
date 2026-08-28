@@ -14,10 +14,13 @@ CV_TO_GLTF = np.diag([1.0, -1.0, -1.0, 1.0])
 
 
 def obj_to_glb(obj: Path, out: Path) -> Path:
-    mesh = trimesh.load(obj, force="mesh")
-    mesh.apply_transform(CV_TO_GLTF)
+    # One geometry per OBJ material, exported as separate glTF primitives. `force="mesh"` would
+    # concatenate them and re-pack every atlas into one image — unbounded memory on large scans.
+    scene = trimesh.load(obj, force="scene", process=False)
+    for geometry in scene.geometry.values():
+        geometry.apply_transform(CV_TO_GLTF)
     out.parent.mkdir(parents=True, exist_ok=True)
-    mesh.export(out, file_type="glb")
+    scene.export(out, file_type="glb")
     return out
 
 
