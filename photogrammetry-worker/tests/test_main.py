@@ -18,5 +18,7 @@ def test_handlers_and_deps_wiring(tmp_path):
     assert isinstance(recon, Reconstruction)
     assert recon._r._deadline == 10.0
     assert recon._r._interrupted is SpotWatcher.interrupted
+    from gpu_worker.release_watcher import ReleaseWatcher
+    assert recon._r._released is ReleaseWatcher.abort      # immediate admin release aborts the child
     assert recon._gpu is True
     assert deps.job_timeout_seconds == 3600 and deps.use_gpu is True

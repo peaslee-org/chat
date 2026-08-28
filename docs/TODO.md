@@ -6,6 +6,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
+- [ ] **Release watcher in both worker images** (`gpu-worker` package, built 2026-08-28, unpushed):
+  graceful release works for transcription and photogrammetry; *immediate* only aborts the
+  photogrammetry runner — make the transcription job path poll `ReleaseWatcher.abort` too.
+
 - [ ] **GPU idle-release countdown that survives polling.** Today `warm_until` is only in the
   *Warm* response; the 30 s `/gpu/state` poll returns `null`, so the bar's `idle-out in mm:ss`
   vanishes, and a job-launched worker never has one. Real release time is
@@ -19,6 +23,11 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   (worker spec decision 4).
 
 ## API (chat-api)
+
+- [ ] **Deploy the admin release endpoint** (built 2026-08-28, unpushed): migration `n4o5p6q7r8s9`
+  (three nullable `gpu_sessions` columns) + `POST /gpu/release`. Ships with the API image; the
+  worker side is in the *Worker image* batch below — deploy the API first (columns must exist before
+  a worker polls them; the worker's reader tolerates their absence by returning None).
 
 - [ ] Photogrammetry worker: `except (ClientError, BotoCoreError): raise` in the download block retries *every* S3
   error via SQS — a permanent one (`AccessDenied`, `NoSuchKey`) spins 3× to the DLQ and leaves the row

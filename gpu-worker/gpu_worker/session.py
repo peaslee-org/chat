@@ -35,6 +35,18 @@ class GpuSessionStore:
             self._warn()
             return None
 
+    def release_mode(self) -> str | None:
+        """'graceful' | 'immediate' once an admin has called POST /gpu/release for this row; else None."""
+        if not self._task_arn:
+            return None
+        try:
+            with self._factory() as s:
+                row = s.query(GpuSession).filter_by(task_arn=self._task_arn).one_or_none()
+                return row.release_mode if row else None
+        except Exception:
+            self._warn()
+            return None
+
     def close(self, end_reason: str) -> None:
         self._update(lambda row, now: (
             setattr(row, "ended_at", now),

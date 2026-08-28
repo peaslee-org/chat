@@ -86,6 +86,16 @@ class GpuSessionRepository:
             .values(warm_until=warm_until)
         )
 
+    async def request_release(self, *, mode: str, user_id: str, now: datetime) -> int:
+        """Ask the family's live worker to exit (the worker polls release_mode). Clears warm_until so
+        a graceful release is not deferred by a warm window. Returns rows updated: 0 = no live worker."""
+        result = await self.db.execute(
+            update(GpuSession)
+            .where(GpuSession.ended_at.is_(None), GpuSession.family == self.family)
+            .values(release_mode=mode, release_requested_at=now, release_requested_by=user_id, warm_until=None)
+        )
+        return result.rowcount
+
     async def sessions_since(self, since: datetime) -> list[GpuSession]:
         stmt = select(GpuSession).where(GpuSession.started_at >= since).order_by(GpuSession.started_at.desc())
         return list((await self.db.execute(stmt)).scalars().all())

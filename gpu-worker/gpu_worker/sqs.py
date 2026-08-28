@@ -15,6 +15,7 @@ from typing import Callable
 import boto3
 
 from gpu_worker.loop import LoopConfig, WorkerLoop
+from gpu_worker.release_watcher import ReleaseWatcher
 from gpu_worker.spot_watcher import SpotWatcher
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ def run_sqs_worker(
     sqs_client=None,
     watcher_factory=SpotWatcher,
     idle_watcher_factory=SpotWatcher.idle_watcher,
+    release_watcher_factory=ReleaseWatcher,
 ) -> str:
     sqs = sqs_client or boto3.client("sqs", region_name=region)
     interrupted = watcher_factory.interrupted
@@ -81,11 +83,15 @@ def run_sqs_worker(
 
     idle_watcher = idle_watcher_factory(region)
     idle_watcher.start()
+    release_watcher = release_watcher_factory(session_store)
+    release_watcher.start()
     try:
         loop = WorkerLoop(
             receive=receive, process=process, sessions=session_store, interrupted=interrupted,
+            released=ReleaseWatcher.released,
             config=LoopConfig(idle_exit_seconds=idle_exit_seconds, max_lifetime_seconds=max_lifetime_seconds),
         )
         return loop.run()
     finally:
         idle_watcher.stop()
+        release_watcher.stop()

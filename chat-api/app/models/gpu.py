@@ -25,7 +25,12 @@ class GpuSession(Base):
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     warm_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    end_reason: Mapped[Optional[str]] = mapped_column(String(20))  # idle | max_lifetime | spot_interruption | error | unknown (reconciled)
+    end_reason: Mapped[Optional[str]] = mapped_column(String(20))  # idle | max_lifetime | spot_interruption | released | error | unknown (reconciled)
+    # Admin release (POST /gpu/release): the worker polls release_mode and exits — after the running
+    # job ("graceful") or aborting it ("immediate", message redelivered to the next worker).
+    release_mode: Mapped[Optional[str]] = mapped_column(String(10))
+    release_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    release_requested_by: Mapped[Optional[str]] = mapped_column(String(64))
 
 
 class GpuCostSnapshot(Base):

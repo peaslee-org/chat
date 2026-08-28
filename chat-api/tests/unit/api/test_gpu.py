@@ -92,3 +92,54 @@ async def test_warm_family_photogrammetry(client_by_family):
 async def test_unknown_family_is_422(client_by_family):
     ac, _ = client_by_family
     assert (await ac.get("/api/v1/gpu/state?family=nope", headers=H)).status_code == 422
+
+
+# ── POST /gpu/release (admin-only) ─────────────────────────────────────────────────────────────
+
+@pytest.fixture
+async def admin_client():
+    from app.services.gpu_controller import GpuNoWorker
+    ctl = MagicMock()
+    ctl.release = AsyncMock(return_value=GpuStateResponse(worker_state="running", estimated_wait_seconds=0))
+    app.dependency_overrides[get_gpu_controller_by_family] = lambda: ctl
+    app.dependency_overrides[get_current_user] = lambda: {"sub": "admin1", "cognito:groups": ["admin"]}
+    with patch("app.db.session.init_db", new_callable=AsyncMock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac, ctl
+    app.dependency_overrides.clear()
+
+
+async def test_release_defaults_to_graceful_for_admin(admin_client):
+    ac, ctl = admin_client
+    r = await ac.post("/api/v1/gpu/release", headers=H)
+    assert r.status_code == 200 and r.json()["worker_state"] == "running"
+    ctl.release.assert_awaited_once_with("graceful", "admin1")
+
+
+async def test_release_immediate_mode(admin_client):
+    ac, ctl = admin_client
+    r = await ac.post("/api/v1/gpu/release?mode=immediate", headers=H)
+    assert r.status_code == 200
+    ctl.release.assert_awaited_once_with("immediate", "admin1")
+
+
+async def test_release_forbidden_for_non_admin(client):
+    ac, ctl = client
+    ctl.release = AsyncMock()
+    r = await ac.post("/api/v1/gpu/release", headers=H)
+    assert r.status_code == 403
+    ctl.release.assert_not_awaited()
+
+
+async def test_release_409_without_live_worker(admin_client):
+    from app.services.gpu_controller import GpuNoWorker
+    ac, ctl = admin_client
+    ctl.release = AsyncMock(side_effect=GpuNoWorker("no live worker"))
+    r = await ac.post("/api/v1/gpu/release", headers=H)
+    assert r.status_code == 409
+
+
+async def test_release_rejects_bad_mode(admin_client):
+    ac, _ = admin_client
+    r = await ac.post("/api/v1/gpu/release?mode=now", headers=H)
+    assert r.status_code == 422

@@ -106,3 +106,24 @@ def test_extender_extends_visibility_while_handler_runs():
     call_count_after_return = sqs.change_message_visibility.call_count
     time.sleep(0.05)
     assert sqs.change_message_visibility.call_count == call_count_after_return
+
+
+def test_release_watcher_flag_ends_loop_with_released():
+    from gpu_worker.release_watcher import ReleaseWatcher
+
+    class FakeRelease:
+        def __init__(self, store): self.store = store
+        def start(self): ReleaseWatcher.released.set()     # as if the row said release_mode='graceful'
+        def stop(self): pass
+
+    ReleaseWatcher.released.clear(); ReleaseWatcher.abort.clear()
+    sqs = make_sqs([])
+    store = FakeStore()
+    reason = run_sqs_worker(
+        queue_url="https://sqs.test/q", region="us-east-1", handlers={},
+        session_store=store, idle_exit_seconds=10800, max_lifetime_seconds=10800,
+        sqs_client=sqs, watcher_factory=FakeWatcher, idle_watcher_factory=FakeWatcher.idle_watcher,
+        release_watcher_factory=FakeRelease,
+    )
+    assert reason == "released" and ("close", "released") in store.calls
+    ReleaseWatcher.released.clear()

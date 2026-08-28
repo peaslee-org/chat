@@ -66,3 +66,15 @@ def test_session_factory_is_required():
     import inspect
     params = inspect.signature(GpuSessionStore).parameters
     assert params["session_factory"].default is inspect.Parameter.empty
+
+
+def test_release_mode_returns_row_value():
+    store, _ = make_store(MagicMock(release_mode="immediate"))
+    assert store.release_mode() == "immediate"
+
+
+def test_release_mode_is_none_without_row_or_on_db_error():
+    store, _ = make_store(None)
+    assert store.release_mode() is None
+    store, _ = make_store(MagicMock(release_mode="graceful"), raise_on_enter=True)
+    assert store.release_mode() is None

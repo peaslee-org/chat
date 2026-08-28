@@ -1,8 +1,9 @@
 """Idle-aware SQS consumption loop.
 
 Importable without torch/pyannote: main.py injects the real receive/process callables.
-Exits (returns the end reason) on idle, max lifetime, or a spot-interruption flag —
-checked between messages, never mid-job.
+Exits (returns the end reason) on idle, max lifetime, a spot-interruption flag, or an
+admin release flag — checked between messages, never mid-job. (An *immediate* release also
+aborts the running job, but that happens in the job runner, not here.)
 """
 import logging
 import threading
@@ -28,6 +29,7 @@ class WorkerLoop:
         sessions,
         interrupted: threading.Event,
         config: LoopConfig,
+        released: Optional[threading.Event] = None,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
@@ -35,6 +37,7 @@ class WorkerLoop:
         self._process = process
         self._sessions = sessions
         self._interrupted = interrupted
+        self._released = released or threading.Event()
         self._config = config
         self._clock = clock
         self._wall = wall
@@ -87,7 +90,9 @@ class WorkerLoop:
             self._sessions.close(end_reason)
 
     def _check_exit_conditions(self, start: float) -> Optional[str]:
-        """Check interrupted and max_lifetime conditions. Return reason or None."""
+        """Check release, interrupted and max_lifetime conditions. Return reason or None."""
+        if self._released.is_set():
+            return "released"
         if self._interrupted.is_set():
             return "spot_interruption"
         now = self._clock()

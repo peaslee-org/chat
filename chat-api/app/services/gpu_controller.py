@@ -16,6 +16,10 @@ _state_cache: dict[str, tuple[float, list[str]]] = {}   # family -> (expiry_mono
 _STARTING = {"PROVISIONING", "PENDING", "ACTIVATING"}
 
 
+class GpuNoWorker(Exception):
+    """POST /gpu/release with no live session row for the family."""
+
+
 class GpuCapExceeded(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -54,6 +58,18 @@ class GpuController:
             cached = (mono + _STATE_CACHE_TTL, statuses)
             _state_cache[self._family] = cached
         return self._response(_state_from(cached[1]))
+
+    async def release(self, mode: str, user_id: str) -> GpuStateResponse:
+        """Admin: make the live worker exit — after its current job ("graceful") or now
+        ("immediate": the job's message goes back to the queue for the next worker, which starts on
+        the current task-definition revision). Lets a bad deploy be reloaded without waiting for
+        idle-exit, and frees a worker stuck in a job."""
+        if mode not in ("graceful", "immediate"):
+            raise ValueError(f"unknown release mode {mode!r}")
+        if not await self._repo.request_release(mode=mode, user_id=user_id, now=self._now()):
+            raise GpuNoWorker(f"no live {self._family} worker session")
+        _state_cache.pop(self._family, None)
+        return await self.get_state()
 
     def _response(self, state: WorkerState, notice: Optional[str] = None,
                   warm_until: Optional[datetime] = None) -> GpuStateResponse:

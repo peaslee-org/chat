@@ -39,11 +39,18 @@ class JobTimeout(StageError):
     pass
 
 
+class Released(Interrupted):
+    """Immediate admin release: the child was killed; the message goes back to the queue
+    (all Interrupted handling applies) and the next worker — on the current task-definition
+    revision — retries the job."""
+
+
 class Runner:
     def __init__(self, deadline: float, interrupted: threading.Event, clock=time.monotonic, poll_seconds: float = 5.0,
-                 timeout_message: str = "Reconstruction exceeded 60 minutes"):
+                 timeout_message: str = "Reconstruction exceeded 60 minutes", released: threading.Event | None = None):
         self._deadline = deadline
         self._interrupted = interrupted
+        self._released = released or threading.Event()
         self._clock = clock
         self._poll = poll_seconds
         self._timeout_message = timeout_message
@@ -63,6 +70,9 @@ class Runner:
                 stdout, stderr = proc.communicate(timeout=self._poll)
                 break
             except subprocess.TimeoutExpired:
+                if self._released.is_set():
+                    self._kill(proc)
+                    raise Released()
                 if self._interrupted.is_set():
                     self._kill(proc)
                     raise Interrupted()

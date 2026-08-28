@@ -109,3 +109,13 @@ async def test_create_stamps_family():
     db.flush = AsyncMock()
     row = await repo.create(task_arn="arn", started_by="u", reason="job", warm_until=None)
     assert row.family == "photogrammetry"
+
+
+async def test_request_release_marks_open_session_of_family_and_clears_warm():
+    repo, db = make_repo(rowcount=1, family="photogrammetry")
+    n = await repo.request_release(mode="immediate", user_id="admin1", now=NOW)
+    assert n == 1
+    sql = compiled(db)
+    assert "ended_at IS NULL" in sql and "family = 'photogrammetry'" in sql
+    assert "release_mode='immediate'" in sql and "release_requested_by='admin1'" in sql
+    assert "warm_until=NULL" in sql

@@ -26,6 +26,11 @@ class GpuSession(Base):
     warm_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     end_reason: Mapped[Optional[str]] = mapped_column(String(20))
+    # Admin release (POST /gpu/release): the worker polls release_mode and exits — after the
+    # running job ("graceful") or aborting it ("immediate"). Columns owned by chat-api's migration.
+    release_mode: Mapped[Optional[str]] = mapped_column(String(10))
+    release_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    release_requested_by: Mapped[Optional[str]] = mapped_column(String(64))
 
 
 def make_session_factory(database_url: str) -> Callable[[], ContextManager[Session]]:

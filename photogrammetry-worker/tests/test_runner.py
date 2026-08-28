@@ -84,3 +84,21 @@ def test_kill_logs_when_child_does_not_reap(caplog):
     with caplog.at_level(logging.WARNING):
         Runner._kill(proc)
     assert any("4242" in record.getMessage() for record in caplog.records)
+
+
+def test_release_kills_child_and_raises_released_which_is_an_interrupted(tmp_path):
+    # Immediate admin release: the child is killed and the message goes back to the queue via the
+    # existing Interrupted handling; the loop reports "released", not "spot_interruption".
+    from pipeline.runner import Released
+    released = threading.Event()
+    r = Runner(deadline=__import__("time").monotonic() + 3600, interrupted=threading.Event(), released=released,
+               poll_seconds=0.05)
+    threading.Timer(0.15, released.set).start()
+    with pytest.raises(Released) as e:
+        r.run([PY, "-c", "import time; time.sleep(10)"], cwd=tmp_path, tool="colmap")
+    assert isinstance(e.value, Interrupted)
+
+
+def test_released_event_is_optional_for_runner(tmp_path):
+    r, _ = make()
+    assert "hi" in r.run([PY, "-c", "print('hi')"], cwd=tmp_path)

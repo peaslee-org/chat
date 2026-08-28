@@ -216,3 +216,56 @@ def test_interrupt_between_messages_exits_with_spot_interruption():
                       clock=clock.mono, wall=clock.now)
     assert loop.run() == "spot_interruption"
     assert ("close", "spot_interruption") in sessions.calls
+
+
+# ── release (admin-requested exit; see gpu_worker.release_watcher) ─────────────────────────────
+
+def test_release_ends_loop_before_idle_and_despite_warm():
+    clock = FakeClock()
+    sessions = FakeSessions(warm_until=clock.wall + timedelta(seconds=3600))
+    released = threading.Event()
+    polls = []
+
+    def receive():
+        clock.advance(20)
+        polls.append(1)
+        if len(polls) == 2:
+            released.set()          # the watcher saw the row's release_mode
+        return []
+
+    loop = WorkerLoop(receive=receive, process=lambda m: None, sessions=sessions, interrupted=threading.Event(),
+                      released=released, config=LoopConfig(idle_exit_seconds=900, max_lifetime_seconds=10800),
+                      clock=clock.mono, wall=clock.now)
+    assert loop.run() == "released"
+    assert len(polls) == 2
+    assert sessions.calls[-1] == ("close", "released")
+
+
+def test_release_is_checked_after_a_processed_message():
+    clock = FakeClock()
+    released = threading.Event()
+    polls = []
+
+    def receive():
+        polls.append(1)
+        return [{"Body": "job"}] if len(polls) == 1 else []
+
+    def process(msg):
+        released.set()              # requested while the job ran (graceful: job finished first)
+
+    loop = WorkerLoop(receive=receive, process=process, sessions=FakeSessions(), interrupted=threading.Event(),
+                      released=released, config=LoopConfig(idle_exit_seconds=900, max_lifetime_seconds=10800),
+                      clock=clock.mono, wall=clock.now)
+    assert loop.run() == "released"
+    assert len(polls) == 1          # no second receive after the job
+
+
+def test_released_event_is_optional():
+    clock = FakeClock()
+
+    def receive():
+        clock.advance(20)
+        return []
+
+    loop, _ = make_loop(clock, FakeSessions(), receive, idle=20)
+    assert loop.run() == "idle"

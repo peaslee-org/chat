@@ -235,3 +235,29 @@ async def test_usage_estimates_and_snapshots():
     assert u.estimated_month_cost_usd == 0.8
     assert u.actual_month_to_date_usd == 12.34
     repo.save_cost_snapshot.assert_awaited_once()
+
+
+# ── admin release ──────────────────────────────────────────────────────────────────────────────
+
+async def test_release_marks_live_session_and_returns_state():
+    from app.services.gpu_controller import GpuNoWorker
+    ctl, repo, launcher = make(tasks=["RUNNING"])
+    repo.request_release = AsyncMock(return_value=1)
+    state = await ctl.release("immediate", "admin1")
+    assert state.worker_state == "running"
+    repo.request_release.assert_awaited_once_with(mode="immediate", user_id="admin1", now=NOW)
+
+
+async def test_release_without_live_session_raises():
+    from app.services.gpu_controller import GpuNoWorker
+    ctl, repo, _ = make()
+    repo.request_release = AsyncMock(return_value=0)
+    with pytest.raises(GpuNoWorker):
+        await ctl.release("graceful", "admin1")
+
+
+async def test_release_rejects_unknown_mode():
+    ctl, repo, _ = make()
+    repo.request_release = AsyncMock(return_value=1)
+    with pytest.raises(ValueError):
+        await ctl.release("now", "admin1")

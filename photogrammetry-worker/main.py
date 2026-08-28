@@ -4,6 +4,7 @@ from pathlib import Path
 from config import Settings
 from gpu_worker.db import make_session_factory
 from gpu_worker.ecs_metadata import instance_id, task_arn
+from gpu_worker.release_watcher import ReleaseWatcher
 from gpu_worker.session import GpuSessionStore
 from gpu_worker.spot_watcher import SpotWatcher
 from gpu_worker.sqs import run_sqs_worker
@@ -23,7 +24,8 @@ def build_deps(s: Settings) -> Deps:
         session_factory=make_session_factory(s.DATABASE_URL),
         s3=S3Client(s.AUDIO_BUCKET_NAME, s.AWS_REGION),
         reconstruction_factory=lambda work, deadline: Reconstruction(
-            Runner(deadline=deadline, interrupted=SpotWatcher.interrupted), work, use_gpu=bool(s.COLMAP_USE_GPU)),
+            Runner(deadline=deadline, interrupted=SpotWatcher.interrupted, released=ReleaseWatcher.abort),
+            work, use_gpu=bool(s.COLMAP_USE_GPU)),
         work_root=Path(s.WORK_DIR),
         use_gpu=bool(s.COLMAP_USE_GPU),
         job_timeout_seconds=s.PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS,
