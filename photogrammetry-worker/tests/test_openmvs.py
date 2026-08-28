@@ -63,3 +63,14 @@ def test_texture_exports_obj(tmp_path):
     texture_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "m.ply")
     cmd = r.calls[0][0]
     assert cmd[cmd.index("--export-type") + 1] == "obj"
+
+
+def test_texture_mesh_disables_seam_leveling(tmp_path):
+    """Both seam-leveling passes in our OpenMVS v2.4.0/noble build write ~0 into every face
+    pixel (atlas = black faces, coloured surroundings; found 2026-08-28 on the sample scan).
+    With both off the raw patch copy is correct. Keep them off until the build is fixed."""
+    r = FakeRunner()
+    texture_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "mesh.ply")
+    cmd = r.calls[0][0]
+    assert cmd[cmd.index("--global-seam-leveling") + 1] == "0"
+    assert cmd[cmd.index("--local-seam-leveling") + 1] == "0"

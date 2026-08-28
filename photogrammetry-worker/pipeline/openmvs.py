@@ -37,6 +37,12 @@ def refine_mesh(runner, dense: Path, scene_dense: Path, mesh_ply: Path, use_gpu:
 
 def texture_mesh(runner, dense: Path, scene_dense: Path, mesh_ply: Path, use_gpu: bool = True) -> Path:
     out = dense / "scene_textured.mvs"
+    # Seam leveling is OFF on purpose: in our OpenMVS v2.4.0 build (Ubuntu noble, OpenCV 4.6) both
+    # the global and the local pass rewrite every face's pixels as ~0 (faces render black with
+    # stray saturated texels), while the raw patch copy is correct. Verified 2026-08-28 by
+    # re-running TextureMesh on the sample scan with each option toggled. Visible patch seams are
+    # the price until the build is root-caused (docs/TODO.md, "Worker image").
     runner.run(["TextureMesh", str(scene_dense), "-m", str(mesh_ply), "-w", str(dense), "-o", str(out),
-                "--export-type", "obj", *_cuda_device(use_gpu)], cwd=dense, tool="TextureMesh")
+                "--export-type", "obj", "--global-seam-leveling", "0", "--local-seam-leveling", "0",
+                *_cuda_device(use_gpu)], cwd=dense, tool="TextureMesh")
     return dense / "scene_textured.obj"
