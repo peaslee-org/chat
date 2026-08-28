@@ -55,7 +55,12 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="$REGISTRY/$ECR_REPOSITORY"
+          # provenance/sbom off: buildx would push an OCI index plus two untagged attestation
+          # manifests per image, and the repo's keep-last-2 lifecycle rule counts all three —
+          # the next push would expire a live image's own children. One manifest per push, as
+          # worker.yml's plain docker push produces.
           docker buildx build \
+            --provenance=false --sbom=false \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             -f photogrammetry-worker/Dockerfile \
