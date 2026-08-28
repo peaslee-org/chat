@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- **Superseded after the final review (2026-08-28):** the task code blocks below still show `MAX_ATTEMPTS = 3` and `receive_count > MAX_ATTEMPTS`; the merged code uses `MAX_ATTEMPTS = 5` and `>=` (SQS dead-letters when the count *exceeds* `maxReceiveCount`, so the handler must act on the last delivery it will see). The constraints in this section are authoritative.
 - `REFINE_MAX_FACES = 400_000`, `FACE_BUDGET = 500_000`, `MAX_ATTEMPTS = 5`, `REFINE_MAX_IMAGES = 100` (existing), `MIN_IMAGES = 5`, scratch sweep `max_age = 24 h`.
 - `WORK_DIR` stays `/tmp/pg`; the host path is `/var/lib/photogrammetry`.
 - User-facing strings (copy verbatim):
