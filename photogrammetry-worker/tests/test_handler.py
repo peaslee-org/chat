@@ -172,6 +172,18 @@ def test_redelivered_terminal_job_is_skipped(tmp_path):
     assert recons == [] and job.status == "complete"
 
 
+def test_skipped_job_removes_its_scratch(tmp_path):
+    """A job deleted (or already terminal) mid-run must not leave its dense workspace for the
+    24 h sweep — rule 1 removes scratch just like the crash/receive-count and failure paths."""
+    job, _, recons, deps = make(tmp_path, status="complete")
+    w = work_dir(deps, job)
+    (w / "dense").mkdir(parents=True)
+    (w / "dense" / "x").write_text("x")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert recons == [] and job.status == "complete"
+    assert not w.exists()
+
+
 def test_processing_job_is_restarted(tmp_path):
     job, _, recons, deps = make(tmp_path, status="processing")
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
@@ -384,12 +396,20 @@ def test_receive_count_over_max_attempts_fails(tmp_path):
     job, _, recons, deps = make(tmp_path, status="processing")
     process_photogrammetry_job({"job_id": str(job.id)}, deps, receive_count=MAX_ATTEMPTS + 1)
     assert recons == [] and job.status == "failed"
-    assert job.error_message == "Reconstruction crashed repeatedly (probably out of memory) — try fewer photos or one object per scan."
+    assert job.error_message == (
+        "Reconstruction did not finish after 5 attempts (interrupted or out of memory)"
+        " — try again with fewer photos or one object per scan.")
 
 
-def test_receive_count_at_max_attempts_still_runs(tmp_path):
+def test_receive_count_at_max_attempts_fails(tmp_path):
     job, _, recons, deps = make(tmp_path, status="processing")
     process_photogrammetry_job({"job_id": str(job.id)}, deps, receive_count=MAX_ATTEMPTS)
+    assert recons == [] and job.status == "failed"
+
+
+def test_receive_count_below_max_attempts_runs(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps, receive_count=MAX_ATTEMPTS - 1)
     assert job.status == "complete"
 
 
@@ -454,6 +474,21 @@ def test_too_few_usable_photos_fails(tmp_path):
     s3.download = download
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
     assert job.status == "failed" and job.error_message == "Only 4 photos could be used — at least 5 are needed"
+
+
+def test_too_few_usable_photos_fails_singular(tmp_path):
+    # 4 of the 5 uploads are unreadable, leaving exactly 1 usable photo (singular wording).
+    job, s3, _, deps = make(tmp_path, image_count=5)
+
+    def download(key, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if key.endswith("0001.jpg"):
+            Image.new("RGB", (600, 800)).save(dest)
+        else:
+            dest.write_bytes(b"not an image")
+    s3.download = download
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "failed" and job.error_message == "Only 1 photo could be used — at least 5 are needed"
 
 
 def test_fresh_start_clears_old_warnings(tmp_path):

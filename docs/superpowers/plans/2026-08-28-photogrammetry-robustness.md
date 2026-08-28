@@ -12,11 +12,11 @@
 
 ## Global Constraints
 
-- `REFINE_MAX_FACES = 400_000`, `FACE_BUDGET = 500_000`, `MAX_ATTEMPTS = 3`, `REFINE_MAX_IMAGES = 100` (existing), `MIN_IMAGES = 5`, scratch sweep `max_age = 24 h`.
+- `REFINE_MAX_FACES = 400_000`, `FACE_BUDGET = 500_000`, `MAX_ATTEMPTS = 5`, `REFINE_MAX_IMAGES = 100` (existing), `MIN_IMAGES = 5`, scratch sweep `max_age = 24 h`.
 - `WORK_DIR` stays `/tmp/pg`; the host path is `/var/lib/photogrammetry`.
 - User-facing strings (copy verbatim):
   - crash: `Reconstruction crashed during the {stage} stage (probably out of memory) — try fewer photos or one object per scan.` where `{stage}` is `sfm`/`dense`/`mesh`/`texture`/`export` (`publish` renders as `export`).
-  - repeated: `Reconstruction crashed repeatedly (probably out of memory) — try fewer photos or one object per scan.`
+  - repeated: `Reconstruction did not finish after 5 attempts (interrupted or out of memory) — try again with fewer photos or one object per scan.`
   - decimation: `Mesh simplified from {faces:,} to about {FACE_BUDGET:,} faces to fit the viewer`
   - rotation: `{n} photo(s) were rotated to match the others (phone auto-rotate)` — use `photo` for 1, `photos` otherwise.
   - skipped: `{n} photo(s) have a different resolution and were skipped: {names}` — names comma-separated, at most 5 then `…`.

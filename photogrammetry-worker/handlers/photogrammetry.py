@@ -35,7 +35,7 @@ REGISTRATION_MIN_FRACTION = 0.6
 REFINE_MAX_IMAGES = 100
 REFINE_MAX_FACES = 400_000   # RefineMesh roughly doubles faces at a ~16 GB virtual peak on 675 k
 FACE_BUDGET = 500_000        # texture/export never see more than this
-MAX_ATTEMPTS = 3             # SQS receives; matches the queue's maxReceiveCount
+MAX_ATTEMPTS = 5              # SQS receives; equals the queue's maxReceiveCount — fail on the last delivery SQS will make
 MIN_IMAGES = 5
 ERROR_MAX_CHARS = 1000
 _STAGE_NAMES = {"publish": "export"}
@@ -63,7 +63,8 @@ def _update(deps: Deps, job_id: uuid.UUID, **values) -> None:
 
 def _crash_message(stage: str | None) -> str:
     if stage is None:
-        return "Reconstruction crashed repeatedly (probably out of memory) — try fewer photos or one object per scan."
+        return (f"Reconstruction did not finish after {MAX_ATTEMPTS} attempts (interrupted or out of memory)"
+                " — try again with fewer photos or one object per scan.")
     return (f"Reconstruction crashed during the {_STAGE_NAMES.get(stage, stage)} stage (probably out of memory)"
             " — try fewer photos or one object per scan.")
 
@@ -90,11 +91,17 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
         job = s.get(PhotogrammetryJob, job_id)
         if job is None or job.status not in RESTARTABLE:
             logger.info("Job %s skipped (status=%s)", job_id, getattr(job, "status", None))
+            # A job deleted (or already terminal) mid-run must not leave its dense workspace
+            # behind for the 24 h sweep to find.
+            shutil.rmtree(work, ignore_errors=True)
             return
         user_id, input_prefix, image_count = job.user_id, job.input_prefix, job.image_count
         crashed = ck.crashed_stage()
-        if crashed is not None or receive_count > MAX_ATTEMPTS:
-            reason = _crash_message(crashed)             # None → the "repeatedly" wording
+        # SQS dead-letters a message once its receive count *exceeds* maxReceiveCount, so the
+        # handler must act on the last delivery it will ever see, not one past it (spec §2 rule 3).
+        # job.warnings is deliberately left as is here so the user still sees what fetch found.
+        if crashed is not None or receive_count >= MAX_ATTEMPTS:
+            reason = _crash_message(crashed)             # None → the "did not finish" wording
             logger.error("Job %s failed before running: %s (receive_count=%d)", job_id, reason, receive_count)
             job.status, job.stage, job.error_message = "failed", None, reason
             shutil.rmtree(work, ignore_errors=True)
@@ -121,7 +128,8 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
         report = normalise(images, work / "skipped")
         warnings.add(*report.warnings())
         if report.usable < MIN_IMAGES:
-            raise StageError("fetch", f"Only {report.usable} photos could be used — at least {MIN_IMAGES} are needed")
+            noun = "photo" if report.usable == 1 else "photos"
+            raise StageError("fetch", f"Only {report.usable} {noun} could be used — at least {MIN_IMAGES} are needed")
 
         recon = deps.reconstruction_factory(work, deps.clock() + deps.job_timeout_seconds)
 

@@ -118,11 +118,15 @@ The handler runs, in order, before any stage:
    `status = failed`, `stage = None`, `error_message = "Reconstruction crashed during the
    <stage> stage (probably out of memory) — try fewer photos or one object per scan."` Log at
    ERROR. Ack. Scratch removed.
-3. `ApproximateReceiveCount > MAX_ATTEMPTS (3)` → same failure with `"… crashed repeatedly …"`.
-   This is the backstop for the no-scratch case (instance replaced) and guarantees a message
-   never ages out to the DLQ with the row still `processing`. The SQS shell requests the
+3. `ApproximateReceiveCount >= MAX_ATTEMPTS (5, = the queue's maxReceiveCount, raised from 3 in
+   the same Terraform change)` → same failure with `"Reconstruction did not finish after 5
+   attempts (interrupted or out of memory) — try again with fewer photos or one object per
+   scan."` This is the backstop for the no-scratch case (instance replaced) and guarantees a
+   message never ages out to the DLQ with the row still `processing`. The SQS shell requests the
    attribute (`AttributeNames=["ApproximateReceiveCount"]`) and the handler reads it from the
-   message it already receives.
+   message it already receives. SQS dead-letters when the count *exceeds* maxReceiveCount, so
+   the handler must act on the last delivery it will see; interruptions and transient-S3
+   redeliveries also count, hence the headroom.
 4. Otherwise resume: each stage whose `.done` exists is skipped and its recorded outputs reused;
    the DB `stage` is set to the first stage actually run.
 

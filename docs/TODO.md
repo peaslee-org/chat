@@ -14,7 +14,9 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] Photogrammetry robustness (spec 2026-08-28): resumable stages, no-cycling rule, mesh budget
   (refine ≤ 400 k faces, decimate above 500 k), photo orientation normalisation. **Smoke = sample
   job + a re-run of the 51-photo set** (expect the rotation warning, no refine, complete). Then
-  bake + pins.
+  bake + pins. Deploy the API migration first: the worker's ORM model now selects `warnings`, so
+  against an un-migrated DB every receipt raises outside the handler's try block and the message
+  is never acked.
 
 - [x] ~~Rebake the GPU AMI with photogrammetry image `8f81e78`~~ done 2026-08-28: LT v5, task-def `:11`. (Was: task family `:10`, built by CI
   2026-08-28 14:52 Z; carries `27a23f1` y-up + `b301e89` seam leveling off). The sample scan re-run at
@@ -121,7 +123,8 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   checked the `/mesh` API call. Standalone, no image rebuild.
 
 - [ ] photogrammetry task-def: host-path scratch volume `/var/lib/photogrammetry` → `/tmp/pg`
-  (new revision; overlay plan/apply, then bump the overlay task-def pin).
+  (new revision; overlay plan/apply, then bump the overlay task-def pin); `maxReceiveCount` 3 → 5
+  on the photogrammetry queue (same apply).
 
 - [ ] **ECS managed scaling launches 2 instances for 1 task** from zero (observed 2026-08-26 and
   2026-08-27); the spare idles ~10 min until scale-in. Check the capacity provider's
