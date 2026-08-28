@@ -71,3 +71,21 @@ def test_png_is_handled(tmp_path):
     Image.new("RGB", (400, 300)).save(imgs / "4.png")
     r = normalise(imgs, tmp_path / "skipped")
     assert r.rotated == ["4.png"] and Image.open(imgs / "4.png").size == (300, 400)
+
+
+def test_unreadable_file_is_set_aside_with_its_own_warning(tmp_path):
+    imgs = tmp_path / "images"; imgs.mkdir()
+    for i in range(1, 4): jpeg(imgs / f"{i:04d}.jpg", (300, 400))
+    (imgs / "0004.jpg").write_bytes(b"not a jpeg")
+    r = normalise(imgs, tmp_path / "skipped")
+    assert r.unreadable == ["0004.jpg"] and r.skipped == [] and r.usable == 3
+    assert not (imgs / "0004.jpg").exists() and (tmp_path / "skipped" / "0004.jpg").exists()
+    assert r.warnings() == ["1 photo could not be read and was skipped: 0004.jpg"]
+
+
+def test_unreadable_file_does_not_vote_on_orientation(tmp_path):
+    imgs = tmp_path / "images"; imgs.mkdir()
+    jpeg(imgs / "0001.jpg", (300, 400)); jpeg(imgs / "0002.jpg", (400, 300))
+    (imgs / "0000.jpg").write_bytes(b"")
+    r = normalise(imgs, tmp_path / "skipped")
+    assert r.unreadable == ["0000.jpg"] and r.usable == 2 and len(r.rotated) == 1
