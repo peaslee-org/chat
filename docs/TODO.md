@@ -6,9 +6,6 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
-- [ ] **Re-bake the GPU AMI** — `gpu-prod-20260828-00a2bad` carries transcription `00a2bad` (broken) and
-  photogrammetry `8d3f386`; live task defs run `e47573b` / `7d7fa01`, so every cold start pulls
-  (~7.6 GB + ~3 GB, a few minutes). `BAKE_MARKET=on-demand scripts/deploy/build-gpu-ami.sh …`.
 - [ ] **Audit unpinned dependencies in both worker Dockerfiles** (`speechbrain` bit on 2026-08-28;
   `pydub boto3 pydantic-settings pgvector … soundfile` and the photogrammetry `pip install` line are
   still unpinned) — a rebuild must reproduce the image that passed acceptance.
