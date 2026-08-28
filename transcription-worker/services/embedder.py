@@ -29,9 +29,11 @@ class EcapaTdnnEmbedder:
 
     def __init__(self):
         settings = Settings()
+        # SPEECHBRAIN_CHECKPOINT is the snapshot the Dockerfile downloads at build time (revision
+        # pinned there), so no revision= here: speechbrain >= 1.1 forwards unknown kwargs to
+        # Pretrained.__init__ and every job failed with a TypeError (prod, 2026-08-28).
         self.model = EncoderClassifier.from_hparams(
             source=settings.SPEECHBRAIN_CHECKPOINT,
-            revision=settings.SPEECHBRAIN_REVISION,
             savedir=settings.SPEECHBRAIN_CACHE,
         )
 

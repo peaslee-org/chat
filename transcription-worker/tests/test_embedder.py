@@ -132,3 +132,26 @@ class TestEncodeNormalization:
         emb_a = _make_embedder(raw_a).encode_tensor(torch.randn(1, 16000), 16000)
         emb_b = _make_embedder(raw_b).encode_tensor(torch.randn(1, 16000), 16000)
         assert emb_a != emb_b
+
+
+# ── model loading ──────────────────────────────────────────────────────────────────────────────
+
+def test_from_hparams_is_called_without_revision(monkeypatch):
+    """SPEECHBRAIN_CHECKPOINT is the local snapshot dir baked at build time (its revision is fixed
+    there); passing revision= at runtime broke on speechbrain 1.1.1, which forwards unknown kwargs
+    to Pretrained.__init__ (prod, 2026-08-28)."""
+    import services.embedder as emb
+    calls = []
+
+    class FakeClassifier:
+        @classmethod
+        def from_hparams(cls, **kw):
+            calls.append(kw); return object()
+
+    monkeypatch.setattr(emb, "EncoderClassifier", FakeClassifier)
+    monkeypatch.setattr(emb, "Settings", lambda: MagicMock(SPEECHBRAIN_CHECKPOINT="/app/speechbrain_model",
+                                                            SPEECHBRAIN_CACHE="/app/speechbrain_model"))
+    EcapaTdnnEmbedder._instance = None
+    EcapaTdnnEmbedder.get()
+    assert calls and "revision" not in calls[0]
+    assert calls[0]["source"]

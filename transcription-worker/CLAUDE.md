@@ -50,7 +50,6 @@ Lifecycle (loop, spot watcher, ledger, SQS shell) lives in `../gpu-worker` — r
 | `SQS_VISIBILITY_TIMEOUT` | `600` | no |
 | `SQS_VISIBILITY_EXTENSION_INTERVAL` | `300` | no |
 | `SPEECHBRAIN_CHECKPOINT` | `speechbrain/spkrec-ecapa-voxceleb` | no |
-| `SPEECHBRAIN_REVISION` | `3c54e95` | no |
 | `SPEECHBRAIN_CACHE` | `/app/speechbrain_model` | no |
 | `HUGGINGFACE_TOKEN` | `""` | yes (for pyannote model) |
 | `PYANNOTE_MODEL` | `pyannote/speaker-diarization-community-1` | no |

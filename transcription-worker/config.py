@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     SQS_VISIBILITY_TIMEOUT: int = 600
     MATCHING_THRESHOLD: float = 0.25  # cosine distance
     SPEECHBRAIN_CHECKPOINT: str = "speechbrain/spkrec-ecapa-voxceleb"
-    SPEECHBRAIN_REVISION: str = "3c54e95"
     SPEECHBRAIN_CACHE: str = "/app/speechbrain_model"
     HUGGINGFACE_TOKEN: str = ""
     PYANNOTE_MODEL: str = "pyannote/speaker-diarization-community-1"

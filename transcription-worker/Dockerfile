@@ -17,7 +17,8 @@ ARG HUGGINGFACE_TOKEN
 
 # pyannote 4.x pins torch/torchcodec/torchaudio — install first so its versions win
 RUN pip install --no-cache-dir "pyannote.audio==4.0.4"
-RUN pip install --no-cache-dir speechbrain pydub boto3 pydantic-settings pgvector asyncpg sqlalchemy psycopg2-binary scipy requests soundfile
+# speechbrain pinned: an unpinned rebuild picked up 1.1.1 (from_hparams API change) and broke prod, 2026-08-28.
+RUN pip install --no-cache-dir "speechbrain==1.1.1" pydub boto3 pydantic-settings pgvector asyncpg sqlalchemy psycopg2-binary scipy requests soundfile
 
 # Pre-download pyannote model at build time (revision pinned 2026-03-06)
 ENV HF_HOME=/app/hf_cache
