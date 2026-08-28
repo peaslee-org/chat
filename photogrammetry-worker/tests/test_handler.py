@@ -10,6 +10,7 @@ import pytest
 from botocore.exceptions import ClientError
 from PIL import Image
 
+import handlers.photogrammetry as handler_mod
 from gpu_worker.sqs import Interrupted
 from handlers.photogrammetry import Deps, process_photogrammetry_job
 from handlers.photogrammetry import FACE_BUDGET, MAX_ATTEMPTS, REFINE_MAX_FACES
@@ -278,17 +279,69 @@ def test_resume_skips_completed_stages_and_reuses_outputs(tmp_path):
     assert job.status == "complete"
 
 
-def test_resume_sets_db_stage_to_first_stage_run(tmp_path):
+def test_resume_sets_db_stage_to_first_stage_run(tmp_path, monkeypatch):
+    """job.stage must already read "dense" at receipt (before any stage runs), not merely by the
+    time the dense stage's own `_update(stage="dense")` fires — that write would mask a broken
+    `job.stage = ...` assignment at receipt. `work.mkdir()` is the very first filesystem call the
+    handler makes after the receipt-time assignment (no earlier stage's markers exist to check
+    once resuming is decided), so hooking it captures the value at that exact moment."""
     job, _, _, deps = make(tmp_path, status="processing")
     w = work_dir(deps, job); Checkpoints(w).done("sfm", sparse="s", registered_images=10)
-    stages = []
-    orig = FakeRecon._step
-    FakeRecon._step = lambda self, name: (stages.append(job.stage), orig(self, name))
-    try:
-        process_photogrammetry_job({"job_id": str(job.id)}, deps)
-    finally:
-        FakeRecon._step = orig
-    assert stages[0] == "dense"
+
+    receipt_stage = []
+    orig_mkdir = Path.mkdir
+    def mkdir_recorder(self, *a, **kw):
+        if not receipt_stage:
+            receipt_stage.append(job.stage)
+        return orig_mkdir(self, *a, **kw)
+    monkeypatch.setattr(Path, "mkdir", mkdir_recorder)
+
+    stage_updates = []
+    orig_update = handler_mod._update
+    def update_recorder(deps, job_id, **values):
+        if "stage" in values:
+            stage_updates.append(values["stage"])
+        return orig_update(deps, job_id, **values)
+    monkeypatch.setattr(handler_mod, "_update", update_recorder)
+
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+
+    assert receipt_stage == ["dense"]              # set at receipt, before fetch/sfm/dense run
+    assert stage_updates[0] == "dense" and "sfm" not in stage_updates
+
+
+def test_resume_into_publish_reports_texture_stage_and_completes(tmp_path, monkeypatch):
+    """All four `.done` markers exist and there is no `stage.started` — first_incomplete() is
+    "publish", so no reconstruction stage runs at all; only export/upload/complete. Covers the
+    `job.stage = "texture" if first_stage == "publish" else first_stage` mapping: while `obj_to_glb`
+    (the export step) runs, the DB-facing stage must read "texture", the last real pipeline stage,
+    not "publish"."""
+    job, s3, recons, deps = make(tmp_path, status="processing")
+    w = work_dir(deps, job)
+    dense = w / "dense"; dense.mkdir(parents=True)
+    Image.new("RGB", (2, 2)).save(dense / "tex.png")
+    (dense / "scene_textured.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
+    obj = dense / "scene_textured.obj"
+    obj.write_text("mtllib scene_textured.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nusemtl m\nf 1/1 2/2 3/3\n")
+    ck = Checkpoints(w)
+    ck.done("sfm", sparse=str(w / "sparse" / "0"), registered_images=10)
+    ck.done("dense", dense=str(dense))
+    ck.done("mesh", ply=str(dense / "m.ply"), faces=1000)
+    ck.done("texture", obj=str(obj))
+
+    stages_at_export = []
+    orig_obj_to_glb = handler_mod.obj_to_glb
+    def wrapper(obj_path, out):
+        stages_at_export.append(job.stage)
+        return orig_obj_to_glb(obj_path, out)
+    monkeypatch.setattr("handlers.photogrammetry.obj_to_glb", wrapper)
+
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+
+    assert recons[0].calls == []   # reconstruction_factory still runs (unconditional) but no stage method fires
+    assert job.status == "complete"
+    assert job.mesh_s3_key == f"photogrammetry/{USER}/{job.id}/output/mesh.glb"
+    assert stages_at_export == ["texture"]
 
 
 def test_fetch_always_reruns_but_warnings_do_not_duplicate(tmp_path):
@@ -357,9 +410,12 @@ def test_stage_error_removes_scratch(tmp_path):
 
 def test_transient_s3_error_keeps_scratch_for_redelivery(tmp_path):
     job, _, _, deps = make(tmp_path, s3_cls=FailingDownloadS3)
+    w = work_dir(deps, job)
+    Checkpoints(w).done("sfm", sparse="s", registered_images=10)
     with pytest.raises(ClientError):
         process_photogrammetry_job({"job_id": str(job.id)}, deps)
-    assert job.status == "processing" and work_dir(deps, job).exists()
+    assert job.status == "processing" and w.exists()
+    assert Checkpoints(w).completed("sfm") is not None   # markers survive, not just the directory
 
 
 # ── photos + warnings ────────────────────────────────────────────────────────

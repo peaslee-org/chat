@@ -92,7 +92,6 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
             logger.info("Job %s skipped (status=%s)", job_id, getattr(job, "status", None))
             return
         user_id, input_prefix, image_count = job.user_id, job.input_prefix, job.image_count
-        resuming = ck.first_incomplete() != "sfm"      # markers, not status: a queued (interrupted) job resumes too
         crashed = ck.crashed_stage()
         if crashed is not None or receive_count > MAX_ATTEMPTS:
             reason = _crash_message(crashed)             # None → the "repeatedly" wording
@@ -101,6 +100,7 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
             shutil.rmtree(work, ignore_errors=True)
             return
         first_stage = ck.first_incomplete()
+        resuming = first_stage != "sfm"      # markers, not status: a queued (interrupted) job resumes too
         job.status, job.error_message = "processing", None
         job.stage = "texture" if first_stage == "publish" else first_stage
         if not resuming:
