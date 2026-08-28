@@ -86,5 +86,5 @@ def test_multi_material_obj_exports_one_primitive_per_material_without_repacking
     assert len(geoms) == 2
     sizes = sorted(g.visual.material.baseColorTexture.size for g in geoms)
     assert sizes == [(2, 2), (4, 4)]                     # textures untouched, not merged
-    lo = min(g.vertices[:, 1].min() for g in geoms)
-    assert np.isclose(lo, -1.0)                          # rotation applied to every geometry
+    assert all(np.isclose(g.vertices[:, 1].min(), -1.0) for g in geoms)  # rotation on every geom
+    assert all(g.visual.uv.shape == (len(g.vertices), 2) for g in geoms)  # UVs survive per-geom
