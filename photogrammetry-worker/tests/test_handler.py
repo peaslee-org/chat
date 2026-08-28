@@ -12,6 +12,8 @@ from PIL import Image
 
 from gpu_worker.sqs import Interrupted
 from handlers.photogrammetry import Deps, process_photogrammetry_job
+from handlers.photogrammetry import FACE_BUDGET, MAX_ATTEMPTS, REFINE_MAX_FACES
+from pipeline.checkpoints import Checkpoints
 from pipeline.colmap import SparseModel
 from pipeline.runner import StageError
 
@@ -19,9 +21,10 @@ USER = "user-1"
 
 
 class FakeRecon:
-    """Records stage calls; `registered` drives the threshold; `fail_at` raises in that stage."""
-    def __init__(self, work, registered=10, fail_at=None, interrupt_at=None):
-        self.work, self.registered, self.fail_at, self.interrupt_at = work, registered, fail_at, interrupt_at
+    """Records stage calls; `registered` drives the threshold; `fail_at` raises in that stage;
+    `faces` is what ReconstructMesh reports (RefineMesh reports 2×)."""
+    def __init__(self, work, registered=10, fail_at=None, interrupt_at=None, faces=1000):
+        self.work, self.registered, self.fail_at, self.interrupt_at, self.faces = work, registered, fail_at, interrupt_at, faces
         self.calls = []
 
     def _step(self, name):
@@ -33,10 +36,12 @@ class FakeRecon:
         self._step("sfm"); return SparseModel(self.work / "sparse" / "0", self.registered)
     def dense(self, images, model):
         self._step("dense"); d = self.work / "dense"; d.mkdir(parents=True, exist_ok=True); return d
-    def mesh(self, dense, refine):
-        self._step(("mesh", refine)); return dense / "m.ply"
-    def texture(self, dense, ply):
-        self._step("texture")
+    def reconstruct_mesh(self, dense):
+        self._step("mesh"); return dense / "m.ply", self.faces
+    def refine_mesh(self, dense, ply):
+        self._step("refine"); return dense / "r.ply", self.faces * 2
+    def texture(self, dense, ply, decimate=None):
+        self._step(("texture", decimate))
         Image.new("RGB", (2, 2)).save(dense / "tex.png")
         (dense / "scene_textured.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
         obj = dense / "scene_textured.obj"
@@ -51,7 +56,7 @@ class FakeS3:
     def download(self, key, dest):
         self.downloaded.append(key)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (800, 600)).save(dest)
+        Image.new("RGB", (600, 800)).save(dest)
     def upload_file(self, path, key, content_type): self.uploaded.append((key, content_type, Path(path).stat().st_size > 0))
 
 
@@ -69,7 +74,8 @@ def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=N
     if include_placeholder:
         keys = [prefix] + keys
     job = MagicMock(id=job_id, user_id=USER, status=status, stage=None, image_count=image_count,
-                    input_prefix=prefix, mesh_s3_key=None, preview_s3_key=None, error_message=None, completed_at=None)
+                    input_prefix=prefix, mesh_s3_key=None, preview_s3_key=None, error_message=None, completed_at=None,
+                    warnings=None)
     session = MagicMock()
     session.get.return_value = job
 
@@ -90,7 +96,7 @@ def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=N
 def test_happy_path_walks_stages_and_writes_outputs_under_job_prefix(tmp_path):
     job, s3, recons, deps = make(tmp_path)
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
-    assert recons[0].calls == ["sfm", "dense", ("mesh", True), "texture"]
+    assert recons[0].calls == ["sfm", "dense", "mesh", "refine", ("texture", None)]
     assert job.status == "complete" and job.stage is None and isinstance(job.completed_at, datetime)
     assert job.mesh_s3_key == f"photogrammetry/{USER}/{job.id}/output/mesh.glb"
     assert job.preview_s3_key == f"photogrammetry/{USER}/{job.id}/output/preview.png"
@@ -115,14 +121,14 @@ def test_stage_progression_is_written_before_each_stage(tmp_path):
         process_photogrammetry_job({"job_id": str(job.id)}, deps)
     finally:
         FakeRecon._step = orig
-    assert seen == ["sfm", "dense", "mesh", "texture"]
+    assert seen == ["sfm", "dense", "mesh", "mesh", "texture"]
 
 
 def test_refine_skipped_over_100_images(tmp_path):
     # registered must clear the 60% threshold (ceil(0.6*101)=61) so the job reaches the mesh stage
     job, _, recons, deps = make(tmp_path, image_count=101, recon_kwargs={"registered": 101})
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
-    assert ("mesh", False) in recons[0].calls
+    assert "refine" not in recons[0].calls and ("texture", None) in recons[0].calls
 
 
 def test_registration_threshold_fails_job_with_message(tmp_path):
@@ -156,7 +162,7 @@ def test_interrupt_resets_to_queued_and_raises(tmp_path):
     with pytest.raises(Interrupted):
         process_photogrammetry_job({"job_id": str(job.id)}, deps)
     assert job.status == "queued" and job.stage is None
-    assert not (tmp_path / "work" / str(job.id)).exists()
+    assert (tmp_path / "work" / str(job.id)).exists()   # scratch kept: the next attempt resumes
 
 
 def test_redelivered_terminal_job_is_skipped(tmp_path):
@@ -202,10 +208,214 @@ def test_directory_placeholder_key_is_ignored_and_never_downloaded(tmp_path):
 def test_transient_s3_error_during_download_leaves_job_processing_for_redelivery(tmp_path):
     """M15: a ClientError/BotoCoreError while listing or downloading must not be swallowed by
     the generic except Exception (which would fail the job); it re-raises so SQS redelivers,
-    and the row is left `processing` so the load step restarts it."""
+    and the row is left `processing` so the next attempt resumes from the markers."""
     job, s3, recons, deps = make(tmp_path, s3_cls=FailingDownloadS3)
     with pytest.raises(ClientError):
         process_photogrammetry_job({"job_id": str(job.id)}, deps)
     assert job.status == "processing"
     assert recons == []
-    assert not (tmp_path / "work" / str(job.id)).exists()   # scratch still removed
+    assert (tmp_path / "work" / str(job.id)).exists()   # scratch kept for redelivery
+
+
+CRASH = "Reconstruction crashed during the {} stage (probably out of memory) — try fewer photos or one object per scan."
+
+
+def work_dir(deps, job):
+    return deps.work_root / str(job.id)
+
+
+# ── mesh budget ──────────────────────────────────────────────────────────────
+
+def test_refine_skipped_when_reconstructed_mesh_is_large(tmp_path):
+    job, _, recons, deps = make(tmp_path, recon_kwargs={"faces": REFINE_MAX_FACES + 1})
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert "refine" not in recons[0].calls and job.status == "complete"
+
+
+def test_over_budget_mesh_is_decimated_with_warning(tmp_path):
+    faces = 1_261_288
+    job, _, recons, deps = make(tmp_path, recon_kwargs={"faces": faces})
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    (_, ratio), = [c for c in recons[0].calls if isinstance(c, tuple) and c[0] == "texture"]
+    assert ratio == pytest.approx(FACE_BUDGET / faces)
+    assert job.warnings == [f"Mesh simplified from {faces:,} to about {FACE_BUDGET:,} faces to fit the viewer"]
+
+
+def test_budget_applies_to_refined_face_count(tmp_path):
+    job, _, recons, deps = make(tmp_path, recon_kwargs={"faces": 300_000})   # refine → 600k > budget
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert "refine" in recons[0].calls
+    (_, ratio), = [c for c in recons[0].calls if isinstance(c, tuple) and c[0] == "texture"]
+    assert ratio == pytest.approx(FACE_BUDGET / 600_000)
+
+
+# ── checkpoints / resume ─────────────────────────────────────────────────────
+
+def test_stage_markers_written_and_scratch_removed_on_complete(tmp_path):
+    job, _, recons, deps = make(tmp_path)
+    seen = {}
+    orig = FakeRecon._step
+    FakeRecon._step = lambda self, name: (seen.__setitem__(name if isinstance(name, str) else name[0],
+                                                          sorted(p.name for p in work_dir(deps, job).glob("*.done"))), orig(self, name))
+    try:
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    finally:
+        FakeRecon._step = orig
+    assert seen["dense"] == ["sfm.done"] and seen["mesh"] == ["dense.done", "sfm.done"]
+    assert seen["texture"] == ["dense.done", "mesh.done", "sfm.done"]
+    assert not work_dir(deps, job).exists()
+
+
+def test_resume_skips_completed_stages_and_reuses_outputs(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    w = work_dir(deps, job); (w / "dense").mkdir(parents=True)
+    ck = Checkpoints(w)
+    ck.done("sfm", sparse=str(w / "sparse" / "0"), registered_images=10)
+    ck.done("dense", dense=str(w / "dense"))
+    ck.done("mesh", ply=str(w / "dense" / "m.ply"), faces=1000)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert recons[0].calls == [("texture", None)]
+    assert job.status == "complete"
+
+
+def test_resume_sets_db_stage_to_first_stage_run(tmp_path):
+    job, _, _, deps = make(tmp_path, status="processing")
+    w = work_dir(deps, job); Checkpoints(w).done("sfm", sparse="s", registered_images=10)
+    stages = []
+    orig = FakeRecon._step
+    FakeRecon._step = lambda self, name: (stages.append(job.stage), orig(self, name))
+    try:
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    finally:
+        FakeRecon._step = orig
+    assert stages[0] == "dense"
+
+
+def test_fetch_always_reruns_but_warnings_do_not_duplicate(tmp_path):
+    job, s3, _, deps = make(tmp_path, status="processing")
+    job.warnings = ["1 photo was rotated to match the others (phone auto-rotate)"]
+    w = work_dir(deps, job); Checkpoints(w).done("sfm", sparse="s", registered_images=10)
+
+    def download(key, dest):   # one landscape frame among portrait ones
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (800, 600) if key.endswith("0001.jpg") else (600, 800)).save(dest)
+    s3.download = download
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.warnings == ["1 photo was rotated to match the others (phone auto-rotate)"]
+
+
+# ── the no-cycling rule ──────────────────────────────────────────────────────
+
+def test_crashed_stage_fails_without_running_anything(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    w = work_dir(deps, job); ck = Checkpoints(w)
+    ck.done("sfm", sparse="s", registered_images=10); ck.done("dense", dense="d"); ck.started("mesh")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert recons == [] and job.status == "failed" and job.stage is None
+    assert job.error_message == CRASH.format("mesh")
+    assert not w.exists()
+
+
+def test_crash_in_publish_reads_as_export(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    w = work_dir(deps, job); ck = Checkpoints(w)
+    for s, d in (("sfm", {"sparse": "s", "registered_images": 10}), ("dense", {"dense": "d"}),
+                 ("mesh", {"ply": "p", "faces": 1}), ("texture", {"obj": "o"})):
+        ck.done(s, **d)
+    ck.started("publish")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "failed" and job.error_message == CRASH.format("export")
+
+
+def test_receive_count_over_max_attempts_fails(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps, receive_count=MAX_ATTEMPTS + 1)
+    assert recons == [] and job.status == "failed"
+    assert job.error_message == "Reconstruction crashed repeatedly (probably out of memory) — try fewer photos or one object per scan."
+
+
+def test_receive_count_at_max_attempts_still_runs(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing")
+    process_photogrammetry_job({"job_id": str(job.id)}, deps, receive_count=MAX_ATTEMPTS)
+    assert job.status == "complete"
+
+
+def test_interrupted_clears_started_and_keeps_scratch(tmp_path):
+    job, _, _, deps = make(tmp_path, recon_kwargs={"interrupt_at": "dense"})
+    with pytest.raises(Interrupted):
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    w = work_dir(deps, job)
+    assert job.status == "queued" and w.exists()
+    assert Checkpoints(w).crashed_stage() is None and Checkpoints(w).completed("sfm") is not None
+
+
+def test_stage_error_removes_scratch(tmp_path):
+    job, _, _, deps = make(tmp_path, recon_kwargs={"fail_at": "dense"})
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "failed" and not work_dir(deps, job).exists()
+
+
+def test_transient_s3_error_keeps_scratch_for_redelivery(tmp_path):
+    job, _, _, deps = make(tmp_path, s3_cls=FailingDownloadS3)
+    with pytest.raises(ClientError):
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "processing" and work_dir(deps, job).exists()
+
+
+# ── photos + warnings ────────────────────────────────────────────────────────
+
+def test_rotated_photos_warn_and_count_as_usable(tmp_path):
+    job, s3, recons, deps = make(tmp_path, image_count=10, recon_kwargs={"registered": 6})
+
+    def download(key, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (800, 600) if key.endswith(("0009.jpg", "0010.jpg")) else (600, 800)).save(dest)
+    s3.download = download
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert job.warnings[0] == "2 photos were rotated to match the others (phone auto-rotate)"
+
+
+def test_skipped_photos_lower_the_registration_denominator(tmp_path):
+    # 10 uploaded, 2 skipped → 8 usable → ceil(0.6*8)=5 needed; 5 registered passes
+    job, s3, _, deps = make(tmp_path, image_count=10, recon_kwargs={"registered": 5})
+
+    def download(key, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100) if key.endswith(("0009.jpg", "0010.jpg")) else (600, 800)).save(dest)
+    s3.download = download
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert job.warnings == ["2 photos have a different resolution and were skipped: 0009.jpg, 0010.jpg"]
+
+
+def test_too_few_usable_photos_fails(tmp_path):
+    job, s3, _, deps = make(tmp_path, image_count=6)
+
+    def download(key, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100) if key.endswith(("0005.jpg", "0006.jpg")) else (600, 800)).save(dest)
+    s3.download = download
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "failed" and job.error_message == "Only 4 photos could be used — at least 5 are needed"
+
+
+def test_fresh_start_clears_old_warnings(tmp_path):
+    job, _, _, deps = make(tmp_path)
+    job.warnings = ["stale"]
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.warnings == []
+
+
+def test_warnings_are_written_as_they_arise(tmp_path):
+    faces = 900_000
+    job, _, _, deps = make(tmp_path, recon_kwargs={"faces": faces})
+    seen = []
+    orig = FakeRecon._step
+    FakeRecon._step = lambda self, name: (seen.append((name, list(job.warnings or []))), orig(self, name))
+    try:
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    finally:
+        FakeRecon._step = orig
+    texture_entry = [w for n, w in seen if isinstance(n, tuple) and n[0] == "texture"][0]
+    assert texture_entry and texture_entry[0].startswith("Mesh simplified")

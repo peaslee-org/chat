@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, Enum as SAEnum, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 JOB_STATUSES = ("pending", "queued", "processing", "complete", "failed")
@@ -29,5 +29,6 @@ class PhotogrammetryJob(Base):
     mesh_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
     preview_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
     error_message: Mapped[Optional[str]] = mapped_column(Text)
+    warnings: Mapped[Optional[list]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
