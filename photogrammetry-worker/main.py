@@ -7,8 +7,9 @@ from gpu_worker.ecs_metadata import instance_id, task_arn
 from gpu_worker.release_watcher import ReleaseWatcher
 from gpu_worker.session import GpuSessionStore
 from gpu_worker.spot_watcher import SpotWatcher
-from gpu_worker.sqs import run_sqs_worker
+from gpu_worker.sqs import receive_count, run_sqs_worker
 from handlers.photogrammetry import Deps, process_photogrammetry_job
+from pipeline.checkpoints import sweep_stale
 from pipeline.reconstruct import Reconstruction
 from pipeline.runner import Runner
 from services.s3 import S3Client
@@ -33,12 +34,15 @@ def build_deps(s: Settings) -> Deps:
 
 
 DEPS = None
-HANDLERS = {"photogrammetry_job": lambda body, _msg: process_photogrammetry_job(body, DEPS)}
+HANDLERS = {"photogrammetry_job": lambda body, msg: process_photogrammetry_job(body, DEPS, receive_count=receive_count(msg))}
 
 
 def run() -> None:
     global DEPS
     DEPS = build_deps(settings)
+    removed = sweep_stale(Path(settings.WORK_DIR))
+    if removed:
+        logger.info("Removed %d stale scratch dir(s)", len(removed))
     logger.info("Photogrammetry worker started (idle_exit=%ss, max_lifetime=%ss, job_timeout=%ss)",
                 settings.IDLE_EXIT_SECONDS, settings.MAX_LIFETIME_SECONDS, settings.PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS)
     run_sqs_worker(
