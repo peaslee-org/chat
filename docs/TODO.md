@@ -53,6 +53,12 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   instance on exit (`ec2:TerminateInstances` scoped by tag, `InstanceInitiatedShutdownBehavior`),
   or a custom scale-in alarm on `CapacityProviderReservation` with fewer datapoints.
 - [ ] `gpu_on_demand_percentage` back to 0 once spot placement scores recover.
+- [ ] **`scripts/deploy/migrate.sh` is dead**: it execs `uv run alembic …`, but the runtime stage of
+  `chat-api/Dockerfile` never copies `uv` (`exec: "uv": executable file not found in $PATH`,
+  2026-08-27). Migrations actually run from `scripts/entrypoint.sh` at container start, before
+  gunicorn binds — so there is no deploy→migrate window and the script is only needed for a
+  manual re-run. Fix: `CMD="/app/.venv/bin/python -m alembic -c /app/app/db/alembic.ini upgrade head"`,
+  and say in the header that the entrypoint already does this. No deploy surface (script only).
 - [ ] Photogrammetry: `gpu_max_size` 2 — two g4dn.xlarge is exactly the account's current
   On-Demand G/VT quota; a third family needs a quota increase.
 

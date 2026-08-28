@@ -4,7 +4,7 @@ ARG OPENMVS_TAG=v2.4.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git cmake build-essential pkg-config ca-certificates libeigen3-dev libcgal-dev libnanoflann-dev libboost-iostreams-dev \
       libboost-program-options-dev libboost-system-dev libboost-serialization-dev libopencv-dev \
-      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev \
+      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev libjxl-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/cdcseacave/VCG.git vcglib \
@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3.12 python3.12-venv libpython3.12 \
       libopencv-core406t64 libopencv-imgproc406t64 libopencv-imgcodecs406t64 libopencv-calib3d406t64 \
       libboost-iostreams1.83.0 libboost-program-options1.83.0 libboost-system1.83.0 libboost-serialization1.83.0 \
-      libcgal-dev libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
+      libcgal-dev libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 libjxl0.7 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/openmvs/bin/ /usr/local/bin/
 COPY --from=build /opt/openmvs/lib/ /usr/local/lib/
