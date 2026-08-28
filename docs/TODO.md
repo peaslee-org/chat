@@ -12,12 +12,11 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
 
-- [ ] **Deploy the two photogrammetry viewer fixes** (built 2026-08-28 after the CORS apply made the
-  mesh visible, unpushed): `27a23f1` rotates the reconstruction into glTF y-up (it rendered upside
-  down — COLMAP's frame is y-down); `b301e89` passes `--global-seam-leveling 0 --local-seam-leveling 0`
-  to TextureMesh (the texture rendered black — see the next item). Rebuild → CPU smoke (the fixed
-  `obj_to_glb` on the smoke OBJ gave 0 % black faces, photo-up on +y) → rebake → **re-run the sample
-  job**; the existing sample mesh in S3 stays wrong until then.
+- [ ] **Rebake the GPU AMI with photogrammetry image `8f81e78`** (task family `:10`, built by CI
+  2026-08-28 14:52 Z; carries `27a23f1` y-up + `b301e89` seam leveling off). The sample scan re-run at
+  15:04 Z on `:10` completed (COLMAP → Densify → Reconstruct → Refine → Texture, 90 s on an A10G;
+  `mesh.glb` 889 KB) — that run is the smoke for this image. Until the rebake every cold start pulls
+  the image (~5½ min on top of the ~5 min instance start).
 
 - [ ] **Root-cause OpenMVS seam leveling in our build.** Both passes rewrite every face's pixels as ~0
   (black faces, stray saturated texels) in the v2.4.0-on-noble image (OpenCV 4.6, GCC 13); the raw
