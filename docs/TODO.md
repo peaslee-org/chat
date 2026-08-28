@@ -6,6 +6,15 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
+- [ ] **Re-bake the GPU AMI** — `gpu-prod-20260828-00a2bad` carries transcription `00a2bad` (broken) and
+  photogrammetry `8d3f386`; live task defs run `e47573b` / `7d7fa01`, so every cold start pulls
+  (~7.6 GB + ~3 GB, a few minutes). `BAKE_MARKET=on-demand scripts/deploy/build-gpu-ami.sh …`.
+- [ ] **Audit unpinned dependencies in both worker Dockerfiles** (`speechbrain` bit on 2026-08-28;
+  `pydub boto3 pydantic-settings pgvector … soundfile` and the photogrammetry `pip install` line are
+  still unpinned) — a rebuild must reproduce the image that passed acceptance.
+- [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
+  photogrammetry runner today).
+
 - [ ] **Release watcher in both worker images** (`gpu-worker` package, built 2026-08-28, unpushed):
   graceful release works for transcription and photogrammetry; *immediate* only aborts the
   photogrammetry runner — make the transcription job path poll `ReleaseWatcher.abort` too.
@@ -23,6 +32,13 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   (worker spec decision 4).
 
 ## API (chat-api)
+
+- [ ] **`POST /gpu/release` 200 means "flag written", not "worker acknowledged"** — a worker on an image
+  without the watcher (any transcription image before `7d7fa01`) never reads it. Either return the
+  session's `release_requested_at`/`ended_at` on a follow-up `GET /gpu/state`, or have the controller
+  fall back to `StopTask` when the row is still open after N seconds.
+- [ ] **Purge `transcription-dlq-prod`** (3 orphaned messages of a job deleted 2026-08-28 12:32 Z; the
+  DLQ alarm stays in ALARM until then) — `aws sqs purge-queue`, Neil.
 
 - [ ] **Deploy the admin release endpoint** (built 2026-08-28, unpushed): migration `n4o5p6q7r8s9`
   (three nullable `gpu_sessions` columns) + `POST /gpu/release`. Ships with the API image; the
@@ -47,6 +63,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   rows `expired` (or split the output prefix — a contract change) so the viewer doesn't get a 404.
 
 ## Vue (chat-vue)
+
+- [ ] **Transcribe "Try the sample" is silently a no-op while a sample job is pending** (2026-08-28:
+  clicking it did not POST; deleting the stuck job first did). Either disable the button with a hint or
+  let it create a new job.
 
 - [ ] Photogrammetry store: no polling cutoff for a job stuck in `pending`; sibling uploads are
   not cancelled when one fails; dropzone not keyboard-focusable; dragover flicker over children.

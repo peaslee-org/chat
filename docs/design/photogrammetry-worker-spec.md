@@ -1,6 +1,6 @@
 # Photogrammetry worker — design spec
 
-**Date:** 2026-08-27 · **Status:** implemented on branch photogrammetry-worker (plan
+**Date:** 2026-08-27 · **Status:** live in prod 2026-08-28 (go-live runbook executed; acceptance §5 all passed; two pipeline fixes found by the CPU smoke and one by acceptance — see the cm/aws runbook)
 docs/superpowers/plans/2026-08-27-photogrammetry-worker.md); cutover per §4 pending · **Implements:**
 the contract in `photogrammetry-ui-spec.md` §1 and the constraints in its §7
 
