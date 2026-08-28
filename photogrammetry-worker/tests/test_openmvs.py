@@ -39,6 +39,16 @@ def test_densify_cuda_device_follows_use_gpu(tmp_path):
         assert cmd[cmd.index("--cuda-device") + 1] == expected
 
 
+def test_every_openmvs_tool_gets_cuda_device(tmp_path):
+    # Densify/ReconstructMesh/TextureMesh default to -1 and init CUDA at startup; RefineMesh to -2.
+    for use_gpu, expected in ((True, "-1"), (False, "-2")):
+        r = FakeRunner()
+        reconstruct_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", use_gpu)
+        texture_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "mesh.ply", use_gpu)
+        for cmd, _cwd, _tool in r.calls:
+            assert cmd[cmd.index("--cuda-device") + 1] == expected, cmd[0]
+
+
 def test_refine_mesh_cuda_device_is_explicit(tmp_path):
     # RefineMesh defaults to CPU (-2) upstream; the GPU host must ask for -1.
     for use_gpu, expected in ((True, "-1"), (False, "-2")):

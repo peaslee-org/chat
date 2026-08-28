@@ -22,10 +22,10 @@ class Reconstruction:
 
     def mesh(self, dense: Path, refine: bool) -> Path:
         scene_dense = dense / "scene_dense.mvs"
-        ply = openmvs.reconstruct_mesh(self._r, dense, scene_dense)
+        ply = openmvs.reconstruct_mesh(self._r, dense, scene_dense, self._gpu)
         if refine:
             ply = openmvs.refine_mesh(self._r, dense, scene_dense, ply, self._gpu)
         return ply
 
     def texture(self, dense: Path, mesh_ply: Path) -> Path:
-        return openmvs.texture_mesh(self._r, dense, dense / "scene_dense.mvs", mesh_ply)
+        return openmvs.texture_mesh(self._r, dense, dense / "scene_dense.mvs", mesh_ply, self._gpu)
