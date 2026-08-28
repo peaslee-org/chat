@@ -41,7 +41,7 @@ docker run --rm photogrammetry-worker:dev colmap -h | head -3
 docker run --rm photogrammetry-worker:dev TextureMesh --help | head -3
 
 mkdir -p /tmp/pgsmoke/work /tmp/pgsmoke/images && cp chat-api/app/assets/photogrammetry/images/*.jpg /tmp/pgsmoke/images/
-docker run --rm -e LD_LIBRARY_PATH=/opt/cuda-stubs -v /tmp/pgsmoke:/tmp/pgsmoke photogrammetry-worker:dev python - <<'PY'
+docker run --rm -i -e COLMAP_USE_GPU=0 -e LD_LIBRARY_PATH=/opt/cuda-stubs -v /tmp/pgsmoke:/tmp/pgsmoke photogrammetry-worker:dev python - <<'PY'
 import threading, time
 from pathlib import Path
 from pipeline.reconstruct import Reconstruction
