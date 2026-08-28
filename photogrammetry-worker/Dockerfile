@@ -2,11 +2,19 @@
 FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS build
 ARG OPENMVS_TAG=v2.4.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git cmake build-essential pkg-config ca-certificates libeigen3-dev libcgal-dev libnanoflann-dev libboost-iostreams-dev \
+      git cmake build-essential pkg-config ca-certificates curl xz-utils libeigen3-dev libnanoflann-dev libboost-iostreams-dev \
       libboost-program-options-dev libboost-system-dev libboost-serialization-dev libopencv-dev \
-      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev \
+      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev libgmp-dev libmpfr-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+# CGAL 6.0.1, header-only, from the release tarball (libs + CMake config; ~5 MB, installs in seconds).
+# v2.4.0 includes CGAL 6 names (AABB_traits_3.h, AABB_triangle_primitive_3.h); noble's libcgal-dev is
+# 5.6 and must not be installed here or find_package could pick it up. Matches upstream's own build.
+ARG CGAL_VERSION=6.0.1
+RUN curl -fsSL "https://github.com/CGAL/cgal/releases/download/v${CGAL_VERSION}/CGAL-${CGAL_VERSION}-library.tar.xz" | tar -xJ \
+ && cmake -S "CGAL-${CGAL_VERSION}" -B cgal-build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --install cgal-build \
+ && rm -rf "CGAL-${CGAL_VERSION}" cgal-build
 RUN git clone --depth 1 https://github.com/cdcseacave/VCG.git vcglib \
  && git clone --depth 1 --branch ${OPENMVS_TAG} https://github.com/cdcseacave/openMVS.git openMVS
 # v2.4.0 writes .jxl via cv::IMWRITE_JPEGXL_QUALITY unguarded (OpenCV >= 4.11); noble ships 4.6.0 in
@@ -30,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3.12 python3.12-venv libpython3.12 \
       libopencv-core406t64 libopencv-imgproc406t64 libopencv-imgcodecs406t64 libopencv-calib3d406t64 \
       libboost-iostreams1.83.0 libboost-program-options1.83.0 libboost-system1.83.0 libboost-serialization1.83.0 \
-      libcgal-dev libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
+      libgmp10 libmpfr6 libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/openmvs/bin/ /usr/local/bin/
 COPY --from=build /opt/openmvs/lib/ /usr/local/lib/
