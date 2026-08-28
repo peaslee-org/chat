@@ -41,7 +41,7 @@ docker run --rm photogrammetry-worker:dev colmap -h | head -3
 docker run --rm photogrammetry-worker:dev TextureMesh --help | head -3
 
 mkdir -p /tmp/pgsmoke/work /tmp/pgsmoke/images && cp chat-api/app/assets/photogrammetry/images/*.jpg /tmp/pgsmoke/images/
-docker run --rm -v /tmp/pgsmoke:/tmp/pgsmoke photogrammetry-worker:dev python - <<'PY'
+docker run --rm -e LD_LIBRARY_PATH=/opt/cuda-stubs -v /tmp/pgsmoke:/tmp/pgsmoke photogrammetry-worker:dev python - <<'PY'
 import threading, time
 from pathlib import Path
 from pipeline.reconstruct import Reconstruction
@@ -73,7 +73,7 @@ name differs, fix `pipeline/openmvs.py` + its test.
 | `SQS_VISIBILITY_TIMEOUT` | `600` | no |
 | `SQS_VISIBILITY_EXTENSION_INTERVAL` | `300` | no |
 | `WORK_DIR` | `/tmp/pg` | no |
-| `COLMAP_USE_GPU` | `1` | no — `0` runs SIFT/matching on CPU (fitlet smoke test) |
+| `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU (smoke test). Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load, and only the NVIDIA runtime provides the real one. |
 
 `DATABASE_URL` may use either `postgresql+asyncpg://` or `postgresql+psycopg2://` scheme —
 `gpu_worker.db.make_session_factory` normalises it to psycopg2 automatically.

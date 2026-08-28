@@ -34,7 +34,8 @@ RUN cmake -S openMVS -B openMVS/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL
       -DOpenMVS_USE_PYTHON=OFF -DOpenMVS_BUILD_VIEWER=OFF -DOpenMVS_ENABLE_TESTS=OFF \
  && cmake --build openMVS/build -j"$(nproc)" \
  && cmake --install openMVS/build \
- && ls /opt/openmvs/bin/OpenMVS/DensifyPointCloud /opt/openmvs/bin/OpenMVS/TextureMesh
+ && ls /opt/openmvs/bin/OpenMVS/DensifyPointCloud /opt/openmvs/bin/OpenMVS/TextureMesh \
+ && cp /usr/local/cuda/lib64/stubs/libcuda.so /opt/openmvs/libcuda-stub.so
 
 # Stage 2: runtime = the official COLMAP image (Ubuntu 24.04, CUDA 12.9.1 runtime) + OpenMVS + Python.
 FROM colmap/colmap:20260729.7651
@@ -46,7 +47,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgmp10 libmpfr6 libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/openmvs/bin/OpenMVS/ /usr/local/bin/
-RUN ldconfig && colmap -h >/dev/null && DensifyPointCloud --help >/dev/null && TextureMesh --help >/dev/null
+# libcuda.so.1 is the NVIDIA *driver* library: the container runtime injects it on a GPU host, and no
+# image carries it at build time. OpenMVS links it directly (CUDA::cuda_driver), so its binaries cannot
+# even load without it (attempt 7). The link-time stub from the devel image is kept OFF the loader path;
+# the build-time check below and CPU-only smokes opt in with LD_LIBRARY_PATH=/opt/cuda-stubs (the
+# pipeline passes --cuda-device -2 when COLMAP_USE_GPU=0, so the stub is loaded but never called).
+# On the GPU host the real driver is on the default path and the stub is never used.
+COPY --from=build /opt/openmvs/libcuda-stub.so /opt/cuda-stubs/libcuda.so.1
+RUN ldconfig && colmap -h >/dev/null \
+ && LD_LIBRARY_PATH=/opt/cuda-stubs DensifyPointCloud --help >/dev/null \
+ && LD_LIBRARY_PATH=/opt/cuda-stubs TextureMesh --help >/dev/null \
+ && ! (ldd /usr/local/bin/InterfaceCOLMAP /usr/local/bin/DensifyPointCloud /usr/local/bin/ReconstructMesh \
+          /usr/local/bin/RefineMesh /usr/local/bin/TextureMesh | grep 'not found' | grep -v 'libcuda.so.1')
 
 WORKDIR /app
 RUN python3.12 -m venv /app/venv

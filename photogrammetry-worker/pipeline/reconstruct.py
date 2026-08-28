@@ -17,14 +17,14 @@ class Reconstruction:
     def dense(self, images: Path, model: SparseModel) -> Path:
         dense = colmap.undistort(self._r, self._work, images, model)
         scene = openmvs.interface(self._r, dense)
-        openmvs.densify(self._r, dense, scene)
+        openmvs.densify(self._r, dense, scene, self._gpu)
         return dense
 
     def mesh(self, dense: Path, refine: bool) -> Path:
         scene_dense = dense / "scene_dense.mvs"
         ply = openmvs.reconstruct_mesh(self._r, dense, scene_dense)
         if refine:
-            ply = openmvs.refine_mesh(self._r, dense, scene_dense, ply)
+            ply = openmvs.refine_mesh(self._r, dense, scene_dense, ply, self._gpu)
         return ply
 
     def texture(self, dense: Path, mesh_ply: Path) -> Path:

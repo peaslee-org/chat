@@ -31,6 +31,23 @@ def test_densify_uses_resolution_level_2(tmp_path):
     assert cmd[cmd.index("--resolution-level") + 1] == "2"
 
 
+def test_densify_cuda_device_follows_use_gpu(tmp_path):
+    for use_gpu, expected in ((True, "-1"), (False, "-2")):
+        r = FakeRunner()
+        densify(r, tmp_path, tmp_path / "scene.mvs", use_gpu)
+        cmd = r.calls[0][0]
+        assert cmd[cmd.index("--cuda-device") + 1] == expected
+
+
+def test_refine_mesh_cuda_device_is_explicit(tmp_path):
+    # RefineMesh defaults to CPU (-2) upstream; the GPU host must ask for -1.
+    for use_gpu, expected in ((True, "-1"), (False, "-2")):
+        r = FakeRunner()
+        refine_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "mesh.ply", use_gpu)
+        cmd = r.calls[0][0]
+        assert cmd[cmd.index("--cuda-device") + 1] == expected
+
+
 def test_texture_exports_obj(tmp_path):
     r = FakeRunner()
     texture_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "m.ply")
