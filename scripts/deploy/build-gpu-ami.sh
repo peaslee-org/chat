@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Bake worker images into the ECS GPU base AMI so a cold start pulls nothing.
-# Usage: AWS_PROFILE=<admin> scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag>[,<image-uri:tag>…] <subnet-id> <sg-id> <instance-profile> [env]
+# Usage: AWS_PROFILE=<admin> [BAKE_MARKET=on-demand] scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag>[,<image-uri:tag>…] <subnet-id> <sg-id> <instance-profile> [env]
 # Prints the new AMI id last. Keeps this AMI and the previous one; deregisters older ones (+ snapshots).
 set -euo pipefail
 BASE_AMI=$1; IMAGES=$2; IFS=',' read -r -a IMAGE_LIST <<< "$IMAGES"; IMAGE=${IMAGE_LIST[0]}; SUBNET=$3; SG=$4; PROFILE=$5; ENV=${6:-prod}
 REGION=${AWS_REGION:-us-east-1}
+# BAKE_MARKET=spot (default) or on-demand. Spot pools for g4dn.xlarge run dry per AZ
+# (InsufficientInstanceCapacity from run-instances); a 20-minute bake is cheap on-demand.
+BAKE_MARKET=${BAKE_MARKET:-spot}
+MARKET_OPTS=(); [[ "$BAKE_MARKET" == "spot" ]] && MARKET_OPTS=(--instance-market-options 'MarketType=spot')
 TAG=${IMAGE##*:}; NAME="gpu-${ENV}-$(date -u +%Y%m%d)-${TAG:0:7}"
 REGISTRY=${IMAGE%%/*}
 
@@ -21,7 +25,7 @@ EOS
 echo "Launching bake instance from ${BASE_AMI} …"
 IID=$(aws ec2 run-instances --region "$REGION" --image-id "$BASE_AMI" --instance-type g4dn.xlarge \
   --subnet-id "$SUBNET" --security-group-ids "$SG" --iam-instance-profile "Name=$PROFILE" \
-  --instance-market-options 'MarketType=spot' \
+  "${MARKET_OPTS[@]}" \
   --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":80,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
   --metadata-options 'HttpTokens=required,HttpPutResponseHopLimit=2' \
   --user-data "$USERDATA" \
