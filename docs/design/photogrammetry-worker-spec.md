@@ -193,7 +193,7 @@ Inputs: bucket id/arn, cluster id, VPC/subnets, `database_url_secret_arn`, GitHu
 | Resource | Notes |
 |---|---|
 | ECR `photogrammetry-<env>-worker` | lifecycle keep 2 |
-| SQS `photogrammetry-<env>` + DLQ | retention 4 d, `maxReceiveCount` 3, visibility 600 s |
+| SQS `photogrammetry-<env>` + DLQ | retention 4 d, `maxReceiveCount` 5 (was 3 until the 2026-08-28 robustness change), visibility 600 s |
 | Task definition `photogrammetry-<env>-worker` | EC2, `bridge`, `resourceRequirements GPU 1`, `memory 14000` (dense reconstruction is RAM-bound; one task per g4dn.xlarge), env = §2 Settings, `DATABASE_URL` from the shared secret, `CostCenter = gpu` |
 | IAM `worker_execution`, `worker_task` | task: `s3:GetObject/PutObject` on `photogrammetry/*` and `samples/photogrammetry/*`, `s3:ListBucket` (prefix-conditioned), `sqs:ReceiveMessage/DeleteMessage/ChangeMessageVisibility` on its queue; nothing else |
 | IAM `photogrammetry-<env>-worker-github-actions` | OIDC; ECR push, `RegisterTaskDefinition`, `PassRole` on its own two roles — the trimmed shape |

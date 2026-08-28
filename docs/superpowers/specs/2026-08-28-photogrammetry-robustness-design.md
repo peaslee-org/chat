@@ -144,7 +144,7 @@ The row's `status` is set to `processing` and `stage` to the resumed stage on re
 ### What still restarts from the beginning
 
 Spot interruption or an instance lost outright: no markers survive; the first receipt on a new
-instance runs the full pipeline (rule 4 with no `.done` files). Rule 3 caps that at three
+instance runs the full pipeline (rule 4 with no `.done` files). Rule 3 caps that at five
 receipts total.
 
 ## 3. Photo orientation (worker)
