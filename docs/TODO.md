@@ -12,6 +12,28 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
 
+- [ ] **Deploy the two photogrammetry viewer fixes** (built 2026-08-28 after the CORS apply made the
+  mesh visible, unpushed): `27a23f1` rotates the reconstruction into glTF y-up (it rendered upside
+  down — COLMAP's frame is y-down); `b301e89` passes `--global-seam-leveling 0 --local-seam-leveling 0`
+  to TextureMesh (the texture rendered black — see the next item). Rebuild → CPU smoke (the fixed
+  `obj_to_glb` on the smoke OBJ gave 0 % black faces, photo-up on +y) → rebake → **re-run the sample
+  job**; the existing sample mesh in S3 stays wrong until then.
+
+- [ ] **Root-cause OpenMVS seam leveling in our build.** Both passes rewrite every face's pixels as ~0
+  (black faces, stray saturated texels) in the v2.4.0-on-noble image (OpenCV 4.6, GCC 13); the raw
+  patch copy is right. Excluded on the sample scan: sharpening, OpenMP (`--max-threads 1`), either
+  pass alone. Left: the Eigen sparse solves (global adjustments, local Poisson blend) or the bilinear
+  sampler they share. Reproduces in ~1 min on the fitlet: `docker run --rm -e LD_LIBRARY_PATH=/opt/cuda-stubs
+  -v <smoke>:/tmp/pgsmoke --entrypoint TextureMesh <image> /tmp/pgsmoke/work/dense/scene_dense.mvs -m
+  …/scene_dense_mesh.ply -w …/dense -o …/exp/scene_textured.mvs --export-type obj --cuda-device -2 [flags]`,
+  then sample the atlas at face centroids. Try: upstream's own ubuntu Dockerfile (newer OpenCV), a
+  Debug build with `-ffast-math` off, and `git bisect` between v2.3.0 and v2.4.0. Re-enable leveling
+  when fixed (visible patch seams until then).
+
+- [ ] **Gravity-align the reconstruction.** After `27a23f1` orientation follows the first photo's roll
+  (portrait vs landscape shots come out sideways). Options: COLMAP `model_orientation_aligner`
+  (Manhattan-world; may fail on organic subjects), or a rotate control in `MeshViewer.vue`.
+
 - [ ] **Release watcher in both worker images** (`gpu-worker` package, built 2026-08-28, unpushed):
   graceful release works for transcription and photogrammetry; *immediate* only aborts the
   photogrammetry runner — make the transcription job path poll `ReleaseWatcher.abort` too.
