@@ -40,6 +40,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   worker side is in the *Worker image* batch below — deploy the API first (columns must exist before
   a worker polls them; the worker's reader tolerates their absence by returning None).
 
+- [ ] **Deploy the mesh attachment download URLs** (`bc597a4`, built 2026-08-28, unpushed):
+  `GET /photogrammetry/jobs/{id}/mesh` gains `download_url` / `preview_download_url`. Ships with the
+  API image; deploy before the Vue batch below (the buttons no-op against an API without the fields).
+
 - [ ] Photogrammetry worker: `except (ClientError, BotoCoreError): raise` in the download block retries *every* S3
   error via SQS — a permanent one (`AccessDenied`, `NoSuchKey`) spins 3× to the DLQ and leaves the row
   `processing` with no user-visible failure. Allowlist transient codes (`SlowDown`, `Throttling*`,
@@ -63,11 +67,19 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   clicking it did not POST; deleting the stuck job first did). Either disable the button with a hint or
   let it create a new job.
 
+- [ ] **Deploy the GLB / preview download buttons** (`9ba40c9`, built 2026-08-28, unpushed) — after the
+  API batch above.
+
 - [ ] Photogrammetry store: no polling cutoff for a job stuck in `pending`; sibling uploads are
   not cancelled when one fails; dropzone not keyboard-focusable; dragover flicker over children.
 - [ ] Delete "✕" in `RunSidebar` / `ScanJobCard` is a span inside a button (not keyboard-operable).
 
 ## Infra (terraform)
+
+- [ ] **Apply the audio-bucket CORS `GET` rule** (`696a203`, 2026-08-28; `transcription-prod` plan 0/1/0).
+  Until it is applied the photogrammetry viewer cannot `fetch()` the GLB cross-origin and stays on
+  its poster image — the 3D preview has never rendered in production; go-live acceptance only
+  checked the `/mesh` API call. Standalone, no image rebuild.
 
 - [ ] **ECS managed scaling launches 2 instances for 1 task** from zero (observed 2026-08-26 and
   2026-08-27); the spare idles ~10 min until scale-in. Check the capacity provider's
