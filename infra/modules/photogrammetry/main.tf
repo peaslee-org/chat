@@ -168,11 +168,19 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.worker_task.arn
 
+  # Job scratch lives on the instance, not in the container layer: a worker that is OOM-killed is
+  # replaced on the same instance and resumes from its stage markers (spec 2026-08-28 §2).
+  volume {
+    name      = "scratch"
+    host_path = "/var/lib/photogrammetry"
+  }
+
   container_definitions = jsonencode([{
     name                 = "photogrammetry-worker"
     image                = "${aws_ecr_repository.worker.repository_url}:${var.image_tag}"
     essential            = true
     resourceRequirements = [{ type = "GPU", value = "1" }]
+    mountPoints          = [{ sourceVolume = "scratch", containerPath = "/tmp/pg", readOnly = false }]
     environment = [
       { name = "AUDIO_BUCKET_NAME", value = var.audio_bucket_name },
       { name = "PHOTOGRAMMETRY_SQS_QUEUE_URL", value = aws_sqs_queue.main.url },
