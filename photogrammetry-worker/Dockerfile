@@ -26,10 +26,15 @@ RUN git -C openMVS apply --verbose /src/openmvs-v2.4.0-noble.patch
 # USE_PYTHON=OFF: v2.4.0 defaults the Python bindings ON, which makes FIND_PACKAGE(Python3 ... REQUIRED)
 # fail on a builder without python3-dev (first CI build, 2026-08-27). The worker calls the CLI tools
 # only. VIEWER/TESTS off: no GUI in a worker, and both shorten the ~30 min build.
-RUN cmake -S openMVS -B openMVS/build -DCMAKE_BUILD_TYPE=Release -DVCG_ROOT=/src/vcglib -DOpenMVS_USE_CUDA=ON \
+# INSTALL_PREFIX at configure time: OpenMVS bakes absolute install dirs (<prefix>/bin/OpenMVS,
+# <prefix>/lib/OpenMVS) when it configures, so `cmake --install --prefix` is ignored (attempt 6 put
+# everything under /usr/local). Libraries are static; only bin/OpenMVS/ is needed downstream.
+RUN cmake -S openMVS -B openMVS/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/openmvs \
+      -DVCG_ROOT=/src/vcglib -DOpenMVS_USE_CUDA=ON \
       -DOpenMVS_USE_PYTHON=OFF -DOpenMVS_BUILD_VIEWER=OFF -DOpenMVS_ENABLE_TESTS=OFF \
  && cmake --build openMVS/build -j"$(nproc)" \
- && cmake --install openMVS/build --prefix /opt/openmvs
+ && cmake --install openMVS/build \
+ && ls /opt/openmvs/bin/OpenMVS/DensifyPointCloud /opt/openmvs/bin/OpenMVS/TextureMesh
 
 # Stage 2: runtime = the official COLMAP image (Ubuntu 24.04, CUDA 12.9.1 runtime) + OpenMVS + Python.
 FROM colmap/colmap:20260729.7651
@@ -40,8 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libboost-iostreams1.83.0 libboost-program-options1.83.0 libboost-system1.83.0 libboost-serialization1.83.0 \
       libgmp10 libmpfr6 libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=build /opt/openmvs/bin/ /usr/local/bin/
-COPY --from=build /opt/openmvs/lib/ /usr/local/lib/
+COPY --from=build /opt/openmvs/bin/OpenMVS/ /usr/local/bin/
 RUN ldconfig && colmap -h >/dev/null && DensifyPointCloud --help >/dev/null && TextureMesh --help >/dev/null
 
 WORKDIR /app
