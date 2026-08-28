@@ -37,8 +37,6 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   without the watcher (any transcription image before `7d7fa01`) never reads it. Either return the
   session's `release_requested_at`/`ended_at` on a follow-up `GET /gpu/state`, or have the controller
   fall back to `StopTask` when the row is still open after N seconds.
-- [ ] **Purge `transcription-dlq-prod`** (3 orphaned messages of a job deleted 2026-08-28 12:32 Z; the
-  DLQ alarm stays in ALARM until then) — `aws sqs purge-queue`, Neil.
 
 - [ ] **Deploy the admin release endpoint** (built 2026-08-28, unpushed): migration `n4o5p6q7r8s9`
   (three nullable `gpu_sessions` columns) + `POST /gpu/release`. Ships with the API image; the
