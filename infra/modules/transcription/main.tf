@@ -116,7 +116,7 @@ resource "aws_s3_bucket_cors_configuration" "audio" {
 
   cors_rule {
     allowed_origins = var.cors_allowed_origins
-    allowed_methods = ["PUT"]
+    allowed_methods = ["GET", "PUT"]
     allowed_headers = ["*"]
     max_age_seconds = 3600
   }

@@ -44,7 +44,7 @@ variable "github_org" {
 
 variable "cors_allowed_origins" {
   type        = list(string)
-  description = "Origins allowed to PUT directly to the audio S3 bucket from the browser."
+  description = "Browser origins allowed to PUT uploads to, and fetch() presigned objects (e.g. the photogrammetry GLB for <model-viewer>) from, the audio S3 bucket."
   default     = []
 }
 
