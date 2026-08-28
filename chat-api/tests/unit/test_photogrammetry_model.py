@@ -11,13 +11,20 @@ def test_photogrammetry_jobs_table_is_registered():
     cols = set(table.columns.keys())
     assert {
         "id", "user_id", "name", "status", "stage", "image_count", "input_prefix",
-        "mesh_s3_key", "preview_s3_key", "error_message",
+        "mesh_s3_key", "preview_s3_key", "error_message", "warnings",
         "created_at", "updated_at", "completed_at",
     } <= cols
     status = table.columns["status"].type
     assert isinstance(status, SAEnum)
     assert set(status.enums) == {"pending", "queued", "processing", "complete", "failed"}
     assert status.name == "photogrammetry_job_status"
+
+
+def test_warnings_column_is_nullable_jsonb():
+    import app.models  # noqa: F401
+    from sqlalchemy.dialects.postgresql import JSONB
+    col = Base.metadata.tables["photogrammetry_jobs"].columns["warnings"]
+    assert isinstance(col.type, JSONB) and col.nullable
 
 
 def test_photogrammetry_settings_defaults():

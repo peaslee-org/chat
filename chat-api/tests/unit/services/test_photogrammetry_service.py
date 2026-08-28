@@ -38,6 +38,7 @@ def make_job(**overrides):
     job.mesh_s3_key = overrides.get("mesh_s3_key")
     job.preview_s3_key = overrides.get("preview_s3_key")
     job.error_message = None
+    job.warnings = overrides.get("warnings")
     job.created_at = job.updated_at = NOW
     job.completed_at = None
     return job
@@ -76,6 +77,13 @@ def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None
     settings.photogrammetry_sample_prefix = "samples/photogrammetry/"
 
     return PhotogrammetryService(repo, storage, settings, gpu, sqs), repo, storage
+
+
+def test_to_response_maps_null_warnings_to_empty_list():
+    service, *_ = make_service()
+    assert service._to_response(make_job(status="queued")).warnings == []
+    job = make_job(status="processing", warnings=["Mesh simplified"])
+    assert service._to_response(job).warnings == ["Mesh simplified"]
 
 
 FILES = ["IMG_1.JPG", "b.png", "c.jpeg", "d.jpg", "e.jpg", "f.jpg"]

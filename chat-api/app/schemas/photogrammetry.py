@@ -49,6 +49,7 @@ class JobStatusResponse(BaseModel):
     image_count: int
     preview_url: Optional[str] = None
     error_message: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
     mock: bool = False
     created_at: datetime
     updated_at: datetime

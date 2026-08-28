@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, Enum as SAEnum, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UUIDMixin
@@ -31,6 +32,7 @@ class PhotogrammetryJob(UUIDMixin, Base):
     mesh_s3_key: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     preview_s3_key: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    warnings: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

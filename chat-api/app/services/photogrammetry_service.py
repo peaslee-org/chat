@@ -204,6 +204,7 @@ class PhotogrammetryService:
             image_count=job.image_count,
             preview_url=preview_url,
             error_message=job.error_message,
+            warnings=list(job.warnings or []),
             mock=self.is_mock,
             created_at=job.created_at,
             updated_at=job.updated_at,
