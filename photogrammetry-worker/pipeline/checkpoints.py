@@ -6,6 +6,7 @@ the previous attempt died inside that stage without a handshake — the handler 
 instead of running it again (spec §2). Interrupted/released jobs clear `stage.started` first.
 """
 import json
+import os
 import shutil
 import time
 from pathlib import Path
@@ -14,28 +15,44 @@ STAGES = ("sfm", "dense", "mesh", "texture", "publish")
 _STARTED = "stage.started"
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Write text to path atomically via a temporary file and os.replace()."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 class Checkpoints:
     def __init__(self, work: Path):
         self._work = work
 
     def started(self, stage: str) -> None:
         self._work.mkdir(parents=True, exist_ok=True)
-        (self._work / _STARTED).write_text(stage)
+        _write_atomic(self._work / _STARTED, stage)
 
     def done(self, stage: str, **data) -> None:
         self._work.mkdir(parents=True, exist_ok=True)
-        (self._work / f"{stage}.done").write_text(json.dumps(data))
+        _write_atomic(self._work / f"{stage}.done", json.dumps(data))
         self.clear_started()
 
     def completed(self, stage: str) -> dict | None:
         p = self._work / f"{stage}.done"
-        return json.loads(p.read_text()) if p.exists() else None
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            # Marker file is corrupt or unreadable; treat as not done and let it re-run.
+            return None
 
     def crashed_stage(self) -> str | None:
         p = self._work / _STARTED
         if not p.exists():
             return None
         stage = p.read_text().strip()
+        # Treat empty/whitespace-only stage name as not a crash.
+        if not stage:
+            return None
         return None if self.completed(stage) is not None else stage
 
     def clear_started(self) -> None:

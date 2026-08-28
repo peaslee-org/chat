@@ -51,3 +51,25 @@ def test_sweep_stale_removes_old_job_dirs_only(tmp_path):
     os.utime(old, (stale, stale)); os.utime(old / "sfm.done", (stale, stale))
     removed = sweep_stale(tmp_path, max_age_seconds=86_400)
     assert removed == [old] and not old.exists() and new.exists() and (tmp_path / "loose-file").exists()
+
+
+def test_corrupt_done_marker_counts_as_not_done(tmp_path):
+    ck = Checkpoints(tmp_path)
+    (tmp_path / "sfm.done").write_text("{not json")
+    assert ck.completed("sfm") is None
+    assert ck.first_incomplete() == "sfm"
+    ck.started("sfm")
+    assert ck.crashed_stage() == "sfm"   # a corrupt .done does not hide a crash
+
+
+def test_empty_started_marker_is_not_a_crash(tmp_path):
+    ck = Checkpoints(tmp_path)
+    (tmp_path / "stage.started").write_text("")
+    assert ck.crashed_stage() is None
+
+
+def test_markers_are_written_atomically(tmp_path):
+    ck = Checkpoints(tmp_path)
+    ck.started("dense")
+    ck.done("dense", dense="d")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["dense.done"]   # no .tmp left behind
