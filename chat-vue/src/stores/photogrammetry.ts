@@ -161,8 +161,8 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
         pollingActive.delete(jobId)
       }
       if (updated) {
-        const before = jobs.value.find(j => j.job_id === updated!.job_id)?.warnings.length ?? 0
-        updated.warnings.slice(before).forEach(w => pushToast(`"${updated!.name}": ${w}`))
+        const before = jobs.value.find(j => j.job_id === updated!.job_id)?.warnings?.length ?? 0
+        ;(updated.warnings ?? []).slice(before).forEach(w => pushToast(`"${updated!.name}": ${w}`))
         upsert(updated)
         if (!ACTIVE.has(updated.status)) {
           stopPolling(jobId)

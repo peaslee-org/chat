@@ -33,7 +33,7 @@ async function handleDelete(e: Event) {
   >
     <div class="flex items-center justify-between gap-2">
       <span class="truncate text-gray-200">{{ job.name }}</span>
-      <span v-if="job.warnings.length" class="shrink-0 text-xs text-amber-400" :title="job.warnings.join('\n')">⚠</span>
+      <span v-if="job.warnings?.length" class="shrink-0 text-xs text-amber-400" :title="(job.warnings ?? []).join('\n')">⚠</span>
       <span class="invisible group-hover:visible text-gray-400 hover:text-red-400 text-xs shrink-0" @click.stop="handleDelete">✕</span>
     </div>
     <div class="mt-1 flex items-center justify-between gap-2 text-xs text-gray-400">

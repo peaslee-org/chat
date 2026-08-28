@@ -86,8 +86,8 @@ async function download(which: "mesh" | "preview"): Promise<void> {
         </div>
       </header>
       <div class="flex-1 overflow-auto p-6">
-        <ul v-if="job.warnings.length" class="mb-4 space-y-1 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          <li v-for="w in job.warnings" :key="w">⚠ {{ w }}</li>
+        <ul v-if="job.warnings?.length" class="mb-4 space-y-1 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <li v-for="w in job.warnings ?? []" :key="w">⚠ {{ w }}</li>
         </ul>
 
         <template v-if="job.status === 'failed'">
