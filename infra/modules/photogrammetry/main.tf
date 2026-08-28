@@ -188,6 +188,9 @@ resource "aws_ecs_task_definition" "worker" {
       { name = "IDLE_EXIT_SECONDS", value = tostring(var.idle_exit_seconds) },
       { name = "MAX_LIFETIME_SECONDS", value = tostring(var.max_lifetime_seconds) },
       { name = "PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS", value = tostring(var.job_timeout_seconds) },
+      # Same value as the mountPoints containerPath above — one place defines the mount path and
+      # the worker's WORK_DIR, rather than relying on the worker's config.py default to agree.
+      { name = "WORK_DIR", value = "/tmp/pg" },
     ]
     secrets = [{ name = "DATABASE_URL", valueFrom = var.database_url_secret_arn }]
     logConfiguration = {

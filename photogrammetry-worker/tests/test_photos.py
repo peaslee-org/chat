@@ -57,6 +57,18 @@ def test_other_resolutions_are_set_aside(tmp_path):
     assert r.warnings() == ["1 photo has a different resolution and was skipped: odd.jpg"]
 
 
+def test_more_than_five_skipped_names_are_truncated(tmp_path):
+    # A comfortable majority of (300, 400) photos so the six differently-sized odd ones (each a
+    # distinct size, so none of them can form their own majority) are all skipped, not adopted.
+    imgs = tmp_path / "images"; imgs.mkdir()
+    for i in range(1, 9): jpeg(imgs / f"{i:04d}.jpg", (300, 400))
+    for i, name in enumerate(("a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg", "f.jpg")):
+        jpeg(imgs / name, (200 + i * 10, 200 + i * 10))
+    r = normalise(imgs, tmp_path / "skipped")
+    assert len(r.skipped) == 6 and r.usable == 8
+    assert r.warnings()[0].endswith("e.jpg, …")
+
+
 def test_untouched_photos_are_not_rewritten(tmp_path):
     imgs = tmp_path / "images"; imgs.mkdir()
     for i in range(1, 4): jpeg(imgs / f"{i:04d}.jpg", (300, 400))

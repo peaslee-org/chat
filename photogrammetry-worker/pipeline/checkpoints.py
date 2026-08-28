@@ -72,7 +72,12 @@ def sweep_stale(root: Path, max_age_seconds: int = 86_400, now: float | None = N
     if not root.exists():
         return removed
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
-        newest = max([d.stat().st_mtime] + [f.stat().st_mtime for f in d.rglob("*")])
+        try:
+            newest = max([d.stat().st_mtime] + [f.stat().st_mtime for f in d.rglob("*")])
+        except OSError:
+            # A file vanished mid-walk (e.g. a race with another cleanup) — skip this dir rather
+            # than let the sweep die and take the rest of the (harmless) job dirs with it.
+            continue
         if now - newest > max_age_seconds:
             shutil.rmtree(d, ignore_errors=True)
             removed.append(d)

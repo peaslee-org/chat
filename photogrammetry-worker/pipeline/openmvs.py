@@ -58,6 +58,7 @@ def texture_mesh(runner, dense: Path, scene_dense: Path, mesh_ply: Path, use_gpu
     cmd = ["TextureMesh", str(scene_dense), "-m", str(mesh_ply), "-w", str(dense), "-o", str(out),
            "--export-type", "obj", "--global-seam-leveling", "0", "--local-seam-leveling", "0"]
     if decimate is not None:
+        decimate = max(decimate, 0.001)   # OpenMVS rejects/ignores a ratio that rounds to 0.000
         cmd += ["--decimate", f"{decimate:.3f}"]   # OpenMVS decimates the input surface before texturing
     runner.run([*cmd, *_cuda_device(use_gpu)], cwd=dense, tool="TextureMesh")
     return dense / "scene_textured.obj"

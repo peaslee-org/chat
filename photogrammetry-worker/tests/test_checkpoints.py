@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from pathlib import Path
 
 from pipeline.checkpoints import STAGES, Checkpoints, sweep_stale
 
@@ -51,6 +52,28 @@ def test_sweep_stale_removes_old_job_dirs_only(tmp_path):
     os.utime(old, (stale, stale)); os.utime(old / "sfm.done", (stale, stale))
     removed = sweep_stale(tmp_path, max_age_seconds=86_400)
     assert removed == [old] and not old.exists() and new.exists() and (tmp_path / "loose-file").exists()
+
+
+def test_sweep_stale_skips_unreadable_dir(tmp_path, monkeypatch):
+    """A file vanishing mid-walk (e.g. another process racing scratch cleanup) must not stop the
+    sweep from clearing other stale job dirs, or escape to the caller."""
+    bad, old = tmp_path / "bad-job", tmp_path / "old-job"
+    bad.mkdir(); (bad / "x").write_text("y")
+    old.mkdir(); (old / "sfm.done").write_text("{}")
+    stale = time.time() - 2 * 86_400
+    for p in (bad, bad / "x", old, old / "sfm.done"):
+        os.utime(p, (stale, stale))
+
+    orig_stat = Path.stat
+    def flaky_stat(self, *a, **kw):
+        if self.name == "x":
+            raise OSError("vanished")
+        return orig_stat(self, *a, **kw)
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    removed = sweep_stale(tmp_path, max_age_seconds=86_400)
+    assert removed == [old] and not old.exists()
+    assert bad.exists()   # unreadable dir skipped, not removed
 
 
 def test_corrupt_done_marker_counts_as_not_done(tmp_path):

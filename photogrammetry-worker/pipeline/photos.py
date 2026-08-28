@@ -5,11 +5,14 @@ silently drops any image whose size differs (`CAMERA_SINGLE_DIM_ERROR`). Phones 
 few landscape frames in a portrait set is the common case. Rotating those 90° keeps the same
 camera (same focal, centred principal point) — structure-from-motion does not care about roll.
 """
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+logger = logging.getLogger(__name__)
 
 _ORIENTATION = 0x0112
 
@@ -28,12 +31,12 @@ class PhotoReport:
             out.append(f"{n} photo{'s were' if n != 1 else ' was'} rotated to match the others (phone auto-rotate)")
         if self.skipped:
             n = len(self.skipped)
-            names = ", ".join(self.skipped[:5]) + ("…" if n > 5 else "")
+            names = ", ".join(self.skipped[:5]) + (", …" if n > 5 else "")
             out.append(f"{n} photo{'s have' if n != 1 else ' has'} a different resolution and "
                        f"{'were' if n != 1 else 'was'} skipped: {names}")
         if self.unreadable:
             n = len(self.unreadable)
-            names = ", ".join(self.unreadable[:5]) + ("…" if n > 5 else "")
+            names = ", ".join(self.unreadable[:5]) + (", …" if n > 5 else "")
             out.append(f"{n} photo{'s' if n != 1 else ''} could not be read and "
                        f"{'were' if n != 1 else 'was'} skipped: {names}")
         return out
@@ -76,7 +79,15 @@ def normalise(images: Path, skipped_dir: Path) -> PhotoReport:
         if size == transposed:
             with Image.open(p) as im:
                 exif = im.getexif()
-                _save(im.transpose(Image.Transpose.ROTATE_90), p, exif)
+                rotated_im = im.transpose(Image.Transpose.ROTATE_90)
+                try:
+                    _save(rotated_im, p, exif)
+                except Exception:
+                    logger.warning("Could not save %s with EXIF; saving without", p.name, exc_info=True)
+                    if p.suffix.lower() in (".jpg", ".jpeg"):
+                        rotated_im.save(p, quality=95)
+                    else:
+                        rotated_im.save(p)
             rotated.append(p.name)
         else:
             skipped_dir.mkdir(parents=True, exist_ok=True)

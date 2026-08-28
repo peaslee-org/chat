@@ -40,9 +40,13 @@ HANDLERS = {"photogrammetry_job": lambda body, msg: process_photogrammetry_job(b
 def run() -> None:
     global DEPS
     DEPS = build_deps(settings)
-    removed = sweep_stale(Path(settings.WORK_DIR))
-    if removed:
-        logger.info("Removed %d stale scratch dir(s)", len(removed))
+    try:
+        removed = sweep_stale(Path(settings.WORK_DIR))
+        if removed:
+            logger.info("Removed %d stale scratch dir(s)", len(removed))
+    except Exception:
+        # A sweep error must never stop the worker from polling for jobs.
+        logger.warning("Scratch sweep failed", exc_info=True)
     logger.info("Photogrammetry worker started (idle_exit=%ss, max_lifetime=%ss, job_timeout=%ss)",
                 settings.IDLE_EXIT_SECONDS, settings.MAX_LIFETIME_SECONDS, settings.PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS)
     run_sqs_worker(
