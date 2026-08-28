@@ -26,6 +26,9 @@ def test_local_write_object_creates_parents_and_is_visible(tmp_path):
 def test_mock_download_url_and_write_object():
     s = MockAudioStorageService("http://localhost:8000")
     assert s.generate_presigned_download_url("k") == "http://localhost:8000/api/v1/transcribe/dev-upload/k"
+    # dev implementations accept the attachment kwarg and ignore it
+    url = s.generate_presigned_download_url("k", attachment_filename="x.glb")
+    assert url.endswith("/dev-upload/k")
     s.write_object("k", b"")  # no-op, must not raise
 
 
@@ -38,3 +41,27 @@ def test_real_download_url_uses_get_object():
         s.s3.generate_presigned_url.assert_called_once_with(
             "get_object", Params={"Bucket": "bucket", "Key": "k"}, ExpiresIn=60
         )
+
+
+def test_real_download_url_with_attachment_filename_sets_content_disposition():
+    with patch("app.services.audio_storage.boto3"):
+        settings = MagicMock(aws_region="us-east-1", audio_bucket_name="bucket")
+        s = AudioStorageService(settings)
+        s.s3.generate_presigned_url = MagicMock(return_value="https://signed")
+        url = s.generate_presigned_download_url("k", ttl_seconds=60, attachment_filename="scan.glb")
+        assert url == "https://signed"
+        s.s3.generate_presigned_url.assert_called_once_with(
+            "get_object",
+            Params={
+                "Bucket": "bucket",
+                "Key": "k",
+                "ResponseContentDisposition": 'attachment; filename="scan.glb"',
+            },
+            ExpiresIn=60,
+        )
+
+
+def test_local_download_url_accepts_attachment_filename(tmp_path):
+    s = LocalAudioStorageService("http://localhost:8000", str(tmp_path))
+    url = s.generate_presigned_download_url("k", attachment_filename="x.glb")
+    assert url.endswith("/dev-upload/k")

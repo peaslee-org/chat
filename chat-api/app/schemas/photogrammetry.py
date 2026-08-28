@@ -68,5 +68,7 @@ class SampleJobResponse(BaseModel):
 
 
 class MeshUrlResponse(BaseModel):
-    url: str
+    url: str                                    # plain GET — what <model-viewer> loads
+    download_url: str                           # same object, Content-Disposition: attachment
+    preview_download_url: Optional[str] = None  # preview.png as an attachment, when it exists
     expires_at: datetime

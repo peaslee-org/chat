@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -41,6 +42,16 @@ ACTIVE_FOR_GPU = ("queued", "processing")
 def default_job_name(now: Optional[datetime] = None) -> str:
     now = now or datetime.now(timezone.utc)
     return f"Scan {now:%Y-%m-%d %H:%M}"
+
+
+MAX_DOWNLOAD_BASENAME = 80
+
+
+def download_basename(job) -> str:
+    """Filename stem for the job's downloads: a slug of its name, or `scan-<id>`."""
+    slug = re.sub(r"[^a-z0-9]+", "-", job.name.lower()).strip("-")
+    slug = slug[:MAX_DOWNLOAD_BASENAME].rstrip("-")
+    return slug or f"scan-{job.id}"
 
 
 class PhotogrammetryService:
@@ -128,9 +139,20 @@ class PhotogrammetryService:
         job = await self._get_or_404(user_id, job_id)
         if job.status != "complete" or not job.mesh_s3_key:
             raise ConflictError("Mesh not yet available")
+        stem = download_basename(job)
+        presign = self._storage.generate_presigned_download_url
         return MeshUrlResponse(
-            url=self._storage.generate_presigned_download_url(
-                job.mesh_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS
+            url=presign(job.mesh_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS),
+            download_url=presign(
+                job.mesh_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS,
+                attachment_filename=f"{stem}.glb",
+            ),
+            preview_download_url=(
+                presign(
+                    job.preview_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS,
+                    attachment_filename=f"{stem}-preview.png",
+                )
+                if job.preview_s3_key else None
             ),
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=DOWNLOAD_TTL_SECONDS),
         )

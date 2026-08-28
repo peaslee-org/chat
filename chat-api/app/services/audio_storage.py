@@ -27,11 +27,26 @@ class AudioStorageService:
             ExpiresIn=ttl_seconds,
         )
 
-    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
-        """Returns a pre-signed GET URL for direct browser download."""
+    def generate_presigned_download_url(
+        self,
+        s3_key: str,
+        ttl_seconds: int = 900,
+        *,
+        attachment_filename: str | None = None,
+    ) -> str:
+        """Returns a pre-signed GET URL for direct browser download.
+
+        With `attachment_filename`, S3 answers with
+        `Content-Disposition: attachment; filename="…"`, so a plain link
+        saves the object under that name instead of navigating to it.
+        (A cross-origin `<a download>` attribute is ignored by browsers.)
+        """
+        params = {"Bucket": self.bucket, "Key": s3_key}
+        if attachment_filename:
+            params["ResponseContentDisposition"] = f'attachment; filename="{attachment_filename}"'
         return self.s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.bucket, "Key": s3_key},
+            Params=params,
             ExpiresIn=ttl_seconds,
         )
 
@@ -116,7 +131,9 @@ class MockAudioStorageService:
     def generate_presigned_upload_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
-    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
+    def generate_presigned_download_url(
+        self, s3_key: str, ttl_seconds: int = 900, *, attachment_filename: str | None = None
+    ) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
     def write_object(self, s3_key: str, data: bytes) -> None:
@@ -164,7 +181,9 @@ class LocalAudioStorageService:
     def generate_presigned_upload_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
-    def generate_presigned_download_url(self, s3_key: str, ttl_seconds: int = 900) -> str:
+    def generate_presigned_download_url(
+        self, s3_key: str, ttl_seconds: int = 900, *, attachment_filename: str | None = None
+    ) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
     def write_object(self, s3_key: str, data: bytes) -> None:

@@ -55,7 +55,10 @@ def make_mock_service():
     svc.delete_job = AsyncMock(return_value=None)
     svc.get_mesh_url = AsyncMock(
         return_value=MeshUrlResponse(
-            url="https://dl/mesh.glb", expires_at=datetime.now(timezone.utc)
+            url="https://dl/mesh.glb",
+            download_url="https://dl/mesh.glb?dl",
+            preview_download_url="https://dl/preview.png?dl",
+            expires_at=datetime.now(timezone.utc),
         )
     )
     svc.create_sample_job = AsyncMock(return_value=SampleJobResponse(job_id=uuid4()))
@@ -148,7 +151,10 @@ class TestRead:
         ac, _ = client
         r = await ac.get(f"/api/v1/photogrammetry/jobs/{uuid4()}/mesh", headers=H)
         assert r.status_code == 200
-        assert r.json()["url"] == "https://dl/mesh.glb"
+        body = r.json()
+        assert body["url"] == "https://dl/mesh.glb"
+        assert body["download_url"] == "https://dl/mesh.glb?dl"
+        assert body["preview_download_url"] == "https://dl/preview.png?dl"
 
     async def test_mesh_409_until_complete(self, client):
         ac, svc = client

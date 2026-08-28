@@ -64,7 +64,9 @@ def make_service(*, active_jobs=0, max_images=150, gpu=None, job=None, keys=None
         side_effect=lambda k, ttl_seconds=900: f"https://up/{k}"
     )
     storage.generate_presigned_download_url = MagicMock(
-        side_effect=lambda k, ttl_seconds=900: f"https://dl/{k}"
+        side_effect=lambda k, ttl_seconds=900, attachment_filename=None: (
+            f"https://dl/{k}" + (f"?dl={attachment_filename}" if attachment_filename else "")
+        )
     )
     storage.list_keys_with_prefix = MagicMock(return_value=keys if keys is not None else [])
 
@@ -204,6 +206,31 @@ class TestStatusAndMesh:
         res = await svc.get_mesh_url("user1", job.id)
         assert res.url == "https://dl/p/mesh.glb"
         assert res.expires_at > datetime.now(timezone.utc)
+
+    async def test_mesh_url_includes_attachment_download_urls(self):
+        job = make_job(status="complete", mesh_s3_key="p/mesh.glb", preview_s3_key="p/preview.png")
+        job.name = "Scan 2026-08-28 10:15"
+        svc, *_ = make_service(job=job)
+        res = await svc.get_mesh_url("user1", job.id)
+        assert res.url == "https://dl/p/mesh.glb"  # the viewer URL stays a plain GET
+        assert res.download_url == "https://dl/p/mesh.glb?dl=scan-2026-08-28-10-15.glb"
+        assert res.preview_download_url == "https://dl/p/preview.png?dl=scan-2026-08-28-10-15-preview.png"
+
+    async def test_mesh_url_preview_download_absent_without_preview(self):
+        job = make_job(status="complete", mesh_s3_key="p/mesh.glb")
+        svc, *_ = make_service(job=job)
+        res = await svc.get_mesh_url("user1", job.id)
+        assert res.download_url == "https://dl/p/mesh.glb?dl=scan.glb"
+        assert res.preview_download_url is None
+
+    def test_download_basename_slugs_and_falls_back_to_job_id(self):
+        job = make_job()
+        job.name = "  Kitchen / table (v2) "
+        assert ps.download_basename(job) == "kitchen-table-v2"
+        job.name = "日本語"  # nothing ASCII survives the slug
+        assert ps.download_basename(job) == f"scan-{job.id}"
+        job.name = "x" * 300
+        assert len(ps.download_basename(job)) <= 80
 
     async def test_delete_404_for_other_user(self):
         svc, repo, _ = make_service(job=None)
