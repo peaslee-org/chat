@@ -54,11 +54,16 @@ COPY --from=build /opt/openmvs/bin/OpenMVS/ /usr/local/bin/
 # pipeline passes --cuda-device -2 when COLMAP_USE_GPU=0, so the stub is loaded but never called).
 # On the GPU host the real driver is on the default path and the stub is never used.
 COPY --from=build /opt/openmvs/libcuda-stub.so /opt/cuda-stubs/libcuda.so.1
-RUN ldconfig && colmap -h >/dev/null \
- && LD_LIBRARY_PATH=/opt/cuda-stubs DensifyPointCloud --help >/dev/null \
- && LD_LIBRARY_PATH=/opt/cuda-stubs TextureMesh --help >/dev/null \
- && ! (ldd /usr/local/bin/InterfaceCOLMAP /usr/local/bin/DensifyPointCloud /usr/local/bin/ReconstructMesh \
-          /usr/local/bin/RefineMesh /usr/local/bin/TextureMesh | grep 'not found' | grep -v 'libcuda.so.1')
+# OpenMVS apps exit 1 after printing --help (no input file => Initialize() returns false), so the
+# check is: every shared library resolves (ldd), and the binary runs to completion (exit 0 or 1 —
+# not 127 loader failure, not a crash) without a loader error in its output.
+RUN ldconfig && colmap -h >/dev/null && cd /tmp \
+ && for b in InterfaceCOLMAP DensifyPointCloud ReconstructMesh RefineMesh TextureMesh; do \
+      if ldd /usr/local/bin/$b | grep 'not found' | grep -v 'libcuda.so.1'; then echo "$b: unresolved libraries"; exit 1; fi; \
+      LD_LIBRARY_PATH=/opt/cuda-stubs $b --help >/tmp/help.txt 2>&1; rc=$?; \
+      if [ $rc -ne 0 ] && [ $rc -ne 1 ] || grep -q 'error while loading' /tmp/help.txt; then cat /tmp/help.txt; echo "$b: rc=$rc"; exit 1; fi; \
+      echo "$b: ok (rc=$rc, $(wc -l </tmp/help.txt) lines of usage)"; \
+    done && rm -f /tmp/help.txt /tmp/*.log
 
 WORKDIR /app
 RUN python3.12 -m venv /app/venv
