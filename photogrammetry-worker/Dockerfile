@@ -4,11 +4,17 @@ ARG OPENMVS_TAG=v2.4.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git cmake build-essential pkg-config ca-certificates libeigen3-dev libcgal-dev libnanoflann-dev libboost-iostreams-dev \
       libboost-program-options-dev libboost-system-dev libboost-serialization-dev libopencv-dev \
-      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev libjxl-dev \
+      libglu1-mesa-dev libglew-dev libpng-dev libjpeg-dev libtiff-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/cdcseacave/VCG.git vcglib \
  && git clone --depth 1 --branch ${OPENMVS_TAG} https://github.com/cdcseacave/openMVS.git openMVS
+# v2.4.0 writes .jxl via cv::IMWRITE_JPEGXL_QUALITY unguarded (OpenCV >= 4.11); noble ships 4.6.0 in
+# both stages, and upstream's own ubuntu:24.04 Dockerfile has the same break. The patch turns JXL
+# support off (libs/IO/CMakeLists.txt) and guards the one write-path branch (libs/Common/Types.inl).
+# The worker never reads or writes .jxl. Regenerate the patch if OPENMVS_TAG changes.
+COPY photogrammetry-worker/openmvs-v2.4.0-noble.patch /src/
+RUN git -C openMVS apply --verbose /src/openmvs-v2.4.0-noble.patch
 # USE_PYTHON=OFF: v2.4.0 defaults the Python bindings ON, which makes FIND_PACKAGE(Python3 ... REQUIRED)
 # fail on a builder without python3-dev (first CI build, 2026-08-27). The worker calls the CLI tools
 # only. VIEWER/TESTS off: no GUI in a worker, and both shorten the ~30 min build.
@@ -24,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3.12 python3.12-venv libpython3.12 \
       libopencv-core406t64 libopencv-imgproc406t64 libopencv-imgcodecs406t64 libopencv-calib3d406t64 \
       libboost-iostreams1.83.0 libboost-program-options1.83.0 libboost-system1.83.0 libboost-serialization1.83.0 \
-      libcgal-dev libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 libjxl0.7 \
+      libcgal-dev libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/openmvs/bin/ /usr/local/bin/
 COPY --from=build /opt/openmvs/lib/ /usr/local/lib/

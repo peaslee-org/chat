@@ -1,0 +1,31 @@
+diff --git a/libs/Common/Types.inl b/libs/Common/Types.inl
+index 765db20..f69ec1a 100644
+--- a/libs/Common/Types.inl
++++ b/libs/Common/Types.inl
+@@ -3106,10 +3106,12 @@ static bool SaveImage(const cv::Mat& img, const String& fileName)
+ 		compression_params.push_back(cv::IMWRITE_JPEG_QUALITY);
+ 		compression_params.push_back(95);
+ 	} else
++	#ifdef _USE_JXL
+ 	if (ext == ".jxl") {
+ 		compression_params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
+ 		compression_params.push_back(95);
+ 	} else
++	#endif
+ 	if (ext == ".pfm") {
+ 		if (img.depth() != CV_32F)
+ 			return false;
+diff --git a/libs/IO/CMakeLists.txt b/libs/IO/CMakeLists.txt
+index 7aa172f..e12b7ea 100644
+--- a/libs/IO/CMakeLists.txt
++++ b/libs/IO/CMakeLists.txt
+@@ -61,7 +61,8 @@ else()
+ 	SET(JPEG_LIBRARIES "")
+ endif()
+ FIND_PACKAGE(PkgConfig REQUIRED)
+-pkg_check_modules_fullpath_libs(JPEGXL libjxl)
++# noble: OpenCV 4.6 lacks IMWRITE_JPEGXL_QUALITY; JXL support off (cm patch)
++set(JPEGXL_FOUND FALSE)
+ if(JPEGXL_FOUND)
+ 	SET(_USE_JXL TRUE CACHE INTERNAL "")
+ 	set(JPEGXL_LIBRARIES ${JPEGXL_FULLPATH_LIBRARIES})
