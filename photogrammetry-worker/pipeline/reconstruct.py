@@ -1,4 +1,4 @@
-"""The four stages as one object so the handler can be tested with a fake."""
+"""Reconstruction stages: one method per tool group; the handler decides refine and decimation."""
 from pathlib import Path
 
 from pipeline import colmap, openmvs
@@ -20,12 +20,11 @@ class Reconstruction:
         openmvs.densify(self._r, dense, scene, self._gpu)
         return dense
 
-    def mesh(self, dense: Path, refine: bool) -> Path:
-        scene_dense = dense / "scene_dense.mvs"
-        ply = openmvs.reconstruct_mesh(self._r, dense, scene_dense, self._gpu)
-        if refine:
-            ply = openmvs.refine_mesh(self._r, dense, scene_dense, ply, self._gpu)
-        return ply
+    def reconstruct_mesh(self, dense: Path) -> tuple[Path, int]:
+        return openmvs.reconstruct_mesh(self._r, dense, dense / "scene_dense.mvs", self._gpu)
 
-    def texture(self, dense: Path, mesh_ply: Path) -> Path:
-        return openmvs.texture_mesh(self._r, dense, dense / "scene_dense.mvs", mesh_ply, self._gpu)
+    def refine_mesh(self, dense: Path, mesh_ply: Path) -> tuple[Path, int]:
+        return openmvs.refine_mesh(self._r, dense, dense / "scene_dense.mvs", mesh_ply, self._gpu)
+
+    def texture(self, dense: Path, mesh_ply: Path, decimate: float | None = None) -> Path:
+        return openmvs.texture_mesh(self._r, dense, dense / "scene_dense.mvs", mesh_ply, self._gpu, decimate=decimate)
