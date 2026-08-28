@@ -8,9 +8,19 @@ REGION=${AWS_REGION:-us-east-1}
 # BAKE_MARKET=spot (default) or on-demand. Spot pools for g4dn.xlarge run dry per AZ
 # (InsufficientInstanceCapacity from run-instances); a 20-minute bake is cheap on-demand.
 BAKE_MARKET=${BAKE_MARKET:-spot}
-MARKET_OPTS=(); [[ "$BAKE_MARKET" == "spot" ]] && MARKET_OPTS=(--instance-market-options 'MarketType=spot')
-TAG=${IMAGE##*:}; NAME="gpu-${ENV}-$(date -u +%Y%m%d)-${TAG:0:7}"
+case "$BAKE_MARKET" in
+  spot) MARKET_OPTS=(--instance-market-options 'MarketType=spot') ;;
+  on-demand) MARKET_OPTS=() ;;
+  *) echo "BAKE_MARKET must be 'spot' or 'on-demand' (got '$BAKE_MARKET')"; exit 2 ;;
+esac
+# Name = env + UTC date-time + first image tag. AMI names must be unique per account/region and
+# create-image only rejects a duplicate after the bake has pulled every image, so the minute
+# suffix keeps same-day rebakes apart and the check below fails before anything is launched.
+TAG=${IMAGE##*:}; NAME="gpu-${ENV}-$(date -u +%Y%m%d-%H%M)-${TAG:0:7}"
 REGISTRY=${IMAGE%%/*}
+if [[ -n "$(aws ec2 describe-images --region "$REGION" --owners self --filters "Name=name,Values=${NAME}" --query 'Images[].ImageId' --output text)" ]]; then
+  echo "AMI name ${NAME} already exists; wait a minute or change the first image"; exit 2
+fi
 
 USERDATA=$(cat <<EOS
 #!/bin/bash
