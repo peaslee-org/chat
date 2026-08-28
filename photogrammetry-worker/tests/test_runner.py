@@ -31,11 +31,22 @@ def test_success_returns_combined_output(tmp_path):
     assert "world" in out
 
 
-def test_nonzero_exit_raises_stage_error_with_first_stderr_line(tmp_path):
+def test_nonzero_exit_raises_stage_error_with_last_stderr_line(tmp_path):
     r, _ = make()
     with pytest.raises(StageError) as e:
         r.run([PY, "-c", "import sys; print('', file=sys.stderr); print('bad thing', file=sys.stderr); print('more', file=sys.stderr); sys.exit(3)"], cwd=tmp_path, tool="colmap")
-    assert str(e.value) == "bad thing" and e.value.tool == "colmap"
+    assert str(e.value) == "more" and e.value.tool == "colmap"
+    assert "bad thing" in e.value.output
+
+
+def test_stage_error_prefers_last_glog_error_line_and_strips_prefix(tmp_path):
+    from pipeline.runner import summarize_stderr
+    glog = ("I20260828 10:26:10.751535   473 incremental_pipeline.cc:323] Loading database\n"
+            "I20260828 10:26:11.240109   473 incremental_pipeline.cc:439] => No good initial image pair found.\n"
+            "E20260828 10:26:11.240190   473 sfm.cc:288] Failed to create any sparse model\n"
+            "I20260828 10:26:11.240200   473 sfm.cc:300] Elapsed time: 0.5 [minutes]\n")
+    assert summarize_stderr(glog, "x") == "Failed to create any sparse model"
+    assert summarize_stderr("", "colmap mapper exited with 1") == "colmap mapper exited with 1"
 
 
 def test_deadline_kills_and_raises_job_timeout(tmp_path):

@@ -3,6 +3,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from pipeline.runner import StageError
+
+_NO_MODEL = "Failed to create any sparse model"
 _REGISTERED = re.compile(r"Registered images:\s*(\d+)")
 
 
@@ -25,9 +28,16 @@ def sparse_reconstruct(runner, work: Path, images: Path, use_gpu: bool) -> Spars
     runner.run([
         "colmap", "exhaustive_matcher", "--database_path", str(db), "--FeatureMatching.use_gpu", gpu,
     ], cwd=work, tool="colmap exhaustive_matcher")
-    runner.run([
-        "colmap", "mapper", "--database_path", str(db), "--image_path", str(images), "--output_path", str(sparse),
-    ], cwd=work, tool="colmap mapper")
+    try:
+        runner.run([
+            "colmap", "mapper", "--database_path", str(db), "--image_path", str(images), "--output_path", str(sparse),
+        ], cwd=work, tool="colmap mapper")
+    except StageError as e:
+        # COLMAP 4.x exits 1 when no initial image pair exists (e.g. near-identical photos). That is
+        # "nothing registered", and the caller's 60 % gate owns the user-facing message.
+        if _NO_MODEL in e.output:
+            return SparseModel(sparse / "0", 0)
+        raise
     best = SparseModel(sparse / "0", 0)
     for model_dir in sorted(p for p in sparse.iterdir() if p.is_dir()):
         out = runner.run(["colmap", "model_analyzer", "--path", str(model_dir)], cwd=work, tool="colmap model_analyzer")

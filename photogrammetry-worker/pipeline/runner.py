@@ -3,6 +3,7 @@
 Every reconstruction tool runs through here so the handler can be read as a stage table.
 """
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -14,9 +15,24 @@ logger = logging.getLogger(__name__)
 
 
 class StageError(Exception):
-    def __init__(self, tool: str, message: str):
+    def __init__(self, tool: str, message: str, output: str = ""):
         super().__init__(message)
         self.tool = tool
+        self.output = output  # the tool's stderr, for callers that recognise specific failures
+
+
+_GLOG_PREFIX = re.compile(r"^[IWEF]\d{8} [\d:.]+\s+\d+ [^\]]*\] ")
+
+
+def summarize_stderr(stderr: str, fallback: str) -> str:
+    """One human-facing line from a tool's stderr: the last glog ERROR line if there is one, else the
+    last non-empty line, glog prefixes stripped. COLMAP logs progress at INFO from the first line
+    ("Loading database"), so the first line is never the reason (acceptance 7.3, 2026-08-28)."""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return fallback
+    errors = [line for line in lines if re.match(r"^E\d{8} ", line)]
+    return _GLOG_PREFIX.sub("", (errors or lines)[-1])[:1000]
 
 
 class JobTimeout(StageError):
@@ -54,9 +70,8 @@ class Runner:
                     self._kill(proc)
                     raise JobTimeout(tool, self._timeout_message)
         if proc.returncode != 0:
-            first = next((line for line in stderr.splitlines() if line.strip()), f"{tool} exited with {proc.returncode}")
             logger.error("[%s] failed (%s):\n%s", tool, proc.returncode, stderr[-4000:])
-            raise StageError(tool, first[:1000])
+            raise StageError(tool, summarize_stderr(stderr, f"{tool} exited with {proc.returncode}"), stderr)
         combined = stdout + stderr
         logger.info("[%s] ok\n%s", tool, combined[-4000:])
         return combined

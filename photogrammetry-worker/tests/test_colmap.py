@@ -1,3 +1,4 @@
+import pytest
 """COLMAP wrapper: command shape, model selection by registered images, GPU flag."""
 from pathlib import Path
 
@@ -100,3 +101,25 @@ def test_undistort_writes_dense_workspace(tmp_path):
     assert cmd[1] == "image_undistorter" and dense == tmp_path / "dense"
     assert cmd[cmd.index("--output_type") + 1] == "COLMAP"
     assert r.calls[0][1] == tmp_path and r.calls[0][2] == "colmap image_undistorter"
+
+
+class _MapperFails:
+    def __init__(self, output): self.output = output
+    def run(self, cmd, cwd, tool=None):
+        from pipeline.runner import StageError
+        if cmd[1] == "mapper":
+            raise StageError("colmap mapper", "Failed to create any sparse model", self.output)
+        return ""
+
+
+def test_mapper_no_initial_pair_means_zero_registered(tmp_path):
+    # COLMAP 4.x exits 1 with no initial pair (5 identical photos, acceptance 7.3): the 60 % gate,
+    # not the raw glog line, must be what the user sees.
+    m = sparse_reconstruct(_MapperFails("E... sfm.cc:288] Failed to create any sparse model\n"), tmp_path, tmp_path / "images", True)
+    assert m.registered_images == 0
+
+
+def test_other_mapper_failures_propagate(tmp_path):
+    from pipeline.runner import StageError
+    with pytest.raises(StageError):
+        sparse_reconstruct(_MapperFails("E... something else broke\n"), tmp_path, tmp_path / "images", True)
