@@ -12,11 +12,14 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
 
-- [ ] **Rebake the GPU AMI with photogrammetry image `8f81e78`** (task family `:10`, built by CI
+- [x] ~~Rebake the GPU AMI with photogrammetry image `8f81e78`~~ done 2026-08-28: LT v5, task-def `:11`. (Was: task family `:10`, built by CI
   2026-08-28 14:52 Z; carries `27a23f1` y-up + `b301e89` seam leveling off). The sample scan re-run at
   15:04 Z on `:10` completed (COLMAP → Densify → Reconstruct → Refine → Texture, 90 s on an A10G;
   `mesh.glb` 889 KB) — that run is the smoke for this image. Until the rebake every cold start pulls
-  the image (~5½ min on top of the ~5 min instance start).
+  the image (~5½ min on top of the ~5 min instance start).) **Bake script gotcha:** the AMI name is
+  `gpu-<env>-<date>-<first image tag>`, so a same-day rebake with the same first image fails at
+  `CreateImage` (`InvalidAMIName.Duplicate`) *after* the pull — list the changed image first, or add
+  `%H%M` to `NAME` in `scripts/deploy/build-gpu-ami.sh`.
 
 - [ ] **Root-cause OpenMVS seam leveling in our build.** Both passes rewrite every face's pixels as ~0
   (black faces, stray saturated texels) in the v2.4.0-on-noble image (OpenCV 4.6, GCC 13); the raw
