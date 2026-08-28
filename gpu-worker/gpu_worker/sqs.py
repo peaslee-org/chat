@@ -3,9 +3,9 @@
 One message at a time; a background thread extends visibility while a handler runs; a
 SpotWatcher releases the in-flight message on a 2-minute interruption notice; WorkerLoop
 decides when the process exits (idle, max lifetime, interruption) and keeps the gpu_sessions
-ledger. Handlers receive (body, message). A handler that returns acks the message; one that
-raises leaves it for redelivery — including Interrupted, which the SpotWatcher has already
-released with VisibilityTimeout=0.
+ledger. Handlers receive (body, message); the message carries message["Attributes"]["ApproximateReceiveCount"]
+when SQS returns it. A handler that returns acks the message; one that raises leaves it for
+redelivery — including Interrupted, which the SpotWatcher has already released with VisibilityTimeout=0.
 """
 import json
 import logging
@@ -25,6 +25,11 @@ Handler = Callable[[dict, dict], None]
 
 class Interrupted(Exception):
     """Raised by a handler that stopped because a spot interruption notice arrived."""
+
+
+def receive_count(message: dict) -> int:
+    """SQS's ApproximateReceiveCount for this message; 1 when the attribute is absent (tests, old shells)."""
+    return int(message.get("Attributes", {}).get("ApproximateReceiveCount", 1))
 
 
 def run_sqs_worker(
@@ -55,7 +60,7 @@ def run_sqs_worker(
                 logger.warning("Failed to extend message visibility", exc_info=True)
 
     def receive() -> list:
-        return sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=20).get("Messages", [])
+        return sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=20, AttributeNames=["ApproximateReceiveCount"]).get("Messages", [])
 
     def process(message: dict) -> None:
         body = json.loads(message["Body"])

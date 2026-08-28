@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gpu_worker.sqs import Interrupted, run_sqs_worker
+from gpu_worker.sqs import Interrupted, receive_count, run_sqs_worker
 
 
 class FakeStore:
@@ -127,3 +127,13 @@ def test_release_watcher_flag_ends_loop_with_released():
     )
     assert reason == "released" and ("close", "released") in store.calls
     ReleaseWatcher.released.clear()
+
+
+def test_receive_requests_receive_count_attribute():
+    _, sqs, _ = run([], {})
+    assert sqs.receive_message.call_args.kwargs["AttributeNames"] == ["ApproximateReceiveCount"]
+
+
+def test_receive_count_defaults_to_one():
+    assert receive_count({"Body": "{}"}) == 1
+    assert receive_count({"Body": "{}", "Attributes": {"ApproximateReceiveCount": "3"}}) == 3
