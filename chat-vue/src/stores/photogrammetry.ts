@@ -62,6 +62,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     const now = new Date().toISOString()
     return {
       job_id, name, status, stage: null, image_count, preview_url: null, error_message: null,
+      warnings: [],
       mock: false, created_at: now, updated_at: now, completed_at: null,
     }
   }
@@ -160,6 +161,8 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
         pollingActive.delete(jobId)
       }
       if (updated) {
+        const before = jobs.value.find(j => j.job_id === updated!.job_id)?.warnings.length ?? 0
+        updated.warnings.slice(before).forEach(w => pushToast(`"${updated!.name}": ${w}`))
         upsert(updated)
         if (!ACTIVE.has(updated.status)) {
           stopPolling(jobId)

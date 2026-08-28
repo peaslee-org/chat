@@ -194,6 +194,7 @@ export interface PhotogrammetryJob {
   image_count: number
   preview_url: string | null
   error_message: string | null
+  warnings: string[]
   mock: boolean
   created_at: string
   updated_at: string
