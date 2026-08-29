@@ -11,13 +11,14 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   still unpinned) — a rebuild must reproduce the image that passed acceptance.
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
-- [ ] Photogrammetry robustness (spec 2026-08-28): resumable stages, no-cycling rule, mesh budget
-  (refine ≤ 400 k faces, decimate above 500 k), photo orientation normalisation. **Deployed via CI
-  2026-08-29 (task-def `:13`, scratch volume + `maxReceiveCount` 5 applied). Still to do: smoke =
-  sample job + a re-run of the 51-photo set** (expect the rotation warning, no refine, complete),
-  then bake + pins (cold starts pull until the re-bake). Deploy the API migration first: the worker's ORM model now selects `warnings`, so
-  against an un-migrated DB every receipt raises outside the handler's try block and the message
-  is never acked.
+- [x] ~~Photogrammetry robustness (spec 2026-08-28)~~ deployed 2026-08-29 and **smoked**: sample
+  (100 s) and the 51-photo set (14 min, one attempt — 681 k faces → refine skipped → `--decimate
+  0.734` → 500 k textured; 0 mixed-dimension errors after orientation normalisation; VmPeak 8.2 GB).
+  Remaining: **bake** the AMI with the `9fd89e1` images (current task-defs `:14` / `:59`) + pins.
+- [ ] **Exported GLB is too large** — the 51-photo set produced a **45 MB** `mesh.glb` (500 k faces
+  + two 8192² atlases embedded uncropped since `cfd539c` stopped re-packing; the sample went
+  889 KB → 3.3 MB for the same reason). Crop each atlas to its used patches (or `--max-texture-size`
+  in TextureMesh), and consider Draco / quantised attributes. Viewer loads it, but slowly.
 
 - [x] ~~Rebake the GPU AMI with photogrammetry image `8f81e78`~~ done 2026-08-28: LT v5, task-def `:11`. (Was: task family `:10`, built by CI
   2026-08-28 14:52 Z; carries `27a23f1` y-up + `b301e89` seam leveling off). The sample scan re-run at
