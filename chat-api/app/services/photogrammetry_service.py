@@ -7,7 +7,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -169,19 +169,32 @@ class PhotogrammetryService:
 
     async def list_job_photos(self, user_id: str, job_id: UUID) -> JobPhotosResponse:
         job = await self._get_or_404(user_id, job_id)
-        thumbs_prefix = job.input_prefix.rsplit("input/", 1)[0] + "thumbs/"
-        return JobPhotosResponse(photos=await self._photos(job.input_prefix, thumbs_prefix))
+        return JobPhotosResponse(photos=await self._photos(job.input_prefix))
 
     async def list_sample_photos(self) -> SamplePhotosResponse:
-        base = self._settings.photogrammetry_sample_prefix
-        photos = await self._photos(f"{base}images/", f"{base}thumbs/")
+        photos = await self._photos(f"{self._settings.photogrammetry_sample_prefix}images/")
         if not photos:
             raise ConflictError("Sample photo set has not been uploaded")
         return SamplePhotosResponse(name="Sample scan", image_count=len(photos), photos=photos)
 
-    async def _photos(self, images_prefix: str, thumbs_prefix: str) -> list[PhotoItem]:
+    @staticmethod
+    def _thumbs_prefix_for(input_prefix: str) -> str:
+        """Sibling of the inputs' own directory: …/<job>/input/ → …/<job>/thumbs/ and
+        samples/photogrammetry/images/ → samples/photogrammetry/thumbs/. Never *inside* the
+        inputs, where the worker (and the next listing) would take the thumbnails for photos."""
+        return f"{PurePosixPath(input_prefix.rstrip('/')).parent}/thumbs/"
+
+    def _input_keys(self, prefix: str) -> list[str]:
+        """The photos directly under `prefix`, sorted; anything nested deeper is not an input."""
+        return sorted(
+            k for k in self._storage.list_keys_with_prefix(prefix)
+            if "/" not in k[len(prefix):]
+        )
+
+    async def _photos(self, images_prefix: str) -> list[PhotoItem]:
         """Presigned originals + thumbnails (made on first request, cached beside them)."""
-        keys = sorted(self._storage.list_keys_with_prefix(images_prefix))
+        keys = self._input_keys(images_prefix)
+        thumbs_prefix = self._thumbs_prefix_for(images_prefix)
         thumbs = await asyncio.to_thread(ensure_thumbnails, self._storage, keys, thumbs_prefix)
         presign = self._storage.generate_presigned_download_url
         items = []
@@ -206,7 +219,7 @@ class PhotogrammetryService:
         if self._gpu is None:
             raise WorkerNotDeployed()
         prefix = f"{self._settings.photogrammetry_sample_prefix}images/"
-        keys = self._storage.list_keys_with_prefix(prefix)
+        keys = self._input_keys(prefix)
         if not keys:
             raise ConflictError("Sample photo set has not been uploaded")
         job_id = uuid4()

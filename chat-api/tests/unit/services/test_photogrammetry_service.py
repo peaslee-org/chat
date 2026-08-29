@@ -248,6 +248,16 @@ class TestStatusAndMesh:
 
 
 class TestSampleJob:
+    async def test_image_count_ignores_keys_nested_below_images(self):
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        svc, repo, *_ = make_service(
+            gpu=gpu, sqs=MagicMock(),
+            keys=["samples/photogrammetry/images/0001.jpg", "samples/photogrammetry/images/thumbs/0001.jpg"],
+        )
+        await svc.create_sample_job("user1")
+        assert repo.create_job.call_args.kwargs["image_count"] == 1
+
     async def test_409_when_sample_set_missing(self):
         svc, *_ = make_service(gpu=MagicMock(), keys=[])
         with pytest.raises(ConflictError):
@@ -406,6 +416,28 @@ class TestListJobPhotos:
         with patch.object(ps, "ensure_thumbnails", return_value={}):
             res = await svc.list_job_photos("user1", job.id)
         assert res.photos[0].thumb_url == res.photos[0].url == f"https://dl/{key}"
+
+    async def test_sample_job_thumbs_go_beside_images_not_inside(self):
+        """A sample job's inputs are the shared samples/photogrammetry/images/ prefix. Its thumbs
+        must land in the sibling thumbs/ — writing them under images/ makes the next sample job
+        (and this listing) see 44 'photos' (2026-08-29)."""
+        job = make_job(status="complete")
+        job.input_prefix = "samples/photogrammetry/images/"
+        key = "samples/photogrammetry/images/0001.jpg"
+        svc, _, storage = make_service(job=job, keys=[key])
+        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+            await svc.list_job_photos("user1", job.id)
+        ensure.assert_called_once_with(storage, [key], "samples/photogrammetry/thumbs/")
+
+    async def test_keys_nested_below_the_input_prefix_are_not_photos(self):
+        job = make_job(status="complete")
+        photo = f"{job.input_prefix}0001.jpg"
+        stray = f"{job.input_prefix}thumbs/0001.jpg"
+        svc, _, storage = make_service(job=job, keys=[stray, photo])
+        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+            res = await svc.list_job_photos("user1", job.id)
+        assert [p.filename for p in res.photos] == ["0001.jpg"]
+        ensure.assert_called_once_with(storage, [photo], f"photogrammetry/user1/{job.id}/thumbs/")
 
     async def test_no_uploads_yet_is_an_empty_list(self):
         job = make_job(status="pending")
