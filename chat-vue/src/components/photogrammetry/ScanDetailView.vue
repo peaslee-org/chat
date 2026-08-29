@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 import type { PhotoItem } from "@/types"
 import ScanStatusBadge from "./ScanStatusBadge.vue"
@@ -36,27 +36,55 @@ function setPane(p: Pane) {
   if (job.value) paneByJob.set(job.value.job_id, p)
 }
 
-// ── photos pane, fetched the first time it is shown for a job ──
+// ── photos pane, fetched the first time it is shown for a job; refetched when SfM has run ──
 const photos = ref<PhotoItem[]>([])
+const photosMatched = ref<number | null>(null)
 const photosLoading = ref(false)
 const photosError = ref<string | null>(null)
+const TERMINAL = new Set(["complete", "failed"])
 
-watch([() => job.value?.job_id, pane], async ([jobId, p]) => {
-  photos.value = []
+async function loadPhotos(jobId: string, force = false): Promise<void> {
   photosError.value = null
-  if (!jobId || p !== "photos") return
-  photosLoading.value = true
+  photosLoading.value = photos.value.length === 0
   try {
-    const list = await store.fetchJobPhotos(jobId)
+    const res = await store.fetchJobPhotos(jobId, { force })
     if (job.value?.job_id !== jobId) return
-    photos.value = list
+    photos.value = res.photos
+    photosMatched.value = res.matched
   } catch {
     if (job.value?.job_id !== jobId) return
     photosError.value = "Could not load the photos"
   } finally {
     photosLoading.value = false
   }
+}
+
+watch([() => job.value?.job_id, pane], ([jobId, p]) => {
+  photos.value = []
+  photosMatched.value = null
+  photosError.value = null
+  if (!jobId || p !== "photos") return
+  void loadPhotos(jobId)
 }, { immediate: true })
+
+// Per-photo status (which photos SfM matched) lands on the row when the job ends — refetch then.
+watch(() => job.value?.status, (status, prev) => {
+  const jobId = job.value?.job_id
+  if (!jobId || !status || !TERMINAL.has(status) || (prev && TERMINAL.has(prev))) return
+  if (pane.value === "photos") void loadPhotos(jobId, true)
+  else void store.fetchJobPhotos(jobId, { force: true }).catch(() => undefined)
+})
+
+// ── closing the scan: ✕ or Escape (unless a photo overlay owns the key) ──
+function closeScan(): void { store.clearSelection() }
+function onDocKeydown(e: KeyboardEvent): void {
+  if (e.key !== "Escape" || e.defaultPrevented) return
+  if (props.formMode !== "closed" || !job.value) return
+  if (document.querySelector("[data-photo-overlay]")) return
+  closeScan()
+}
+onMounted(() => document.addEventListener("keydown", onDocKeydown))
+onUnmounted(() => document.removeEventListener("keydown", onDocKeydown))
 
 watch(
   [() => job.value?.job_id, () => job.value?.status],
@@ -154,6 +182,13 @@ const segment = "px-3 py-1 text-xs font-medium transition-colors disabled:cursor
               @click="download('preview')"
             >Download preview</button>
           </template>
+          <button
+            type="button"
+            class="ml-1 rounded px-2 py-1 text-base leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            title="Close scan"
+            aria-label="Close scan"
+            @click="closeScan"
+          >✕</button>
         </div>
       </header>
 
@@ -181,7 +216,7 @@ const segment = "px-3 py-1 text-xs font-medium transition-colors disabled:cursor
             </p>
             <img v-if="job.preview_url" :src="job.preview_url" alt="" class="max-h-64 rounded border border-gray-200" />
           </div>
-          <PhotoGrid :photos="photos" :loading="photosLoading" :error="photosError" />
+          <PhotoGrid :photos="photos" :loading="photosLoading" :error="photosError" :matched="photosMatched" />
         </template>
       </div>
     </div>

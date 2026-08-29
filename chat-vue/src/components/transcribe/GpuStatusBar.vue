@@ -23,9 +23,10 @@ const label = computed(() => {
 const labelTitle = computed(() => {
   const s = gpu.state
   if (s?.worker_state !== "starting") return undefined
+  const kind = s.start_kind === "warm" ? "warm start (instance still up)" : "cold start (new instance)"
   return s.estimate_basis === "measured"
-    ? `estimate: median of the last ${s.estimate_samples} starts`
-    : "estimate: default, no starts measured yet"
+    ? `${kind} · estimate: median of the last ${s.estimate_samples} ${s.start_kind} starts`
+    : `${kind} · estimate: default, no ${s.start_kind} starts measured yet`
 })
 const idleIn = computed(() => {
   if (!gpu.idleOutAt || gpu.state?.worker_state !== "running") return null
@@ -36,8 +37,30 @@ const dot = computed(() => ({
   running: "bg-green-500", starting: "bg-amber-400 animate-pulse", off: "bg-gray-500",
 }[gpu.state?.worker_state ?? "off"]))
 
-// ── startups: promised vs actual, newest first ──
+// ── startups: promised vs actual with per-stage timings, newest first; collapsed by default ──
 const MAX_STARTUPS = 10
+const STARTUPS_OPEN_KEY = "gpuStartupsOpen"
+function readStartupsOpen(): boolean {
+  try { return localStorage.getItem(STARTUPS_OPEN_KEY) === "1" } catch { return false }
+}
+const startupsOpen = ref(readStartupsOpen())
+function toggleStartups(): void {
+  startupsOpen.value = !startupsOpen.value
+  try { localStorage.setItem(STARTUPS_OPEN_KEY, startupsOpen.value ? "1" : "0") } catch { /* private mode etc. */ }
+}
+const startupsSummary = computed(() => {
+  const u = gpu.usage
+  if (!u) return ""
+  const parts: string[] = []
+  if (u.cold_median_seconds !== null) parts.push(`cold ~${durationLabel(u.cold_median_seconds)} (${u.cold_samples})`)
+  if (u.warm_median_seconds !== null) parts.push(`warm ~${durationLabel(u.warm_median_seconds)} (${u.warm_samples})`)
+  return parts.length ? parts.join(" · ") : "no measured starts yet"
+})
+const STAGES = ["capacity", "boot", "pull", "container", "init"] as const
+function stage(s: GpuSessionSummary, key: (typeof STAGES)[number]): string {
+  const v = s.stages?.[key]
+  return v == null ? "—" : durationLabel(v)
+}
 const startups = computed<GpuSessionSummary[]>(() =>
   (gpu.usage?.sessions ?? [])
     .filter(s => s.actual_startup_seconds !== null)
@@ -84,27 +107,52 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
     </div>
 
     <div data-testid="startups" class="mt-2 border-t border-gray-800 pt-2">
-      <div class="text-gray-400">
-        Startups —
-        <span v-if="gpu.usage.startup_median_seconds !== null">
-          median <b class="text-gray-200">{{ durationLabel(gpu.usage.startup_median_seconds) }}</b> over {{ gpu.usage.startup_samples }} starts
-        </span>
-        <span v-else>no measured starts yet</span>
-        <span class="text-gray-500"> · launch → first job picked up</span>
-      </div>
-      <table v-if="startups.length" class="mt-1 w-full max-w-xl text-left tabular-nums">
+      <button
+        type="button"
+        data-testid="startups-toggle"
+        class="flex items-center gap-2 text-gray-400 hover:text-gray-200"
+        :aria-expanded="startupsOpen ? 'true' : 'false'"
+        @click="toggleStartups"
+      >
+        <span class="inline-block w-3 transition-transform" :class="startupsOpen ? 'rotate-90' : ''">▸</span>
+        <span>Startups</span>
+        <span class="text-gray-200">{{ startupsSummary }}</span>
+        <span class="text-gray-500">· launch → first job picked up</span>
+      </button>
+      <table v-if="startupsOpen && startups.length" class="mt-1 w-full max-w-4xl text-left tabular-nums">
         <thead class="text-gray-500">
-          <tr><th class="pr-4 font-normal">When</th><th class="pr-4 font-normal">Promised</th><th class="pr-4 font-normal">Actual</th><th class="font-normal">Δ</th></tr>
+          <tr>
+            <th class="pr-3 font-normal">When</th>
+            <th class="pr-3 font-normal">Kind</th>
+            <th class="pr-3 font-normal" title="RunTask → instance booted">Capacity</th>
+            <th class="pr-3 font-normal" title="instance booted → image pull started">Boot</th>
+            <th class="pr-3 font-normal" title="image pull">Pull</th>
+            <th class="pr-3 font-normal" title="pull finished → task running">Container</th>
+            <th class="pr-3 font-normal" title="task running → first job claimed">Init</th>
+            <th class="pr-3 font-normal">Total</th>
+            <th class="pr-3 font-normal">Promised</th>
+            <th class="font-normal">Δ</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="s in startups" :key="s.started_at">
-            <td class="pr-4">{{ when(s.started_at) }}</td>
-            <td class="pr-4">{{ s.estimated_startup_seconds === null ? "—" : durationLabel(s.estimated_startup_seconds) }}</td>
-            <td class="pr-4">{{ durationLabel(s.actual_startup_seconds!) }}</td>
+            <td class="pr-3">{{ when(s.started_at) }}</td>
+            <td class="pr-3" data-testid="kind">
+              <span
+                v-if="s.kind"
+                class="rounded-full px-1.5 text-[10px] uppercase"
+                :class="s.kind === 'warm' ? 'bg-amber-900/60 text-amber-200' : 'bg-sky-900/60 text-sky-200'"
+              >{{ s.kind }}</span>
+              <span v-else>—</span>
+            </td>
+            <td v-for="k in STAGES" :key="k" class="pr-3">{{ stage(s, k) }}</td>
+            <td class="pr-3">{{ durationLabel(s.actual_startup_seconds!) }}</td>
+            <td class="pr-3">{{ s.estimated_startup_seconds === null ? "—" : durationLabel(s.estimated_startup_seconds) }}</td>
             <td data-testid="delta" :class="delta(s)?.late ? 'text-red-400' : 'text-gray-300'">{{ delta(s)?.text ?? "—" }}</td>
           </tr>
         </tbody>
       </table>
+      <p v-else-if="startupsOpen" class="mt-1 text-gray-500">No measured starts to show.</p>
     </div>
   </div>
 </template>

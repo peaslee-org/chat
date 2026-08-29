@@ -16,10 +16,10 @@ export const handlers = [
 
   // GPU controller — default to a warm, ready worker with no usage history
   http.get('*/api/v1/gpu/state', () =>
-    HttpResponse.json({ worker_state: 'running', estimated_wait_seconds: 0, warm_until: null, notice: null, starting_since: null, startup_estimate_seconds: 420, estimate_basis: 'default', estimate_samples: 0 }),
+    HttpResponse.json({ worker_state: 'running', estimated_wait_seconds: 0, warm_until: null, notice: null, starting_since: null, startup_estimate_seconds: 420, estimate_basis: 'default', estimate_samples: 0, start_kind: 'cold' }),
   ),
   http.post('*/api/v1/gpu/warm', () =>
-    HttpResponse.json({ worker_state: 'running', estimated_wait_seconds: 0, warm_until: null, notice: null, starting_since: null, startup_estimate_seconds: 420, estimate_basis: 'default', estimate_samples: 0 }),
+    HttpResponse.json({ worker_state: 'running', estimated_wait_seconds: 0, warm_until: null, notice: null, starting_since: null, startup_estimate_seconds: 420, estimate_basis: 'default', estimate_samples: 0, start_kind: 'cold' }),
   ),
   http.get('*/api/v1/gpu/usage', () =>
     HttpResponse.json({
@@ -28,6 +28,7 @@ export const handlers = [
       estimated_month_cost_usd: 0, hourly_rate_usd: 0,
       actual_month_to_date_usd: null, actual_fetched_at: null,
       startup_median_seconds: null, startup_samples: 0,
+      cold_median_seconds: null, cold_samples: 0, warm_median_seconds: null, warm_samples: 0,
       sessions: [],
     }),
   ),

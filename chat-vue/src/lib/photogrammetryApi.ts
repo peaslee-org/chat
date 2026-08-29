@@ -5,7 +5,6 @@ import type {
   PhotogrammetryJob,
   PhotogrammetryJobCreateResponse,
   PhotogrammetryJobListResponse,
-  PhotoItem,
   SamplePhotos,
 } from "@/types"
 
@@ -51,7 +50,7 @@ export async function fetchSamplePhotos(): Promise<SamplePhotos> {
   return res.data
 }
 
-export async function fetchJobPhotos(jobId: string): Promise<PhotoItem[]> {
+export async function fetchJobPhotos(jobId: string): Promise<JobPhotosResponse> {
   const res = await apiClient.get(`${BASE}/jobs/${jobId}/photos`)
-  return (res.data as JobPhotosResponse).photos
+  return res.data as JobPhotosResponse
 }
