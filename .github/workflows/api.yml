@@ -1,11 +1,8 @@
 name: Deploy — chat-api
+# Reusable: called by deploy.yml in dependency order; no push trigger of its own.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'chat-api/**'
-      - '.github/workflows/api.yml'
+  workflow_call:
 
 env:
   AWS_REGION: us-east-1

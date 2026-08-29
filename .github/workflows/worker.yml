@@ -1,12 +1,8 @@
 name: Deploy — transcription-worker
+# Reusable: called by deploy.yml in dependency order; no push trigger of its own.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'transcription-worker/**'
-      - 'gpu-worker/**'
-      - '.github/workflows/worker.yml'
+  workflow_call:
 
 jobs:
   deploy:
