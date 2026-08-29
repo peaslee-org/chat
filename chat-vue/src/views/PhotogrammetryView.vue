@@ -3,10 +3,18 @@ import { onMounted, onUnmounted, ref } from "vue"
 import ScanSidebar from "@/components/photogrammetry/ScanSidebar.vue"
 import ScanDetailView from "@/components/photogrammetry/ScanDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
+import type { NewScanMode } from "@/components/photogrammetry/newScanMode"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 
 const store = usePhotogrammetryStore()
-const showNewJobForm = ref(false)
+const formMode = ref<NewScanMode>("closed")
+
+function toggleNew() {
+  formMode.value = formMode.value === "closed" ? "blank" : "closed"
+}
+function openSample() {
+  formMode.value = formMode.value === "sample" ? "closed" : "sample"
+}
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
@@ -43,32 +51,35 @@ onMounted(async () => {
     <div class="flex min-h-0 flex-1 overflow-hidden" :class="{ 'select-none': isDragging }">
       <ScanSidebar
         :style="{ width: sidebarWidth + 'px' }"
-        :show-new-job-form="showNewJobForm"
-        @new="showNewJobForm = !showNewJobForm"
+        :form-mode="formMode"
+        @new="toggleNew"
+        @new-sample="openSample"
       />
       <div
         class="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-indigo-500"
         :class="isDragging ? 'bg-indigo-500' : 'bg-gray-700'"
         @mousedown.prevent="startDrag"
       />
-      <ScanDetailView
-        class="flex-1 overflow-hidden"
-        :show-new-job-form="showNewJobForm"
-        @close-new-job-form="showNewJobForm = false"
-      />
-    </div>
+      <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <ScanDetailView
+          class="flex-1 overflow-hidden"
+          :form-mode="formMode"
+          @close-new-job-form="formMode = 'closed'"
+          @use-own-photos="formMode = 'blank'"
+        />
 
-    <Teleport to="body">
-      <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-        <div
-          v-for="toast in store.toasts"
-          :key="toast.id"
-          class="flex items-start gap-3 bg-red-700 text-white text-sm rounded-lg shadow-lg px-4 py-3"
-        >
-          <span class="flex-1">{{ toast.message }}</span>
-          <button class="text-white/70 hover:text-white shrink-0" @click="store.dismissToast(toast.id)">✕</button>
+        <!-- Toast notifications: top-right of the content pane -->
+        <div class="absolute right-4 top-4 z-50 flex max-w-sm flex-col gap-2">
+          <div
+            v-for="toast in store.toasts"
+            :key="toast.id"
+            class="flex items-start gap-3 bg-red-700 text-white text-sm rounded-lg shadow-lg px-4 py-3"
+          >
+            <span class="flex-1">{{ toast.message }}</span>
+            <button class="text-white/70 hover:text-white shrink-0" @click="store.dismissToast(toast.id)">✕</button>
+          </div>
         </div>
       </div>
-    </Teleport>
+    </div>
   </div>
 </template>

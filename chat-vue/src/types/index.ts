@@ -227,6 +227,24 @@ export interface MeshUrlResponse {
   expires_at: string
 }
 
+/** One input photo of a scan: presigned full-size and thumbnail (≤256 px) GET URLs. */
+export interface PhotoItem {
+  filename: string
+  url: string
+  thumb_url: string
+}
+
+export interface JobPhotosResponse {
+  photos: PhotoItem[]
+}
+
+/** The bundled sample photo set, as shown in the New Scan form's sample mode. */
+export interface SamplePhotos {
+  name: string
+  image_count: number
+  photos: PhotoItem[]
+}
+
 /** Store-side cache entry for MeshUrlResponse (camelCase, epoch-ms expiry). */
 export interface MeshUrls {
   url: string
