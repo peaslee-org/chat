@@ -12,9 +12,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 - [ ] **Transcription job path should honour `ReleaseWatcher.abort`** (immediate release aborts only the
   photogrammetry runner today).
 - [ ] Photogrammetry robustness (spec 2026-08-28): resumable stages, no-cycling rule, mesh budget
-  (refine ≤ 400 k faces, decimate above 500 k), photo orientation normalisation. **Smoke = sample
-  job + a re-run of the 51-photo set** (expect the rotation warning, no refine, complete). Then
-  bake + pins. Deploy the API migration first: the worker's ORM model now selects `warnings`, so
+  (refine ≤ 400 k faces, decimate above 500 k), photo orientation normalisation. **Deployed via CI
+  2026-08-29 (task-def `:13`, scratch volume + `maxReceiveCount` 5 applied). Still to do: smoke =
+  sample job + a re-run of the 51-photo set** (expect the rotation warning, no refine, complete),
+  then bake + pins (cold starts pull until the re-bake). Deploy the API migration first: the worker's ORM model now selects `warnings`, so
   against an un-migrated DB every receipt raises outside the handler's try block and the message
   is never acked.
 
@@ -62,22 +63,16 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## API (chat-api)
 
-- [ ] Photogrammetry `warnings` column + field (migration `o5p6q7r8s9t0`). Deploy **first** — the
-  worker writes the column.
+- [x] ~~Photogrammetry `warnings` column + field (migration `o5p6q7r8s9t0`).~~ Deployed 2026-08-29 (`chat-api-prod:81`).
 
 - [ ] **`POST /gpu/release` 200 means "flag written", not "worker acknowledged"** — a worker on an image
   without the watcher (any transcription image before `7d7fa01`) never reads it. Either return the
   session's `release_requested_at`/`ended_at` on a follow-up `GET /gpu/state`, or have the controller
   fall back to `StopTask` when the row is still open after N seconds.
 
-- [ ] **Deploy the admin release endpoint** (built 2026-08-28, unpushed): migration `n4o5p6q7r8s9`
-  (three nullable `gpu_sessions` columns) + `POST /gpu/release`. Ships with the API image; the
-  worker side is in the *Worker image* batch below — deploy the API first (columns must exist before
-  a worker polls them; the worker's reader tolerates their absence by returning None).
+- [x] ~~Deploy the admin release endpoint~~ live since 2026-08-28 (`chat-api-prod:80`): migration `n4o5p6q7r8s9` + `POST /gpu/release`.
 
-- [ ] **Deploy the mesh attachment download URLs** (`bc597a4`, built 2026-08-28, unpushed):
-  `GET /photogrammetry/jobs/{id}/mesh` gains `download_url` / `preview_download_url`. Ships with the
-  API image; deploy before the Vue batch below (the buttons no-op against an API without the fields).
+- [x] ~~Deploy the mesh attachment download URLs~~ (`bc597a4`) live since 2026-08-28 (`chat-api-prod:80`).
 
 - [ ] Photogrammetry worker: `except (ClientError, BotoCoreError): raise` in the download block retries *every* S3
   error via SQS — a permanent one (`AccessDenied`, `NoSuchKey`) spins 3× to the DLQ and leaves the row
@@ -102,10 +97,9 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
   clicking it did not POST; deleting the stuck job first did). Either disable the button with a hint or
   let it create a new job.
 
-- [ ] **Deploy the GLB / preview download buttons** (`9ba40c9`, built 2026-08-28, unpushed) — after the
-  API batch above.
+- [x] ~~Deploy the GLB / preview download buttons~~ (`9ba40c9`) live since 2026-08-28.
 
-- [ ] Warnings on the scan view, ⚠ on the card, toasts for new warnings. After the API deploy.
+- [x] ~~Warnings on the scan view, ⚠ on the card, toasts for new warnings.~~ Deployed 2026-08-29.
 
 - [ ] Photogrammetry store: no polling cutoff for a job stuck in `pending`; sibling uploads are
   not cancelled when one fails; dropzone not keyboard-focusable; dragover flicker over children.
@@ -117,14 +111,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Infra (terraform)
 
-- [ ] **Apply the audio-bucket CORS `GET` rule** (`696a203`, 2026-08-28; `transcription-prod` plan 0/1/0).
-  Until it is applied the photogrammetry viewer cannot `fetch()` the GLB cross-origin and stays on
-  its poster image — the 3D preview has never rendered in production; go-live acceptance only
-  checked the `/mesh` API call. Standalone, no image rebuild.
+- [x] ~~Apply the audio-bucket CORS `GET` rule~~ (`696a203`) — applied 2026-08-28; the 3D viewer renders in production.
 
-- [ ] photogrammetry task-def: host-path scratch volume `/var/lib/photogrammetry` → `/tmp/pg`
-  (new revision; overlay plan/apply, then bump the overlay task-def pin); `maxReceiveCount` 3 → 5
-  on the photogrammetry queue (same apply).
+- [x] ~~photogrammetry task-def: host-path scratch volume; `maxReceiveCount` 3 → 5~~ applied
+  2026-08-29 (task-def `:13`; both worker `image_tag`s pinned to the deployed sha in tfvars).
 
 - [ ] **ECS managed scaling launches 2 instances for 1 task** from zero (observed 2026-08-26 and
   2026-08-27); the spare idles ~10 min until scale-in. Check the capacity provider's
