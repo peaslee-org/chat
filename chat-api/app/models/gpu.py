@@ -34,6 +34,13 @@ class GpuSession(Base):
     # The off→ready estimate shown to the user when this task was launched; compared with
     # started_processing_at − started_at in the usage panel.
     estimated_startup_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    # Startup stages. The worker writes instance_booted_at on claim (host boot = now − /proc/uptime);
+    # the API copies the ECS task's pullStartedAt / pullStoppedAt / startedAt while the session is
+    # open. cold = the instance booted for this launch; warm = it was already up (scale-in lag).
+    instance_booted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    pull_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    pull_stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    container_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class GpuCostSnapshot(Base):

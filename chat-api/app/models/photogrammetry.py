@@ -33,6 +33,9 @@ class PhotogrammetryJob(UUIDMixin, Base):
     preview_s3_key: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     warnings: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    # {filename: "registered" | "unregistered" | "skipped:<reason>"} — written by the worker after
+    # SfM (success and the "only N of M matched" failure alike) so the photo grid can show which.
+    photo_status: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

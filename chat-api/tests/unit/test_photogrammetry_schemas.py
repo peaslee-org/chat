@@ -49,5 +49,29 @@ def test_photo_listing_schemas_shape():
     sample = SamplePhotosResponse(name="Sample scan", image_count=1, photos=[item])
     assert sample.model_dump() == {
         "name": "Sample scan", "image_count": 1,
-        "photos": [{"filename": "0001.jpg", "url": "https://dl/0001.jpg", "thumb_url": "https://dl/t.jpg"}],
+        "photos": [{"filename": "0001.jpg", "url": "https://dl/0001.jpg", "thumb_url": "https://dl/t.jpg", "status": None}],
     }
+
+
+def test_job_photos_response_carries_status_matched_total():
+    from app.schemas.photogrammetry import JobPhotosResponse, PhotoItem
+    r = JobPhotosResponse(photos=[PhotoItem(filename="a.jpg", url="u", thumb_url="t", status="registered")],
+                          matched=1, total=1)
+    assert r.photos[0].status == "registered" and r.matched == 1 and r.total == 1
+    assert PhotoItem(filename="a.jpg", url="u", thumb_url="t").status is None
+
+
+def test_gpu_schemas_carry_kind_stages_and_medians():
+    from app.schemas.gpu import GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupStages
+    st = StartupStages(capacity=1, boot=None, pull=3, container=4, init=5)
+    assert st.boot is None
+    now = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
+    s = GpuSessionSummary(started_at=now, ended_at=None, reason="job", started_by="u", end_reason=None,
+                          hours=0.0, kind="warm", stages=st)
+    assert s.kind == "warm" and s.stages.pull == 3
+    assert GpuStateResponse(worker_state="off", estimated_wait_seconds=1).start_kind == "cold"
+    u = GpuUsageResponse(today_hours=0, month_hours=0, daily_cap_hours=1, monthly_cap_hours=1,
+                         warms_today_for_user=0, warm_cap_per_user_per_day=1, estimated_month_cost_usd=0,
+                         hourly_rate_usd=0, sessions=[], cold_median_seconds=400, cold_samples=3,
+                         warm_median_seconds=None, warm_samples=1)
+    assert u.warm_median_seconds is None and u.cold_samples == 3

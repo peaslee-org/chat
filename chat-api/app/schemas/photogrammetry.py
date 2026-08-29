@@ -72,10 +72,15 @@ class PhotoItem(BaseModel):
     filename: str
     url: str        # presigned GET of the original
     thumb_url: str  # presigned GET of the 256 px thumbnail (the original when none could be made)
+    # "registered" | "unregistered" | "skipped:<reason>" from the worker's SfM pass; None before
+    # it ran (and always for the sample set listing).
+    status: Optional[str] = None
 
 
 class JobPhotosResponse(BaseModel):
     photos: List[PhotoItem]
+    matched: Optional[int] = None   # photos SfM registered; None until the worker reported
+    total: int = 0
 
 
 class SamplePhotosResponse(BaseModel):

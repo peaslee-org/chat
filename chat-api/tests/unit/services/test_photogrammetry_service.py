@@ -39,6 +39,7 @@ def make_job(**overrides):
     job.preview_s3_key = overrides.get("preview_s3_key")
     job.error_message = None
     job.warnings = overrides.get("warnings")
+    job.photo_status = overrides.get("photo_status")
     job.created_at = job.updated_at = NOW
     job.completed_at = None
     return job
@@ -417,6 +418,25 @@ class TestListJobPhotos:
             res = await svc.list_job_photos("user1", job.id)
         assert res.photos[0].thumb_url == res.photos[0].url == f"https://dl/{key}"
 
+    async def test_photo_status_from_the_job_row_is_mapped_by_filename(self):
+        job = make_job(status="failed")
+        job.photo_status = {"0001.jpg": "registered", "0002.jpg": "unregistered", "0003.jpg": "skipped:unreadable"}
+        keys = [f"{job.input_prefix}{n}" for n in ("0001.jpg", "0002.jpg", "0003.jpg", "0004.jpg")]
+        svc, *_ = make_service(job=job, keys=keys)
+        with patch.object(ps, "ensure_thumbnails", return_value={}):
+            res = await svc.list_job_photos("user1", job.id)
+        assert [p.status for p in res.photos] == ["registered", "unregistered", "skipped:unreadable", None]
+        assert res.matched == 1 and res.total == 4
+
+    async def test_photo_status_absent_means_no_statuses_and_no_matched_count(self):
+        job = make_job(status="processing")
+        job.photo_status = None
+        svc, *_ = make_service(job=job, keys=[f"{job.input_prefix}0001.jpg"])
+        with patch.object(ps, "ensure_thumbnails", return_value={}):
+            res = await svc.list_job_photos("user1", job.id)
+        assert res.photos[0].status is None
+        assert res.matched is None and res.total == 1
+
     async def test_sample_job_thumbs_go_beside_images_not_inside(self):
         """A sample job's inputs are the shared samples/photogrammetry/images/ prefix. Its thumbs
         must land in the sibling thumbs/ — writing them under images/ makes the next sample job
@@ -453,6 +473,12 @@ class TestListSamplePhotos:
         svc, *_ = make_service(keys=[])
         with pytest.raises(ConflictError):
             await svc.list_sample_photos()
+
+    async def test_sample_photos_carry_no_status(self):
+        svc, *_ = make_service(keys=["samples/photogrammetry/images/0001.jpg"])
+        with patch.object(ps, "ensure_thumbnails", return_value={}):
+            res = await svc.list_sample_photos()
+        assert res.photos[0].status is None
 
     async def test_lists_under_the_sample_prefix_with_thumbs_beside_images(self):
         keys = ["samples/photogrammetry/images/0001.jpg", "samples/photogrammetry/images/0002.jpg"]

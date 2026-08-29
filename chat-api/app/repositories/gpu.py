@@ -98,10 +98,11 @@ class GpuSessionRepository:
         )
         return result.rowcount
 
-    async def recent_startups(self, family: str, limit: int = 10) -> list[GpuSession]:
+    async def recent_startups(self, family: str, limit: int = 20) -> list[GpuSession]:
         """The family's latest job-triggered launches that a worker actually claimed — the sample
-        the startup estimate is measured from (started_processing_at − started_at). Warm starts
-        are excluded: with nothing queued, the claim never happens."""
+        the startup estimates are measured from (started_processing_at − started_at), split into
+        cold/warm by the controller. Warm-*reason* launches (pre-warming with nothing queued) are
+        excluded: the claim never happens. 20 so both kinds get enough samples."""
         stmt = (
             select(GpuSession)
             .where(
@@ -123,6 +124,31 @@ class GpuSessionRepository:
             .limit(1)
         )
         return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def last_ended_session(self, family: str) -> Optional[GpuSession]:
+        """The family's most recently ended session — its ended_at says whether the instance is
+        probably still up (inside the ASG's scale-in lag), i.e. whether the next start is warm."""
+        stmt = (
+            select(GpuSession)
+            .where(GpuSession.ended_at.is_not(None), GpuSession.family == family)
+            .order_by(GpuSession.ended_at.desc())
+            .limit(1)
+        )
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def record_timings(self, task_arn: str, **fields: Optional[datetime]) -> None:
+        """Copy ECS stage timestamps onto the session row. Only non-None inputs are applied, and
+        only where the column is still NULL — the first stamp wins, later polls are no-ops."""
+        values = {
+            name: func.coalesce(getattr(GpuSession, name), value)
+            for name, value in fields.items()
+            if value is not None
+        }
+        if not values:
+            return
+        await self.db.execute(
+            update(GpuSession).where(GpuSession.task_arn == task_arn).values(**values)
+        )
 
     async def sessions_since(self, since: datetime) -> list[GpuSession]:
         stmt = select(GpuSession).where(GpuSession.started_at >= since).order_by(GpuSession.started_at.desc())
