@@ -23,6 +23,12 @@ Manual redeploy of one surface without a code change: **Actions → Deploy → R
 the surface (`gh workflow run Deploy -f photogrammetry_worker=true`). Deploys queue behind each
 other (`concurrency: deploy-prod`, never cancelled).
 
+**If the API job fails**, the surfaces behind it are *skipped, not retried*. A fix that touches
+only `chat-api/` redeploys only the API — the skipped surfaces stay on their old build until you
+dispatch them: `gh workflow run Deploy -f vue=true` (queues behind the running deploy). ECS keeps
+the previous task set serving while a new revision crash-loops, so a failed API rollout is
+"stuck", not "down"; the API log (`/ecs/chat-api-prod`) has the traceback.
+
 Worker images are also baked into the GPU AMI so cold starts don't pull ~7 GB. A new worker image
 is *usable* as soon as CI registers the revision, but each cold start pays a ~5 min pull until the
 AMI is rebaked.
