@@ -101,16 +101,29 @@ export type WorkerState = 'off' | 'starting' | 'running'
 
 export type GpuFamily = "transcription" | "photogrammetry"
 
+export type EstimateBasis = "measured" | "default"
+
 export interface GpuState {
   worker_state: WorkerState
+  /** Remaining seconds while starting (server subtracts elapsed); the full estimate while off; 0 running. */
   estimated_wait_seconds: number
   warm_until: string | null
   notice: string | null
+  /** The open session's launch time while starting, else null. */
+  starting_since: string | null
+  /** Full expected off→ready duration: median of recent measured starts, or the config default. */
+  startup_estimate_seconds: number
+  estimate_basis: EstimateBasis
+  estimate_samples: number
 }
 
 export interface GpuSessionSummary {
   started_at: string; ended_at: string | null; reason: string; started_by: string
   end_reason: string | null; hours: number; family: GpuFamily
+  /** What the UI promised when this worker was launched. */
+  estimated_startup_seconds: number | null
+  /** Launch → first job claimed; null for sessions that never took a job (warm-ups). */
+  actual_startup_seconds: number | null
 }
 
 export interface GpuUsage {
@@ -118,6 +131,8 @@ export interface GpuUsage {
   warms_today_for_user: number; warm_cap_per_user_per_day: number
   estimated_month_cost_usd: number; hourly_rate_usd: number
   actual_month_to_date_usd: number | null; actual_fetched_at: string | null
+  startup_median_seconds: number | null
+  startup_samples: number
   sessions: GpuSessionSummary[]
 }
 

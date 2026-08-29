@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from statistics import median
 from typing import Callable, Optional
 
 from app.schemas.gpu import GpuSessionSummary, GpuStateResponse, GpuUsageResponse, WorkerState
@@ -14,6 +15,8 @@ _STATE_CACHE_TTL = 30.0
 _state_cache: dict[str, tuple[float, list[str]]] = {}   # family -> (expiry_monotonic, task statuses)
 
 _STARTING = {"PROVISIONING", "PENDING", "ACTIVATING"}
+_ESTIMATE_WINDOW = 10      # job starts the median is taken over
+_ESTIMATE_MIN_SAMPLES = 3  # below this the config default is used
 
 
 class GpuNoWorker(Exception):
@@ -54,10 +57,10 @@ class GpuController:
                 statuses = await asyncio.to_thread(self._launcher.list_worker_tasks)
             except GpuLaunchError as e:
                 logger.warning("ListTasks failed: %s", e)
-                return self._response("off", notice="GPU status unavailable")
+                return await self._response("off", notice="GPU status unavailable")
             cached = (mono + _STATE_CACHE_TTL, statuses)
             _state_cache[self._family] = cached
-        return self._response(_state_from(cached[1]))
+        return await self._response(_state_from(cached[1]))
 
     async def release(self, mode: str, user_id: str) -> GpuStateResponse:
         """Admin: make the live worker exit — after its current job ("graceful") or now
@@ -71,12 +74,43 @@ class GpuController:
         _state_cache.pop(self._family, None)
         return await self.get_state()
 
-    def _response(self, state: WorkerState, notice: Optional[str] = None,
-                  warm_until: Optional[datetime] = None) -> GpuStateResponse:
-        wait = {"running": 0, "starting": self._s.gpu_wait_estimate_starting_seconds,
-                "off": self._s.gpu_wait_estimate_off_seconds}[state]
-        return GpuStateResponse(worker_state=state, estimated_wait_seconds=wait,
-                                notice=notice, warm_until=warm_until)
+    # ── startup estimate ─────────────────────────────────────────────────────
+
+    async def _startup_estimate(self) -> tuple[int, str, int]:
+        """(seconds, basis, samples): the median off→ready time of the family's recent job
+        starts — RunTask to the worker's first claim, which spans capacity-provider reaction,
+        instance boot, image pull and the container coming up. Config default until there are
+        enough starts to trust."""
+        recent = await self._repo.recent_startups(self._family, _ESTIMATE_WINDOW)
+        samples = [
+            int((s.started_processing_at - s.started_at).total_seconds())
+            for s in recent
+            if s.started_processing_at is not None
+        ]
+        if len(samples) >= _ESTIMATE_MIN_SAMPLES:
+            return int(median(samples)), "measured", len(samples)
+        return self._s.gpu_wait_estimate_off_seconds, "default", len(samples)
+
+    async def _response(self, state: WorkerState, notice: Optional[str] = None,
+                        warm_until: Optional[datetime] = None,
+                        estimate: Optional[tuple[int, str, int]] = None,
+                        starting_since: Optional[datetime] = None) -> GpuStateResponse:
+        full, basis, samples = estimate or await self._startup_estimate()
+        if state == "running":
+            wait = 0
+        elif state == "starting":
+            if starting_since is None:
+                row = await self._repo.open_session(self._family)
+                starting_since = row.started_at if row is not None else None
+            elapsed = int((self._now() - starting_since).total_seconds()) if starting_since else 0
+            wait = max(0, full - elapsed)
+        else:
+            wait = full
+        return GpuStateResponse(
+            worker_state=state, estimated_wait_seconds=wait, notice=notice, warm_until=warm_until,
+            starting_since=starting_since if state == "starting" else None,
+            startup_estimate_seconds=full, estimate_basis=basis, estimate_samples=samples,
+        )
 
     # ── launch ───────────────────────────────────────────────────────────────
 
@@ -88,7 +122,7 @@ class GpuController:
         except GpuLaunchError as e:
             logger.error("ListTasks failed: %s", e)
             _state_cache.pop(self._family, None)
-            return self._response("off", notice="GPU unavailable, retrying on next poll")
+            return await self._response("off", notice="GPU unavailable, retrying on next poll")
         state = _state_from(statuses)
         if state == "off":
             # ListTasks just confirmed nothing is running — any still-open row is stale
@@ -98,22 +132,29 @@ class GpuController:
             if closed:
                 logger.info("Reconciled %d stale gpu_sessions row(s) before cap check", closed)
         notice = await self._check_caps(reason, user_id, is_admin, will_launch=(state == "off"))
+        estimate = await self._startup_estimate()
         warm_until = None
+        starting_since = None
         if state == "off":
             try:
                 task_arn = await asyncio.to_thread(self._launcher.run_worker_task, user_id)
             except GpuLaunchError as e:
                 logger.error("RunTask failed: %s", e)
                 _state_cache.pop(self._family, None)
-                return self._response("off", notice="GPU unavailable, retrying on next poll")
+                return await self._response("off", notice="GPU unavailable, retrying on next poll",
+                                            estimate=estimate)
             warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds) if reason == "warm" else None
-            await self._repo.create(task_arn=task_arn, started_by=user_id, reason=reason, warm_until=warm_until)
+            # Record the promise: the usage panel compares it with what the start actually took.
+            await self._repo.create(task_arn=task_arn, started_by=user_id, reason=reason,
+                                    warm_until=warm_until, estimated_startup_seconds=estimate[0])
             state = "starting"
+            starting_since = now
         elif reason == "warm":
             warm_until = now + timedelta(seconds=self._s.gpu_idle_exit_seconds)
             await self._repo.extend_warm(warm_until)
         _state_cache.pop(self._family, None)
-        return self._response(state, notice=notice, warm_until=warm_until)
+        return await self._response(state, notice=notice, warm_until=warm_until,
+                                    estimate=estimate, starting_since=starting_since)
 
     async def _check_caps(self, reason: str, user_id: str, is_admin: bool, will_launch: bool) -> Optional[str]:
         now = self._now()
@@ -148,10 +189,16 @@ class GpuController:
         month = await self._repo.hours_between(month_start, now, self._s.gpu_max_lifetime_seconds)
         warms = await self._repo.warm_count_for_user_since(user_id, day_start)
         actual, fetched_at = await self._actual_cost(now)
+        median_seconds, _basis, samples = await self._startup_estimate()
         sessions = [
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
                 end_reason=s.end_reason, family=s.family,
+                estimated_startup_seconds=s.estimated_startup_seconds,
+                actual_startup_seconds=(
+                    int((s.started_processing_at - s.started_at).total_seconds())
+                    if s.started_processing_at is not None else None
+                ),
                 # Matches hours_between's phantom-hours rule: a row that never got an instance
                 # cost nothing, and the clock starts when the worker claimed it, not on enqueue.
                 hours=(
@@ -168,6 +215,8 @@ class GpuController:
             estimated_month_cost_usd=round(month * self._s.gpu_hourly_rate_usd, 2),
             hourly_rate_usd=self._s.gpu_hourly_rate_usd,
             actual_month_to_date_usd=actual, actual_fetched_at=fetched_at, sessions=sessions,
+            startup_median_seconds=median_seconds if samples >= _ESTIMATE_MIN_SAMPLES else None,
+            startup_samples=samples,
         )
 
     async def _actual_cost(self, now: datetime) -> tuple[Optional[float], Optional[datetime]]:

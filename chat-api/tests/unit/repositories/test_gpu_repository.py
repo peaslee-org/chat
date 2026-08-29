@@ -119,3 +119,35 @@ async def test_request_release_marks_open_session_of_family_and_clears_warm():
     assert "ended_at IS NULL" in sql and "family = 'photogrammetry'" in sql
     assert "release_mode='immediate'" in sql and "release_requested_by='admin1'" in sql
     assert "warm_until=NULL" in sql
+
+
+# ── startup measurement queries (item C) ──────────────────────────────────────────────────────
+
+async def test_recent_startups_filters_job_sessions_with_a_claim_for_the_family_newest_first():
+    repo, db = make_repo(family="photogrammetry")
+    db.execute.return_value.scalars.return_value.all.return_value = []
+    await repo.recent_startups("photogrammetry", limit=10)
+    sql = compiled(db)
+    assert "family = 'photogrammetry'" in sql
+    assert "reason = 'job'" in sql
+    assert "started_processing_at IS NOT NULL" in sql
+    assert "ORDER BY gpu_sessions.started_at DESC" in sql
+    assert "LIMIT 10" in sql
+
+
+async def test_open_session_is_the_newest_unended_row_of_the_family():
+    repo, db = make_repo(family="photogrammetry")
+    db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
+    assert await repo.open_session("photogrammetry") is None
+    sql = compiled(db)
+    assert "ended_at IS NULL" in sql and "family = 'photogrammetry'" in sql
+    assert "ORDER BY gpu_sessions.started_at DESC" in sql and "LIMIT 1" in sql
+
+
+async def test_create_stamps_the_promised_startup_estimate():
+    repo, db = make_repo()
+    db.add = MagicMock()
+    db.flush = AsyncMock()
+    row = await repo.create(task_arn="arn", started_by="u", reason="job", warm_until=None,
+                            estimated_startup_seconds=400)
+    assert row.estimated_startup_seconds == 400

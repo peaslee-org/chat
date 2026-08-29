@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from "vue"
+import { computed, onUnmounted, ref, watch } from "vue"
 import type { PhotoItem } from "@/types"
 
 /**
  * Dense thumbnail grid over a scan's input photos. Thumbnails are ≤256 px JPEGs served by the
  * API, so a 150-photo set is a few MB, lazily; the full-size original loads only when a
- * thumbnail is clicked (overlay). Shared by the scan page and the New Scan form's sample mode.
+ * thumbnail is clicked (overlay with prev/next). Shared by the scan page and the New Scan
+ * form's sample mode.
  */
 const props = withDefaults(defineProps<{
   photos: PhotoItem[]
@@ -16,55 +17,114 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ open: [photo: PhotoItem] }>()
 
 const SKELETON_COUNT = 24
-const open = ref<PhotoItem | null>(null)
 
-function show(photo: PhotoItem) {
-  open.value = photo
-  emit("open", photo)
-}
+// ── per-tile load state ──
+type TileState = "pending" | "loaded" | "failed"
+const tiles = ref<Record<string, TileState>>({})
+watch(() => props.photos, (list) => {
+  const next: Record<string, TileState> = {}
+  for (const p of list) next[p.thumb_url] = tiles.value[p.thumb_url] ?? "pending"
+  tiles.value = next
+}, { immediate: true })
+function tileState(photo: PhotoItem): TileState { return tiles.value[photo.thumb_url] ?? "pending" }
+function onThumbLoad(photo: PhotoItem) { tiles.value[photo.thumb_url] = "loaded" }
+function onThumbError(photo: PhotoItem) { tiles.value[photo.thumb_url] = "failed" }
 
-function close() {
-  open.value = null
+const doneCount = computed(() => props.photos.filter(p => tileState(p) !== "pending").length)
+const status = computed(() => {
+  if (props.loading) return "Preparing thumbnails…"
+  if (props.photos.length === 0) return ""
+  if (doneCount.value < props.photos.length) return `Loading photos… ${doneCount.value} of ${props.photos.length}`
+  return `${props.photos.length} photos`
+})
+const stillLoading = computed(() => props.loading || doneCount.value < props.photos.length)
+
+// ── overlay with prev/next ──
+const openIndex = ref<number | null>(null)
+const open = computed(() => (openIndex.value === null ? null : props.photos[openIndex.value] ?? null))
+const hasPrev = computed(() => openIndex.value !== null && openIndex.value > 0)
+const hasNext = computed(() => openIndex.value !== null && openIndex.value < props.photos.length - 1)
+
+function show(index: number) {
+  openIndex.value = index
+  const photo = props.photos[index]
+  if (photo) emit("open", photo)
 }
+function close() { openIndex.value = null }
+function prev() { if (hasPrev.value && openIndex.value !== null) openIndex.value -= 1 }
+function next() { if (hasNext.value && openIndex.value !== null) openIndex.value += 1 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") close()
+  else if (e.key === "ArrowLeft") prev()
+  else if (e.key === "ArrowRight") next()
 }
 
-watch(open, (photo, prev) => {
-  if (photo && !prev) document.addEventListener("keydown", onKeydown)
-  else if (!photo && prev) document.removeEventListener("keydown", onKeydown)
+watch(openIndex, (idx, prevIdx) => {
+  if (idx !== null && prevIdx === null) document.addEventListener("keydown", onKeydown)
+  else if (idx === null && prevIdx !== null) document.removeEventListener("keydown", onKeydown)
 })
 
 onUnmounted(() => document.removeEventListener("keydown", onKeydown))
+
+const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl leading-none text-white/70 hover:text-white disabled:opacity-30 disabled:hover:text-white/70"
 </script>
 
 <template>
   <div>
     <p v-if="props.error" class="text-sm text-red-600">{{ props.error }}</p>
 
-    <div v-else-if="props.loading" class="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1">
-      <div v-for="i in SKELETON_COUNT" :key="i" data-testid="skeleton" class="aspect-square animate-pulse rounded bg-gray-200" />
-    </div>
+    <template v-else>
+      <p v-if="status" class="mb-2 flex items-center gap-2 text-xs text-gray-500" data-testid="photo-status">
+        <svg v-if="stillLoading" class="h-3.5 w-3.5 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25" />
+          <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+        </svg>
+        <span>{{ status }}</span>
+      </p>
 
-    <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1">
-      <button
-        v-for="photo in props.photos"
-        :key="photo.filename"
-        type="button"
-        class="aspect-square overflow-hidden rounded bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        @click="show(photo)"
-      >
-        <img
-          :src="photo.thumb_url"
-          :alt="photo.filename"
-          :title="photo.filename"
-          loading="lazy"
-          decoding="async"
-          class="h-full w-full object-cover transition-transform hover:scale-105"
-        />
-      </button>
-    </div>
+      <div v-if="props.loading" class="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1">
+        <div v-for="i in SKELETON_COUNT" :key="i" data-testid="skeleton" class="aspect-square animate-pulse rounded bg-gray-200" />
+      </div>
+
+      <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1">
+        <button
+          v-for="(photo, i) in props.photos"
+          :key="photo.filename"
+          type="button"
+          class="relative aspect-square overflow-hidden rounded bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          @click="show(i)"
+        >
+          <img
+            :src="photo.thumb_url"
+            :alt="photo.filename"
+            :title="photo.filename"
+            loading="lazy"
+            decoding="async"
+            class="h-full w-full object-cover transition-opacity hover:scale-105"
+            :class="tileState(photo) === 'loaded' ? 'opacity-100 transition-transform' : 'opacity-0'"
+            @load="onThumbLoad(photo)"
+            @error="onThumbError(photo)"
+          />
+          <span
+            v-if="tileState(photo) === 'pending'"
+            data-testid="thumb-pending"
+            class="absolute inset-0 flex animate-pulse items-center justify-center bg-gray-200"
+          >
+            <svg class="h-4 w-4 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25" />
+              <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span
+            v-else-if="tileState(photo) === 'failed'"
+            data-testid="thumb-error"
+            class="absolute inset-0 flex items-center justify-center bg-gray-100 text-lg text-gray-400"
+            :title="`${photo.filename} — thumbnail failed`"
+          >✕</span>
+        </button>
+      </div>
+    </template>
 
     <div
       v-if="open"
@@ -72,8 +132,29 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown))
       class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4"
       @click="close"
     >
-      <img :src="open.url" :alt="open.filename" class="max-h-[90vh] max-w-full rounded object-contain" @click.stop />
-      <p class="mt-2 text-sm text-white/80">{{ open.filename }}</p>
+      <img
+        :src="open.url"
+        :alt="open.filename"
+        class="max-h-[85vh] max-w-[calc(100vw-9rem)] rounded object-contain"
+        @click.stop
+      />
+      <p class="mt-2 text-sm text-white/80">{{ open.filename }} · {{ (openIndex ?? 0) + 1 }} / {{ props.photos.length }}</p>
+      <button
+        type="button"
+        data-testid="photo-prev"
+        :class="[chevron, 'left-4']"
+        :disabled="!hasPrev"
+        aria-label="Previous photo"
+        @click.stop="prev"
+      >‹</button>
+      <button
+        type="button"
+        data-testid="photo-next"
+        :class="[chevron, 'right-4']"
+        :disabled="!hasNext"
+        aria-label="Next photo"
+        @click.stop="next"
+      >›</button>
       <button
         type="button"
         class="absolute right-4 top-4 rounded-full bg-black/60 px-3 py-1 text-sm text-white hover:bg-black/80"
