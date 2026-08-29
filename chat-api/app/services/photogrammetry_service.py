@@ -169,7 +169,13 @@ class PhotogrammetryService:
 
     async def list_job_photos(self, user_id: str, job_id: UUID) -> JobPhotosResponse:
         job = await self._get_or_404(user_id, job_id)
-        return JobPhotosResponse(photos=await self._photos(job.input_prefix))
+        status = job.photo_status  # None until the worker's SfM pass wrote it
+        photos = await self._photos(job.input_prefix, status or {})
+        return JobPhotosResponse(
+            photos=photos,
+            matched=sum(1 for v in status.values() if v == "registered") if status is not None else None,
+            total=len(photos),
+        )
 
     async def list_sample_photos(self) -> SamplePhotosResponse:
         photos = await self._photos(f"{self._settings.photogrammetry_sample_prefix}images/")
@@ -191,8 +197,9 @@ class PhotogrammetryService:
             if "/" not in k[len(prefix):]
         )
 
-    async def _photos(self, images_prefix: str) -> list[PhotoItem]:
+    async def _photos(self, images_prefix: str, status: Optional[dict] = None) -> list[PhotoItem]:
         """Presigned originals + thumbnails (made on first request, cached beside them)."""
+        status = status or {}
         keys = self._input_keys(images_prefix)
         thumbs_prefix = self._thumbs_prefix_for(images_prefix)
         thumbs = await asyncio.to_thread(ensure_thumbnails, self._storage, keys, thumbs_prefix)
@@ -201,12 +208,14 @@ class PhotogrammetryService:
         for key in keys:
             url = presign(key, ttl_seconds=DOWNLOAD_TTL_SECONDS)
             thumb_key = thumbs.get(key)
+            name = Path(key).name
             items.append(PhotoItem(
-                filename=Path(key).name,
+                filename=name,
                 url=url,
                 thumb_url=(
                     presign(thumb_key, ttl_seconds=DOWNLOAD_TTL_SECONDS) if thumb_key else url
                 ),
+                status=status.get(name),
             ))
         return items
 

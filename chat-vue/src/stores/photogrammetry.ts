@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { computed, reactive, ref } from "vue"
 import axios from "axios"
 import * as api from "@/lib/photogrammetryApi"
-import type { MeshUrls, PhotogrammetryJob, PhotoItem, SamplePhotos } from "@/types"
+import type { JobPhotosResponse, MeshUrls, PhotogrammetryJob, SamplePhotos } from "@/types"
 
 export interface Toast {
   id: number
@@ -27,7 +27,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
   const activeJobId = ref<string | null>(null)
   const uploadProgress = ref<UploadProgress | null>(null)
   const meshUrls = ref<Record<string, MeshUrls>>({})
-  const photosByJob = new Map<string, PhotoItem[]>()
+  const photosByJob = new Map<string, JobPhotosResponse>()
   const toasts = ref<Toast[]>([])
   const pollingActive = reactive(new Set<string>())
   const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -119,6 +119,11 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     activeJobId.value = jobId
   }
 
+  /** Close the open scan — back to "select a scan"; polling and caches are untouched. */
+  function clearSelection(): void {
+    activeJobId.value = null
+  }
+
   async function deleteJob(jobId: string): Promise<void> {
     stopPolling(jobId)
     await api.deleteJob(jobId)
@@ -128,13 +133,16 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     if (activeJobId.value === jobId) activeJobId.value = null
   }
 
-  /** A job's input photos (thumb + full-size presigned URLs), cached per job for the session. */
-  async function fetchJobPhotos(jobId: string): Promise<PhotoItem[]> {
+  /**
+   * A job's input photos (thumb + full-size presigned URLs, per-photo SfM status, matched count),
+   * cached per job for the session. `force` refetches — the status is written when SfM ends.
+   */
+  async function fetchJobPhotos(jobId: string, opts: { force?: boolean } = {}): Promise<JobPhotosResponse> {
     const cached = photosByJob.get(jobId)
-    if (cached) return cached
-    const photos = await api.fetchJobPhotos(jobId)
-    photosByJob.set(jobId, photos)
-    return photos
+    if (cached && !opts.force) return cached
+    const res = await api.fetchJobPhotos(jobId)
+    photosByJob.set(jobId, res)
+    return res
   }
 
   function fetchSamplePhotos(): Promise<SamplePhotos> {
@@ -205,7 +213,7 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
 
   return {
     jobs, nextCursor, activeJobId, activeJob, uploadProgress, pollingActive, toasts, meshUrls,
-    loadJobs, submitScan, submitSampleJob, selectJob, deleteJob, fetchMeshUrls, fetchJobPhotos, fetchSamplePhotos,
+    loadJobs, submitScan, submitSampleJob, selectJob, clearSelection, deleteJob, fetchMeshUrls, fetchJobPhotos, fetchSamplePhotos,
     resumePollingForActiveJobs, dismissToast,
   }
 })

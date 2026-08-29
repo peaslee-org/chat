@@ -11,7 +11,7 @@ NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
 
 
 def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_sessions=0,
-         family="transcription", startups=None, open_session=None):
+         family="transcription", startups=None, open_session=None, last_ended=None, timings=None):
     repo = MagicMock()
     repo.advisory_lock = AsyncMock()
     repo.hours_between = AsyncMock(
@@ -24,16 +24,20 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
     repo.sessions_since = AsyncMock(return_value=[])
     repo.recent_startups = AsyncMock(return_value=list(startups or []))
     repo.open_session = AsyncMock(return_value=open_session)
+    repo.last_ended_session = AsyncMock(return_value=last_ended)
+    repo.record_timings = AsyncMock()
     repo.latest_cost_snapshot = AsyncMock(return_value=None)
     repo.save_cost_snapshot = AsyncMock()
     launcher = MagicMock()
     launcher.list_worker_tasks = MagicMock(return_value=tasks or [])
     launcher.run_worker_task = MagicMock(return_value="arn:task/1")
+    launcher.task_timings = MagicMock(return_value=timings)
     settings = MagicMock(
         gpu_idle_exit_seconds=900, gpu_max_lifetime_seconds=10800,
         gpu_daily_cap_hours=3.0, gpu_monthly_cap_hours=30.0,
         gpu_warm_per_user_per_day=3, gpu_hourly_rate_usd=0.2,
         gpu_wait_estimate_starting_seconds=420, gpu_wait_estimate_off_seconds=420,
+        gpu_wait_estimate_warm_seconds=90, gpu_scale_in_seconds=900,
         gpu_cost_tag_key="CostCenter", gpu_cost_tag_value="gpu",
     )
     gc._state_cache.clear()
@@ -184,7 +188,7 @@ async def test_ensure_worker_invalidates_only_its_family():
 async def test_usage_summary_carries_family():
     ctl, repo, _ = make(family="photogrammetry")
     s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                   family="photogrammetry", instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
+                   family="photogrammetry", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None, instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
     repo.sessions_since = AsyncMock(return_value=[s])
     usage = await ctl.usage("u")
     assert usage.sessions[0].family == "photogrammetry"
@@ -196,7 +200,7 @@ async def test_usage_defaults_family_to_transcription_when_not_stamped():
     ctl, repo, _ = make()
     repo.sessions_since = AsyncMock(return_value=[
         MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                   family="transcription", instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
+                   family="transcription", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None, instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
     ])
     u = await ctl.usage("u1")
     assert len(u.sessions) == 1
@@ -208,7 +212,7 @@ async def test_usage_hours_is_zero_for_a_session_that_never_got_an_instance():
     GpuSessionRepository.hours_between's exclusion of such rows."""
     ctl, repo, _ = make()
     s = MagicMock(started_at=NOW, ended_at=NOW + timedelta(hours=1), reason="job", started_by="u",
-                   end_reason=None, family="transcription", instance_id=None, started_processing_at=None, estimated_startup_seconds=None)
+                   end_reason=None, family="transcription", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None, instance_id=None, started_processing_at=None, estimated_startup_seconds=None)
     repo.sessions_since = AsyncMock(return_value=[s])
     u = await ctl.usage("u1")
     assert u.sessions[0].hours == 0.0
@@ -220,7 +224,7 @@ async def test_usage_hours_starts_the_clock_at_started_processing_at():
     ctl, repo, _ = make()
     s = MagicMock(
         started_at=NOW, started_processing_at=NOW + timedelta(minutes=10), ended_at=NOW + timedelta(hours=1),
-        reason="job", started_by="u", end_reason=None, family="transcription", instance_id="i-1",
+        reason="job", started_by="u", end_reason=None, family="transcription", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None, instance_id="i-1",
         estimated_startup_seconds=None,
     )
     repo.sessions_since = AsyncMock(return_value=[s])
@@ -268,11 +272,20 @@ async def test_release_rejects_unknown_mode():
 
 # ── measured startup estimates (item C) ───────────────────────────────────────────────────────
 
-def startup(seconds: int, reason="job", started_at=NOW - timedelta(hours=1)):
+def startup(seconds: int, reason="job", started_at=NOW - timedelta(hours=1), booted_after=30,
+            pull=None, container=None):
+    """A completed job launch. booted_after: instance boot relative to started_at in seconds
+    (positive → cold; a negative value large enough → warm; None → unknown)."""
+    booted = started_at + timedelta(seconds=booted_after) if booted_after is not None else None
     return MagicMock(
         started_at=started_at, started_processing_at=started_at + timedelta(seconds=seconds),
         reason=reason, started_by="u", end_reason="idle", family="transcription", instance_id="i-1",
         ended_at=started_at + timedelta(hours=1), estimated_startup_seconds=None,
+        instance_booted_at=booted,
+        pull_started_at=started_at + timedelta(seconds=pull[0]) if pull else None,
+        pull_stopped_at=started_at + timedelta(seconds=pull[1]) if pull else None,
+        container_started_at=started_at + timedelta(seconds=container) if container is not None else None,
+        task_arn="arn:task/old",
     )
 
 
@@ -298,7 +311,7 @@ async def test_fewer_than_three_samples_falls_back_to_the_config_default():
 
 async def test_starting_reports_remaining_time_and_starting_since():
     since = NOW - timedelta(seconds=150)
-    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since))
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since, instance_booted_at=None, container_started_at=None, task_arn="arn:t"))
     state = await ctl.get_state()
     assert state.worker_state == "starting"
     assert state.starting_since == since
@@ -308,7 +321,7 @@ async def test_starting_reports_remaining_time_and_starting_since():
 
 async def test_starting_remaining_clamps_at_zero():
     since = NOW - timedelta(seconds=999)
-    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since))
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since, instance_booted_at=None, container_started_at=None, task_arn="arn:t"))
     state = await ctl.get_state()
     assert state.estimated_wait_seconds == 0
 
@@ -355,10 +368,168 @@ async def test_usage_exposes_promised_vs_actual_startup_and_the_median():
 async def test_usage_actual_startup_is_none_before_the_worker_claims():
     ctl, repo, _ = make()
     s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                  family="transcription", instance_id=None, started_processing_at=None,
+                  family="transcription", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None, instance_id=None, started_processing_at=None,
                   estimated_startup_seconds=420)
     repo.sessions_since = AsyncMock(return_value=[s])
     u = await ctl.usage("u1")
     assert u.sessions[0].actual_startup_seconds is None
     assert u.sessions[0].estimated_startup_seconds == 420
     assert u.startup_median_seconds is None and u.startup_samples == 0
+
+
+# ── stages, cold/warm (this round) ────────────────────────────────────────────────────────────
+
+def open_row(since, container_started_at=None, booted_after=None, arn="arn:task/open"):
+    booted = since + timedelta(seconds=booted_after) if booted_after is not None else None
+    return MagicMock(started_at=since, task_arn=arn, container_started_at=container_started_at,
+                     instance_booted_at=booted, started_processing_at=None, ended_at=None)
+
+
+async def test_get_state_records_task_timings_for_the_open_session_once():
+    since = NOW - timedelta(seconds=200)
+    timings = {"pull_started_at": since + timedelta(seconds=100),
+               "pull_stopped_at": since + timedelta(seconds=150),
+               "container_started_at": since + timedelta(seconds=160)}
+    ctl, repo, launcher = make(tasks=["RUNNING"], open_session=open_row(since), timings=timings)
+    await ctl.get_state()
+    launcher.task_timings.assert_called_once_with("arn:task/open")
+    repo.record_timings.assert_awaited_once_with("arn:task/open", **timings)
+
+
+async def test_get_state_does_not_refetch_timings_once_container_started_is_known():
+    since = NOW - timedelta(seconds=200)
+    row = open_row(since, container_started_at=since + timedelta(seconds=160))
+    ctl, repo, launcher = make(tasks=["RUNNING"], open_session=row)
+    await ctl.get_state()
+    launcher.task_timings.assert_not_called()
+    repo.record_timings.assert_not_awaited()
+
+
+async def test_get_state_tolerates_missing_task_timings():
+    ctl, repo, launcher = make(tasks=["PENDING"], open_session=open_row(NOW - timedelta(seconds=5)), timings=None)
+    state = await ctl.get_state()
+    assert state.worker_state == "starting"
+    repo.record_timings.assert_not_awaited()
+
+
+async def test_get_state_skips_timings_when_no_task_is_listed():
+    ctl, repo, launcher = make(tasks=[], open_session=open_row(NOW))
+    await ctl.get_state()
+    launcher.task_timings.assert_not_called()
+
+
+async def test_ensure_worker_never_fetches_timings():
+    ctl, repo, launcher = make(tasks=["RUNNING"], open_session=open_row(NOW - timedelta(seconds=60)))
+    await ctl.ensure_worker("job", "u1")
+    launcher.task_timings.assert_not_called()
+
+
+def test_startup_kind_cold_when_the_instance_booted_for_this_launch():
+    assert gc.startup_kind(startup(300, booted_after=30)) == "cold"
+
+
+def test_startup_kind_allows_60s_of_clock_slack():
+    assert gc.startup_kind(startup(300, booted_after=-59)) == "cold"
+    assert gc.startup_kind(startup(300, booted_after=-61)) == "warm"
+
+
+def test_startup_kind_unknown_without_a_boot_time():
+    assert gc.startup_kind(startup(300, booted_after=None)) is None
+
+
+async def test_state_quotes_cold_median_by_default():
+    cold = [startup(400, booted_after=30), startup(380, booted_after=30), startup(420, booted_after=30)]
+    warm = [startup(70, booted_after=-3600), startup(80, booted_after=-3600), startup(90, booted_after=-3600)]
+    ctl, *_ = make(startups=cold + warm)
+    state = await ctl.get_state()
+    assert state.start_kind == "cold"
+    assert state.startup_estimate_seconds == 400
+    assert state.estimate_basis == "measured" and state.estimate_samples == 3
+
+
+async def test_state_quotes_warm_when_the_last_session_ended_inside_the_scale_in_window():
+    cold = [startup(400, booted_after=30)] * 3
+    warm = [startup(70, booted_after=-3600), startup(80, booted_after=-3600), startup(90, booted_after=-3600)]
+    last = MagicMock(ended_at=NOW - timedelta(seconds=300))
+    ctl, *_ = make(startups=cold + warm, last_ended=last)
+    state = await ctl.get_state()
+    assert state.start_kind == "warm"
+    assert state.startup_estimate_seconds == 80
+    assert state.estimate_samples == 3
+
+
+async def test_state_quotes_cold_when_the_last_session_ended_outside_the_scale_in_window():
+    last = MagicMock(ended_at=NOW - timedelta(seconds=901))
+    ctl, *_ = make(startups=[startup(400, booted_after=30)] * 3, last_ended=last)
+    state = await ctl.get_state()
+    assert state.start_kind == "cold"
+
+
+async def test_warm_default_applies_below_three_warm_samples():
+    last = MagicMock(ended_at=NOW - timedelta(seconds=10))
+    ctl, *_ = make(startups=[startup(400, booted_after=30)] * 3 + [startup(70, booted_after=-3600)], last_ended=last)
+    state = await ctl.get_state()
+    assert state.start_kind == "warm"
+    assert state.estimate_basis == "default"
+    assert state.startup_estimate_seconds == 90
+    assert state.estimate_samples == 1
+
+
+async def test_starting_on_a_known_warm_open_session_quotes_warm():
+    since = NOW - timedelta(seconds=20)
+    warm = [startup(70, booted_after=-3600), startup(80, booted_after=-3600), startup(90, booted_after=-3600)]
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400, booted_after=30)] * 3 + warm,
+                   open_session=open_row(since, booted_after=-3600))
+    state = await ctl.get_state()
+    assert state.start_kind == "warm"
+    assert state.estimated_wait_seconds == 60
+
+
+async def test_ensure_worker_records_the_estimate_of_the_quoted_kind():
+    last = MagicMock(ended_at=NOW - timedelta(seconds=10))
+    warm = [startup(70, booted_after=-3600), startup(80, booted_after=-3600), startup(90, booted_after=-3600)]
+    ctl, repo, _ = make(startups=[startup(400, booted_after=30)] * 3 + warm, last_ended=last)
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.start_kind == "warm"
+    assert repo.create.await_args.kwargs["estimated_startup_seconds"] == 80
+
+
+def test_startup_stages_for_a_cold_start():
+    s = startup(300, booted_after=100, pull=(200, 230), container=240)
+    st = gc.startup_stages(s)
+    assert (st.capacity, st.boot, st.pull, st.container, st.init) == (100, 100, 30, 10, 60)
+
+
+def test_startup_stages_for_a_warm_start_have_no_capacity_or_boot():
+    s = startup(60, booted_after=-3600, pull=(5, 20), container=25)
+    st = gc.startup_stages(s)
+    assert st.capacity is None and st.boot is None
+    assert (st.pull, st.container, st.init) == (15, 5, 35)
+
+
+def test_startup_stages_none_inputs_and_negatives():
+    s = startup(300, booted_after=None, pull=None, container=None)
+    assert gc.startup_stages(s) is None
+    s = startup(300, booted_after=30, pull=(20, 25), container=200)   # boot before pull? clamp
+    st = gc.startup_stages(s)
+    assert st.boot == 0 and st.init == 100
+
+
+async def test_usage_exposes_kind_stages_and_both_medians():
+    cold = [startup(400, booted_after=30, pull=(200, 230), container=240)] * 3
+    warm = [startup(70, booted_after=-3600), startup(80, booted_after=-3600), startup(90, booted_after=-3600)]
+    ctl, repo, _ = make(startups=cold + warm)
+    repo.sessions_since = AsyncMock(return_value=[cold[0], warm[0], startup(0, booted_after=None)])
+    u = await ctl.usage("u1")
+    assert u.sessions[0].kind == "cold" and u.sessions[0].stages.capacity == 30
+    assert u.sessions[1].kind == "warm" and u.sessions[1].stages is None
+    assert u.sessions[2].kind is None and u.sessions[2].stages is None
+    assert (u.cold_median_seconds, u.cold_samples) == (400, 3)
+    assert (u.warm_median_seconds, u.warm_samples) == (80, 3)
+    assert (u.startup_median_seconds, u.startup_samples) == (400, 3)
+
+
+async def test_usage_warm_median_is_none_below_three_samples():
+    ctl, repo, _ = make(startups=[startup(400, booted_after=30)] * 3 + [startup(70, booted_after=-3600)])
+    u = await ctl.usage("u1")
+    assert u.warm_median_seconds is None and u.warm_samples == 1

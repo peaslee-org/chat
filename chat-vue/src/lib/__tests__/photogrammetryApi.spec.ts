@@ -22,10 +22,10 @@ describe("photogrammetry api client — photos", () => {
     expect(res).toEqual({ name: "Sample scan", image_count: 1, photos: [photo] })
   })
 
-  it("fetchJobPhotos GETs /jobs/{id}/photos and returns the photo list", async () => {
-    get.mockResolvedValueOnce({ data: { photos: [photo] } })
+  it("fetchJobPhotos GETs /jobs/{id}/photos and returns photos with matched/total", async () => {
+    get.mockResolvedValueOnce({ data: { photos: [{ ...photo, status: "registered" }], matched: 1, total: 1 } })
     const res = await fetchJobPhotos("job-1")
     expect(get).toHaveBeenCalledWith("/api/v1/photogrammetry/jobs/job-1/photos")
-    expect(res).toEqual([photo])
+    expect(res).toEqual({ photos: [{ ...photo, status: "registered" }], matched: 1, total: 1 })
   })
 })

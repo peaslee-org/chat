@@ -69,6 +69,17 @@ def _crash_message(stage: str | None) -> str:
             " — try fewer photos or one object per scan.")
 
 
+def _photo_status(input_names, report, registered) -> dict[str, str]:
+    """Per input photo: registered | unregistered | skipped:<why>. Keyed by the stored filename."""
+    registered = set(registered)
+    status = {name: ("registered" if name in registered else "unregistered") for name in input_names}
+    for name in report.skipped:
+        status[name] = "skipped:different resolution"
+    for name in report.unreadable:
+        status[name] = "skipped:unreadable"
+    return status
+
+
 class _Warnings:
     """Job warnings, written to the row on every append; a string is never added twice."""
     def __init__(self, deps: Deps, job_id: uuid.UUID, existing: list[str] | None):
@@ -134,17 +145,26 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
         recon = deps.reconstruction_factory(work, deps.clock() + deps.job_timeout_seconds)
 
         # ── sfm ───────────────────────────────────────────────────────────
+        input_names = [key.rsplit("/", 1)[-1] for key in keys]
         done = ck.completed("sfm")
         if done is None:
             ck.started("sfm")
             model = recon.sfm(images)
+            # Which photos the model used goes to the row before the gate, so a failed scan
+            # can still show the user which shots did match.
+            _update(deps, job_id, photo_status=_photo_status(input_names, report, model.registered_names))
             needed = math.ceil(REGISTRATION_MIN_FRACTION * report.usable)
             if model.registered_images < needed:
                 raise StageError("colmap mapper",
                                  f"Only {model.registered_images} of {report.usable} photos could be matched — add overlap and try again")
-            ck.done("sfm", sparse=str(model.path), registered_images=model.registered_images)
+            ck.done("sfm", sparse=str(model.path), registered_images=model.registered_images,
+                    registered_names=sorted(model.registered_names))
             done = ck.completed("sfm")
-        model = SparseModel(Path(done["sparse"]), done["registered_images"])
+        else:
+            # Resumed: the names ride in the checkpoint, so the status is rewritten without
+            # re-reading the model (fetch re-ran, so `report` is current).
+            _update(deps, job_id, photo_status=_photo_status(input_names, report, done.get("registered_names", ())))
+        model = SparseModel(Path(done["sparse"]), done["registered_images"], frozenset(done.get("registered_names", ())))
 
         # ── dense ─────────────────────────────────────────────────────────
         done = ck.completed("dense")

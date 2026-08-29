@@ -1,12 +1,12 @@
 """GpuSessionStore never raises; it updates the row RunTask created (matched by task ARN)."""
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from gpu_worker.session import GpuSessionStore
 
 
-def make_store(row=None, raise_on_enter=False):
+def make_store(row=None, raise_on_enter=False, boot_time=None):
     session = MagicMock()
     session.query.return_value.filter_by.return_value.one_or_none.return_value = row
 
@@ -16,7 +16,8 @@ def make_store(row=None, raise_on_enter=False):
             raise RuntimeError("db down")
         yield session
 
-    return GpuSessionStore("arn:aws:ecs:r:a:task/c/1", "i-123", session_factory=factory), session
+    kwargs = {"boot_time": boot_time} if boot_time is not None else {}
+    return GpuSessionStore("arn:aws:ecs:r:a:task/c/1", "i-123", session_factory=factory, **kwargs), session
 
 
 def test_claim_fills_instance_and_processing_time():
@@ -78,3 +79,18 @@ def test_release_mode_is_none_without_row_or_on_db_error():
     assert store.release_mode() is None
     store, _ = make_store(MagicMock(release_mode="graceful"), raise_on_enter=True)
     assert store.release_mode() is None
+
+
+def test_claim_records_instance_boot_time():
+    row = MagicMock(instance_id=None, started_processing_at=None, instance_booted_at=None)
+    store, _ = make_store(row, boot_time=lambda now: now - timedelta(seconds=300))
+    store.claim()
+    assert row.instance_booted_at == row.started_processing_at - timedelta(seconds=300)
+
+
+def test_claim_leaves_boot_time_null_when_unknown():
+    row = MagicMock(instance_id=None, started_processing_at=None, instance_booted_at=None)
+    store, _ = make_store(row, boot_time=lambda now: None)
+    store.claim()
+    assert row.instance_booted_at is None
+    assert isinstance(row.started_processing_at, datetime)

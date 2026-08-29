@@ -88,7 +88,9 @@ class Settings(BaseSettings):
     # last 10 job starts) once it has 3 samples. 420 s is what the ledger showed on 2026-08-29
     # (capacity-provider reaction + instance boot + image pull + first claim).
     gpu_wait_estimate_starting_seconds: int = 420
-    gpu_wait_estimate_off_seconds: int = 420
+    gpu_wait_estimate_off_seconds: int = 420    # cold start (new instance) until ≥3 measured
+    gpu_wait_estimate_warm_seconds: int = 90    # warm start (instance still up) until ≥3 measured
+    gpu_scale_in_seconds: int = 900             # ASG scale-in lag: a job inside it lands on the idle instance
 
     @property
     def cognito_jwks_url(self) -> str:

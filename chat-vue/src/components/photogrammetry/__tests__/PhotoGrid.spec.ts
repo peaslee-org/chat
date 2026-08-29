@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { mount } from "@vue/test-utils"
 import PhotoGrid from "../PhotoGrid.vue"
 
@@ -129,5 +129,49 @@ describe("PhotoGrid", () => {
       const w = mount(PhotoGrid, { props: { photos: [], loading: true } })
       expect(w.text()).toContain("Preparing thumbnails…")
     })
+  })
+
+  describe("photo status", () => {
+    const statused = [
+      { filename: "0001.jpg", url: "u1", thumb_url: "t1", status: "registered" },
+      { filename: "0002.jpg", url: "u2", thumb_url: "t2", status: "unregistered" },
+      { filename: "0003.jpg", url: "u3", thumb_url: "t3", status: "skipped:unreadable file" },
+    ]
+
+    it("marks tiles by status: matched check, not matched dimmed, skipped tagged with its reason", () => {
+      const w = mount(PhotoGrid, { props: { photos: statused, matched: 1 } })
+      const tiles = w.findAll('[data-testid="photo-tile"]')
+      expect(tiles[0].find('[data-testid="status-registered"]').exists()).toBe(true)
+      expect(tiles[1].classes()).toEqual(expect.arrayContaining(["opacity-50", "grayscale"]))
+      expect(tiles[1].find('[data-testid="status-tag"]').text()).toBe("not matched")
+      expect(tiles[2].find('[data-testid="status-tag"]').text()).toBe("skipped")
+      expect(tiles[2].find('[data-testid="status-tag"]').attributes("title")).toBe("unreadable file")
+      expect(tiles[0].classes()).not.toContain("grayscale")
+    })
+
+    it("appends the matched count to the status line once thumbnails have loaded", async () => {
+      const w = mount(PhotoGrid, { props: { photos: statused, matched: 1 } })
+      for (const img of w.findAll("img")) await img.trigger("load")
+      expect(w.find('[data-testid="photo-status"]').text()).toBe("3 photos · 1 matched")
+    })
+
+    it("shows no matched count when the job has no photo status yet", async () => {
+      const w = mount(PhotoGrid, { props: { photos, matched: null } })
+      for (const img of w.findAll("img")) await img.trigger("load")
+      expect(w.find('[data-testid="photo-status"]').text()).toBe("2 photos")
+    })
+  })
+
+  it("the Escape that closes the overlay does not reach other document listeners", async () => {
+    const w = mount(PhotoGrid, { props: { photos }, attachTo: document.body })
+    await w.findAll("img")[0].trigger("click")
+    const other = vi.fn()
+    document.addEventListener("keydown", other)
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }))
+    await w.vm.$nextTick()
+    expect(w.find('[data-testid="photo-overlay"]').exists()).toBe(false)
+    expect(other).not.toHaveBeenCalled()
+    document.removeEventListener("keydown", other)
+    w.unmount()
   })
 })

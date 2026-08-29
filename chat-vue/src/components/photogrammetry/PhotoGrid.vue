@@ -12,7 +12,9 @@ const props = withDefaults(defineProps<{
   photos: PhotoItem[]
   loading?: boolean
   error?: string | null
-}>(), { loading: false, error: null })
+  /** Photos SfM registered, once the worker has written per-photo status; null/undefined before. */
+  matched?: number | null
+}>(), { loading: false, error: null, matched: null })
 
 const emit = defineEmits<{ open: [photo: PhotoItem] }>()
 
@@ -35,8 +37,26 @@ const status = computed(() => {
   if (props.loading) return "Preparing thumbnails…"
   if (props.photos.length === 0) return ""
   if (doneCount.value < props.photos.length) return `Loading photos… ${doneCount.value} of ${props.photos.length}`
-  return `${props.photos.length} photos`
+  const base = `${props.photos.length} photos`
+  return props.matched == null ? base : `${base} · ${props.matched} matched`
 })
+
+// ── per-photo SfM status ("registered" | "unregistered" | "skipped:<reason>" | null) ──
+type PhotoMark = { kind: "registered" } | { kind: "unregistered" } | { kind: "skipped"; reason: string } | null
+function mark(photo: PhotoItem): PhotoMark {
+  const st = photo.status ?? null
+  if (st === "registered") return { kind: "registered" }
+  if (st === "unregistered") return { kind: "unregistered" }
+  if (st?.startsWith("skipped")) return { kind: "skipped", reason: st.slice("skipped:".length).trim() || "skipped" }
+  return null
+}
+function tagText(photo: PhotoItem): string {
+  return mark(photo)?.kind === "skipped" ? "skipped" : "not matched"
+}
+function tagTitle(photo: PhotoItem): string {
+  const m = mark(photo)
+  return m?.kind === "skipped" ? m.reason : "not matched to the other photos"
+}
 const stillLoading = computed(() => props.loading || doneCount.value < props.photos.length)
 
 // ── overlay with prev/next ──
@@ -54,18 +74,23 @@ function close() { openIndex.value = null }
 function prev() { if (hasPrev.value && openIndex.value !== null) openIndex.value -= 1 }
 function next() { if (hasNext.value && openIndex.value !== null) openIndex.value += 1 }
 
+// Registered in the capture phase so the overlay owns these keys while it is open: the Escape
+// that closes it must not also close the scan (ScanDetailView listens on document too).
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") close()
   else if (e.key === "ArrowLeft") prev()
   else if (e.key === "ArrowRight") next()
+  else return
+  e.preventDefault()
+  e.stopImmediatePropagation()
 }
 
 watch(openIndex, (idx, prevIdx) => {
-  if (idx !== null && prevIdx === null) document.addEventListener("keydown", onKeydown)
-  else if (idx === null && prevIdx !== null) document.removeEventListener("keydown", onKeydown)
+  if (idx !== null && prevIdx === null) document.addEventListener("keydown", onKeydown, true)
+  else if (idx === null && prevIdx !== null) document.removeEventListener("keydown", onKeydown, true)
 })
 
-onUnmounted(() => document.removeEventListener("keydown", onKeydown))
+onUnmounted(() => document.removeEventListener("keydown", onKeydown, true))
 
 const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl leading-none text-white/70 hover:text-white disabled:opacity-30 disabled:hover:text-white/70"
 </script>
@@ -92,7 +117,9 @@ const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl lea
           v-for="(photo, i) in props.photos"
           :key="photo.filename"
           type="button"
+          data-testid="photo-tile"
           class="relative aspect-square overflow-hidden rounded bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          :class="mark(photo)?.kind === 'unregistered' || mark(photo)?.kind === 'skipped' ? 'opacity-50 grayscale' : ''"
           @click="show(i)"
         >
           <img
@@ -122,6 +149,20 @@ const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl lea
             class="absolute inset-0 flex items-center justify-center bg-gray-100 text-lg text-gray-400"
             :title="`${photo.filename} — thumbnail failed`"
           >✕</span>
+          <template v-if="mark(photo)">
+            <span
+              v-if="mark(photo)!.kind === 'registered'"
+              data-testid="status-registered"
+              class="absolute right-1 top-1 rounded-full bg-green-600/90 px-1 text-[10px] leading-4 text-white"
+              title="matched by SfM"
+            >✓</span>
+            <span
+              v-else
+              data-testid="status-tag"
+              class="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[10px] leading-3 text-white"
+              :title="tagTitle(photo)"
+            >{{ tagText(photo) }}</span>
+          </template>
         </button>
       </div>
     </template>
@@ -129,6 +170,7 @@ const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl lea
     <div
       v-if="open"
       data-testid="photo-overlay"
+      data-photo-overlay
       class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4"
       @click="close"
     >

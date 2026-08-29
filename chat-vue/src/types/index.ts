@@ -115,6 +115,19 @@ export interface GpuState {
   startup_estimate_seconds: number
   estimate_basis: EstimateBasis
   estimate_samples: number
+  /** Which kind of start the quoted estimate is for: cold = a new instance must boot; warm = one is still up. */
+  start_kind: StartKind
+}
+
+export type StartKind = "cold" | "warm"
+
+/** Seconds per startup stage (launch → first job claimed); null when a timestamp is unknown or the stage does not apply. */
+export interface StartupStages {
+  capacity: number | null   // RunTask → instance booted (— for warm starts)
+  boot: number | null       // instance booted → image pull started
+  pull: number | null
+  container: number | null  // pull finished → task running
+  init: number | null       // task running → first job claimed
 }
 
 export interface GpuSessionSummary {
@@ -124,6 +137,8 @@ export interface GpuSessionSummary {
   estimated_startup_seconds: number | null
   /** Launch → first job claimed; null for sessions that never took a job (warm-ups). */
   actual_startup_seconds: number | null
+  kind: StartKind | null
+  stages: StartupStages | null
 }
 
 export interface GpuUsage {
@@ -131,8 +146,13 @@ export interface GpuUsage {
   warms_today_for_user: number; warm_cap_per_user_per_day: number
   estimated_month_cost_usd: number; hourly_rate_usd: number
   actual_month_to_date_usd: number | null; actual_fetched_at: string | null
+  /** Same as the cold figures, kept for compatibility. */
   startup_median_seconds: number | null
   startup_samples: number
+  cold_median_seconds: number | null
+  cold_samples: number
+  warm_median_seconds: number | null
+  warm_samples: number
   sessions: GpuSessionSummary[]
 }
 
@@ -247,10 +267,15 @@ export interface PhotoItem {
   filename: string
   url: string
   thumb_url: string
+  /** "registered" | "unregistered" | "skipped:<reason>" once SfM has run; null before (and for the sample set). */
+  status?: string | null
 }
 
 export interface JobPhotosResponse {
   photos: PhotoItem[]
+  /** Photos SfM registered; null until the worker has written per-photo status. */
+  matched: number | null
+  total: number
 }
 
 /** The bundled sample photo set, as shown in the New Scan form's sample mode. */

@@ -10,6 +10,7 @@ import type { GpuState } from "@/types"
 const T0 = new Date("2026-08-29T10:00:00Z")
 const starting = (sinceSecondsAgo: number): GpuState => ({
   worker_state: "starting",
+  start_kind: "cold",
   estimated_wait_seconds: 400 - sinceSecondsAgo,
   warm_until: null,
   notice: null,
@@ -45,7 +46,7 @@ describe("gpu store — startup countdown", () => {
   it("has no countdown when the worker is running or off", async () => {
     vi.mocked(api.getGpuState).mockResolvedValue({
       worker_state: "running", estimated_wait_seconds: 0, warm_until: null, notice: null,
-      starting_since: null, startup_estimate_seconds: 400, estimate_basis: "measured", estimate_samples: 8,
+      starting_since: null, startup_estimate_seconds: 400, estimate_basis: "measured", estimate_samples: 8, start_kind: "cold",
     })
     const store = useGpuStore()
     await store.refreshState()

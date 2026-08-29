@@ -151,3 +151,37 @@ async def test_create_stamps_the_promised_startup_estimate():
     row = await repo.create(task_arn="arn", started_by="u", reason="job", warm_until=None,
                             estimated_startup_seconds=400)
     assert row.estimated_startup_seconds == 400
+
+
+async def test_recent_startups_default_window_is_twenty():
+    repo, db = make_repo()
+    db.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+    await repo.recent_startups("photogrammetry")
+    assert "LIMIT 20" in compiled(db)
+
+
+async def test_record_timings_fills_only_null_columns_of_that_task():
+    repo, db = make_repo(rowcount=1)
+    t = datetime(2026, 9, 10, 15, 1, tzinfo=timezone.utc)
+    await repo.record_timings("arn:task/1", pull_started_at=t, pull_stopped_at=None, container_started_at=t)
+    sql = compiled(db)
+    assert "gpu_sessions.task_arn = 'arn:task/1'" in sql
+    assert "coalesce(gpu_sessions.pull_started_at" in sql
+    assert "coalesce(gpu_sessions.container_started_at" in sql
+    assert "pull_stopped_at" not in sql
+
+
+async def test_record_timings_with_nothing_to_set_does_not_hit_the_db():
+    repo, db = make_repo()
+    await repo.record_timings("arn:task/1", pull_started_at=None)
+    db.execute.assert_not_awaited()
+
+
+async def test_last_ended_session_is_the_most_recently_ended_row_of_the_family():
+    repo, db = make_repo(family="photogrammetry")
+    db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+    await repo.last_ended_session("photogrammetry")
+    sql = compiled(db)
+    assert "ended_at IS NOT NULL" in sql
+    assert "family = 'photogrammetry'" in sql
+    assert "ORDER BY gpu_sessions.ended_at DESC" in sql and "LIMIT 1" in sql
