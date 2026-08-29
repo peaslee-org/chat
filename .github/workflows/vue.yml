@@ -1,15 +1,8 @@
 name: Deploy — chat-vue
+# Reusable: called by deploy.yml in dependency order; no push trigger of its own.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'chat-vue/**'
-      - '.github/workflows/vue.yml'
-
-concurrency:
-  group: deploy-prod
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   deploy:

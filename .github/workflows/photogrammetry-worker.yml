@@ -1,12 +1,8 @@
 name: Deploy — photogrammetry-worker
+# Reusable: called by deploy.yml in dependency order; no push trigger of its own.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'photogrammetry-worker/**'
-      - 'gpu-worker/**'
-      - '.github/workflows/photogrammetry-worker.yml'
+  workflow_call:
 
 jobs:
   deploy:

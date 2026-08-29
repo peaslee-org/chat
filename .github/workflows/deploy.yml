@@ -1,0 +1,106 @@
+name: Deploy
+
+# One push to main → every surface it touched, in dependency order:
+#
+#   changes ─→ api ─→ vue
+#                 ├─→ transcription-worker
+#                 └─→ photogrammetry-worker
+#
+# The API deploy carries the Alembic migration (scripts/entrypoint.sh runs it before gunicorn
+# binds), so anything that reads a new column — a worker's ORM model, a Vue field — waits for it.
+# A skipped API job (no chat-api/ change) does not hold the others; a failed one stops them.
+# The per-surface workflows are reusable (`workflow_call`) and unchanged in what they do.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api:
+        description: Redeploy chat-api
+        type: boolean
+        default: false
+      vue:
+        description: Redeploy chat-vue
+        type: boolean
+        default: false
+      transcription_worker:
+        description: Rebuild transcription-worker image + task-def revision
+        type: boolean
+        default: false
+      photogrammetry_worker:
+        description: Rebuild photogrammetry-worker image + task-def revision
+        type: boolean
+        default: false
+
+# Queue, never cancel: an in-flight API deploy may be mid-migration.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect changed surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api == 'true' || inputs.api == true }}
+      vue: ${{ steps.filter.outputs.vue == 'true' || inputs.vue == true }}
+      transcription_worker: ${{ steps.filter.outputs.transcription_worker == 'true' || inputs.transcription_worker == true }}
+      photogrammetry_worker: ${{ steps.filter.outputs.photogrammetry_worker == 'true' || inputs.photogrammetry_worker == true }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            api:
+              - 'chat-api/**'
+              - '.github/workflows/api.yml'
+            vue:
+              - 'chat-vue/**'
+              - '.github/workflows/vue.yml'
+            transcription_worker:
+              - 'transcription-worker/**'
+              - 'gpu-worker/**'
+              - '.github/workflows/worker.yml'
+            photogrammetry_worker:
+              - 'photogrammetry-worker/**'
+              - 'gpu-worker/**'
+              - '.github/workflows/photogrammetry-worker.yml'
+
+  api:
+    name: chat-api
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    uses: ./.github/workflows/api.yml
+    secrets: inherit
+
+  # `!cancelled() && needs.api.result != 'failure'` — run after a successful OR skipped API job.
+  # (A plain `if:` implies success(), which treats a skipped dependency as a reason to skip.)
+  vue:
+    name: chat-vue
+    needs: [changes, api]
+    if: ${{ !cancelled() && needs.api.result != 'failure' && needs.changes.outputs.vue == 'true' }}
+    uses: ./.github/workflows/vue.yml
+    secrets: inherit
+
+  transcription-worker:
+    name: transcription-worker
+    needs: [changes, api]
+    if: ${{ !cancelled() && needs.api.result != 'failure' && needs.changes.outputs.transcription_worker == 'true' }}
+    uses: ./.github/workflows/worker.yml
+    secrets: inherit
+
+  photogrammetry-worker:
+    name: photogrammetry-worker
+    needs: [changes, api]
+    if: ${{ !cancelled() && needs.api.result != 'failure' && needs.changes.outputs.photogrammetry_worker == 'true' }}
+    uses: ./.github/workflows/photogrammetry-worker.yml
+    secrets: inherit
