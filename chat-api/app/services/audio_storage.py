@@ -75,6 +75,13 @@ class AudioStorageService:
         response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
         return response["Body"].read()
 
+    def write_object(self, s3_key: str, data: bytes, content_type: str | None = None) -> None:
+        """Uploads bytes from memory (thumbnails); `content_type` sets the object's Content-Type."""
+        params = {"Bucket": self.bucket, "Key": s3_key, "Body": data}
+        if content_type:
+            params["ContentType"] = content_type
+        self.s3.put_object(**params)
+
     def delete_objects(self, s3_keys: list[str]) -> None:
         """Batch delete. Silently ignores missing keys."""
         if not s3_keys:
@@ -136,7 +143,7 @@ class MockAudioStorageService:
     ) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
-    def write_object(self, s3_key: str, data: bytes) -> None:
+    def write_object(self, s3_key: str, data: bytes, content_type: str | None = None) -> None:
         pass
 
     def object_exists(self, s3_key: str) -> bool:
@@ -186,7 +193,7 @@ class LocalAudioStorageService:
     ) -> str:
         return f"{self._base_url}/api/v1/transcribe/dev-upload/{s3_key}"
 
-    def write_object(self, s3_key: str, data: bytes) -> None:
+    def write_object(self, s3_key: str, data: bytes, content_type: str | None = None) -> None:
         dest = self._root / s3_key
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)

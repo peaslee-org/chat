@@ -20,3 +20,4 @@ src/mocks/traffic.json
 .DS_Store
 .vscode/
 *.swp
+*.tsbuildinfo

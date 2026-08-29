@@ -172,3 +172,45 @@ class TestRead:
         r = await ac.post("/api/v1/photogrammetry/jobs/sample", headers=H)
         assert r.status_code == 202
         assert "job_id" in r.json()
+
+
+class TestPhotos:
+    async def test_job_photos_200(self, client):
+        from app.schemas.photogrammetry import JobPhotosResponse, PhotoItem
+
+        ac, svc = client
+        job_id = uuid4()
+        svc.list_job_photos = AsyncMock(return_value=JobPhotosResponse(photos=[
+            PhotoItem(filename="0001.jpg", url="https://dl/0001.jpg", thumb_url="https://dl/t/0001.jpg"),
+        ]))
+        r = await ac.get(f"/api/v1/photogrammetry/jobs/{job_id}/photos", headers=H)
+        assert r.status_code == 200
+        assert r.json()["photos"][0]["thumb_url"] == "https://dl/t/0001.jpg"
+        assert svc.list_job_photos.await_args.args == ("user1", job_id)
+
+    async def test_job_photos_404_for_other_users_job(self, client):
+        ac, svc = client
+        svc.list_job_photos = AsyncMock(side_effect=NotFoundError("Job not found"))
+        r = await ac.get(f"/api/v1/photogrammetry/jobs/{uuid4()}/photos", headers=H)
+        assert r.status_code == 404
+        assert r.json() == {"detail": "Job not found"}  # the service's 404, not an unknown route
+        svc.list_job_photos.assert_awaited_once()
+
+    async def test_samples_200(self, client):
+        from app.schemas.photogrammetry import PhotoItem, SamplePhotosResponse
+
+        ac, svc = client
+        svc.list_sample_photos = AsyncMock(return_value=SamplePhotosResponse(
+            name="Sample scan", image_count=1,
+            photos=[PhotoItem(filename="0001.jpg", url="https://dl/s/0001.jpg", thumb_url="https://dl/s/t.jpg")],
+        ))
+        r = await ac.get("/api/v1/photogrammetry/samples", headers=H)
+        assert r.status_code == 200
+        assert r.json()["name"] == "Sample scan"
+        assert r.json()["photos"][0]["filename"] == "0001.jpg"
+
+    async def test_samples_409_when_not_uploaded(self, client):
+        ac, svc = client
+        svc.list_sample_photos = AsyncMock(side_effect=ConflictError("Sample photo set has not been uploaded"))
+        r = await ac.get("/api/v1/photogrammetry/samples", headers=H)
+        assert r.status_code == 409

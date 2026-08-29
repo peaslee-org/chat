@@ -1,21 +1,14 @@
 <script setup lang="ts">
-import { ref } from "vue"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 import { useAuthStore } from "@/stores/auth"
 import ScanJobCard from "./ScanJobCard.vue"
+import type { NewScanMode } from "./newScanMode"
 
-defineProps<{ showNewJobForm: boolean }>()
-const emit = defineEmits<{ new: [] }>()
+const props = defineProps<{ formMode: NewScanMode }>()
+const emit = defineEmits<{ new: []; "new-sample": [] }>()
 
 const store = usePhotogrammetryStore()
 const auth = useAuthStore()
-const sampleBusy = ref(false)
-
-async function handleSample() {
-  if (sampleBusy.value) return
-  sampleBusy.value = true
-  try { await store.submitSampleJob() } catch { /* store already pushed a toast */ } finally { sampleBusy.value = false }
-}
 </script>
 
 <template>
@@ -33,14 +26,14 @@ async function handleSample() {
     <div class="p-4 border-b border-gray-700 flex gap-2">
       <button
         class="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-        :class="showNewJobForm ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-indigo-600 hover:bg-indigo-500 text-white'"
+        :class="props.formMode !== 'closed' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-indigo-600 hover:bg-indigo-500 text-white'"
         @click="emit('new')"
-      >{{ showNewJobForm ? "✕ Cancel" : "+ New scan" }}</button>
+      >{{ props.formMode !== "closed" ? "✕ Cancel" : "+ New scan" }}</button>
       <button
-        class="py-2 px-3 rounded-lg text-sm font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-50"
-        :disabled="sampleBusy"
-        title="Run the bundled sample photo set"
-        @click="handleSample"
+        class="py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+        :class="props.formMode === 'sample' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'"
+        title="Open a new scan preloaded with the bundled sample photo set"
+        @click="emit('new-sample')"
       >Sample</button>
     </div>
 
@@ -50,7 +43,7 @@ async function handleSample() {
         v-for="job in store.jobs"
         :key="job.job_id"
         :job="job"
-        :is-active="job.job_id === store.activeJobId && !showNewJobForm"
+        :is-active="job.job_id === store.activeJobId && props.formMode === 'closed'"
       />
     </nav>
 

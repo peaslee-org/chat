@@ -1,9 +1,12 @@
 import { apiClient } from "@/lib/axios"
 import type {
+  JobPhotosResponse,
   MeshUrlResponse,
   PhotogrammetryJob,
   PhotogrammetryJobCreateResponse,
   PhotogrammetryJobListResponse,
+  PhotoItem,
+  SamplePhotos,
 } from "@/types"
 
 export { uploadToS3 } from "@/lib/transcribeApi"
@@ -41,4 +44,14 @@ export async function createSampleJob(): Promise<{ job_id: string }> {
 export async function getMeshUrl(jobId: string): Promise<MeshUrlResponse> {
   const res = await apiClient.get(`${BASE}/jobs/${jobId}/mesh`)
   return res.data
+}
+
+export async function fetchSamplePhotos(): Promise<SamplePhotos> {
+  const res = await apiClient.get(`${BASE}/samples`)
+  return res.data
+}
+
+export async function fetchJobPhotos(jobId: string): Promise<PhotoItem[]> {
+  const res = await apiClient.get(`${BASE}/jobs/${jobId}/photos`)
+  return (res.data as JobPhotosResponse).photos
 }

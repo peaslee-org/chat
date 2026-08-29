@@ -1,19 +1,62 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
+import type { PhotoItem } from "@/types"
 import ScanStatusBadge from "./ScanStatusBadge.vue"
 import StageStrip from "./StageStrip.vue"
 import MeshViewer from "./MeshViewer.vue"
 import NewScanForm from "./NewScanForm.vue"
+import PhotoGrid from "./PhotoGrid.vue"
+import type { NewScanMode } from "./newScanMode"
 
-defineProps<{ showNewJobForm: boolean }>()
-const emit = defineEmits<{ "close-new-job-form": [] }>()
+type Pane = "3d" | "photos"
+
+const props = defineProps<{ formMode: NewScanMode }>()
+const emit = defineEmits<{ "close-new-job-form": []; "use-own-photos": [] }>()
 
 const store = usePhotogrammetryStore()
 const job = computed(() => store.activeJob)
 const meshUrl = ref<string | null>(null)
 const hasPreviewDownload = ref(false)
 const meshError = ref<string | null>(null)
+
+// ── 3D | Photos toggle, remembered per job for the session ──
+const paneByJob = new Map<string, Pane>()
+const pane = ref<Pane>("photos")
+const isComplete = computed(() => job.value?.status === "complete")
+
+watch([() => job.value?.job_id, isComplete], ([jobId, complete]) => {
+  if (!jobId) return
+  pane.value = paneByJob.get(jobId) ?? (complete ? "3d" : "photos")
+}, { immediate: true })
+
+function setPane(p: Pane) {
+  if (p === "3d" && !isComplete.value) return
+  pane.value = p
+  if (job.value) paneByJob.set(job.value.job_id, p)
+}
+
+// ── photos pane, fetched the first time it is shown for a job ──
+const photos = ref<PhotoItem[]>([])
+const photosLoading = ref(false)
+const photosError = ref<string | null>(null)
+
+watch([() => job.value?.job_id, pane], async ([jobId, p]) => {
+  photos.value = []
+  photosError.value = null
+  if (!jobId || p !== "photos") return
+  photosLoading.value = true
+  try {
+    const list = await store.fetchJobPhotos(jobId)
+    if (job.value?.job_id !== jobId) return
+    photos.value = list
+  } catch {
+    if (job.value?.job_id !== jobId) return
+    photosError.value = "Could not load the photos"
+  } finally {
+    photosLoading.value = false
+  }
+}, { immediate: true })
 
 watch(
   [() => job.value?.job_id, () => job.value?.status],
@@ -52,12 +95,18 @@ async function download(which: "mesh" | "preview"): Promise<void> {
     meshError.value = "Could not get a download link"
   }
 }
+
+const segment = "px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
 </script>
 
 <template>
   <section class="flex flex-col bg-gray-50 text-gray-900">
-    <div v-if="showNewJobForm" class="p-6 overflow-y-auto">
-      <NewScanForm @submitted="emit('close-new-job-form')" />
+    <div v-if="props.formMode !== 'closed'" class="p-6 overflow-y-auto">
+      <NewScanForm
+        :sample="props.formMode === 'sample'"
+        @submitted="emit('close-new-job-form')"
+        @use-own-photos="emit('use-own-photos')"
+      />
     </div>
 
     <div v-else-if="!job" class="flex flex-1 items-center justify-center text-sm text-gray-500">
@@ -70,38 +119,60 @@ async function download(which: "mesh" | "preview"): Promise<void> {
         <ScanStatusBadge :status="job.status" :stage="job.stage" :worker-state="job.worker_state" :estimated-wait-seconds="job.estimated_wait_seconds" />
         <span class="text-xs text-gray-500">{{ job.image_count }} photos</span>
         <span v-if="job.gpu_notice" class="text-xs text-amber-700">{{ job.gpu_notice }}</span>
-        <div v-if="job.status === 'complete'" class="ml-auto flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-            :disabled="!meshUrl"
-            @click="download('mesh')"
-          >Download GLB</button>
-          <button
-            v-if="hasPreviewDownload"
-            type="button"
-            class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
-            @click="download('preview')"
-          >Download preview</button>
+
+        <div class="ml-auto flex shrink-0 items-center gap-2">
+          <div class="inline-flex overflow-hidden rounded border border-gray-300 bg-white" role="tablist" aria-label="View">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="pane === '3d'"
+              :class="[segment, pane === '3d' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100']"
+              :disabled="!isComplete"
+              :title="isComplete ? 'Reconstructed mesh' : 'Available when the scan completes'"
+              @click="setPane('3d')"
+            >3D</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="pane === 'photos'"
+              :class="[segment, 'border-l border-gray-300', pane === 'photos' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100']"
+              title="Input photos"
+              @click="setPane('photos')"
+            >Photos</button>
+          </div>
+          <template v-if="isComplete">
+            <button
+              type="button"
+              class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+              :disabled="!meshUrl"
+              @click="download('mesh')"
+            >Download GLB</button>
+            <button
+              v-if="hasPreviewDownload"
+              type="button"
+              class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+              @click="download('preview')"
+            >Download preview</button>
+          </template>
         </div>
       </header>
+
       <div class="flex-1 overflow-auto p-6">
         <ul v-if="job.warnings?.length" class="mb-4 space-y-1 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <li v-for="w in job.warnings ?? []" :key="w">⚠ {{ w }}</li>
         </ul>
 
-        <template v-if="job.status === 'failed'">
-          <p class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ job.error_message ?? "Reconstruction failed" }}</p>
-        </template>
+        <p v-if="job.status === 'failed'" class="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {{ job.error_message ?? "Reconstruction failed" }}
+        </p>
 
-        <template v-else-if="job.status === 'complete'">
-          <MeshViewer v-if="meshUrl" :src="meshUrl" :poster="job.preview_url" :mock="job.mock" />
-          <p v-else-if="meshError" class="text-sm text-red-600">{{ meshError }}</p>
-          <p v-else class="text-sm text-gray-500">Loading mesh…</p>
+        <template v-if="pane === '3d' && isComplete">
+          <p v-if="meshError" class="text-sm text-red-600">{{ meshError }}</p>
+          <MeshViewer v-else :src="meshUrl" :pending="!meshUrl" :poster="job.preview_url" :mock="job.mock" />
         </template>
 
         <template v-else>
-          <div class="space-y-4">
+          <div v-if="job.status !== 'complete' && job.status !== 'failed'" class="mb-4 space-y-4">
             <StageStrip :status="job.status" :stage="job.stage" />
             <p class="text-sm text-gray-600">
               <span v-if="job.status === 'pending'">Waiting for uploads to finish…</span>
@@ -110,6 +181,7 @@ async function download(which: "mesh" | "preview"): Promise<void> {
             </p>
             <img v-if="job.preview_url" :src="job.preview_url" alt="" class="max-h-64 rounded border border-gray-200" />
           </div>
+          <PhotoGrid :photos="photos" :loading="photosLoading" :error="photosError" />
         </template>
       </div>
     </div>

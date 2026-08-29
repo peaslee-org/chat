@@ -65,3 +65,13 @@ def test_local_download_url_accepts_attachment_filename(tmp_path):
     s = LocalAudioStorageService("http://localhost:8000", str(tmp_path))
     url = s.generate_presigned_download_url("k", attachment_filename="x.glb")
     assert url.endswith("/dev-upload/k")
+
+
+def test_real_write_object_uses_put_object_with_content_type():
+    with patch("app.services.audio_storage.boto3"):
+        settings = MagicMock(aws_region="us-east-1", audio_bucket_name="bucket")
+        s = AudioStorageService(settings)
+        s.write_object("p/thumbs/0001.jpg", b"\xff\xd8", content_type="image/jpeg")
+        s.s3.put_object.assert_called_once_with(
+            Bucket="bucket", Key="p/thumbs/0001.jpg", Body=b"\xff\xd8", ContentType="image/jpeg"
+        )
