@@ -60,3 +60,6 @@ Thumbs.db
 transcription-worker/tests/fixtures/*.wav
 transcription-worker/tests/fixtures/*.m4a
 transcription-worker/tests/fixtures/dataset/
+
+# Private-track docs: nested git repo pushed to gitudl + Henry only, never GitHub
+/docs/private/

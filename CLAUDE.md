@@ -14,6 +14,11 @@ This repo contains two independent projects:
 | `gpu-worker/` | Python, boto3, SQLAlchemy, SQS | Shared package (`gpu_worker`) for the run-to-completion loop, session ledger, and SQS wiring used by both worker images |
 | `photogrammetry-worker/` | Python, COLMAP, OpenMVS, trimesh, Pillow, SQS, S3 | Run-to-completion GPU worker (ECS, EC2 launch type) for photo → mesh reconstruction (COLMAP → OpenMVS → texturing) |
 
+`docs/private/` is a separate, gitignored git repo (private hosts only, never GitHub): account/VPC
+maps, handoffs, and `ops.md` with literal ids (task-def revisions, AMI ids, account id). Everything
+else under `docs/` is public-track — use placeholders (`123456789012`, `sg-00000000000000001`,
+`203.0.113.x`); the commit hook rejects the real values.
+
 Each sub-project has its own `CLAUDE.md` with detailed commands, architecture, and env var references. Read the relevant one before working in that project.
 
 ## System Architecture

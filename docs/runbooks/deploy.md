@@ -1,86 +1,105 @@
 # Deploy Runbook
 
-## chat-api
+Everything ships from `main` via GitHub Actions (OIDC, no long-lived keys). Read-only checks use
+`AWS_PROFILE=claude-ro`; anything that changes state (Terraform apply, AMI bake, manual ECS calls)
+needs `AWS_PROFILE=neil-admin`. Region is `us-east-1`.
 
-Push to `main` → CodePipeline runs `buildspec.yml` → ECR push → ECS rolling deploy.
+## Surfaces
 
-Manual deploy:
+| Change under… | Workflow | What it does | Live when… |
+|---|---|---|---|
+| `chat-api/` | `api.yml` | tests → ECR push (git-SHA tag) → ECS rolling deploy of service `chat-api-prod`. Alembic runs from `scripts/entrypoint.sh` before gunicorn binds, so migrations are part of the rollout. | `describe-services` shows one `PRIMARY` deployment, `rolloutState: COMPLETED` |
+| `chat-vue/` | `vue.yml` | build → `s3 sync` to `chat-peaslee-frontend-prod` → CloudFront invalidation | invalidation done; hard-refresh `chat.peaslee.org` |
+| `transcription-worker/`, `gpu-worker/` | `worker.yml` | ECR push → new task-def revision `transcription-prod-worker:N` | next `RunTask` picks it up (no service to roll) |
+| `photogrammetry-worker/`, `gpu-worker/` | `photogrammetry-worker.yml` | same, family `photogrammetry-prod-worker` | same |
+| `infra/` | `tf-validate.yml` (PR only) | fmt + validate. **Apply is manual.** | after your `terraform apply` |
+
+Worker images are also baked into the GPU AMI so cold starts don't pull ~7 GB. A new worker image
+is *usable* as soon as CI registers the revision, but each cold start pays a ~5 min pull until the
+AMI is rebaked.
+
+## Ordering rules
+
+1. **Schema before readers.** If a worker's ORM model reads a new column, deploy the API (which
+   migrates) before pushing the worker change — otherwise every SQS receipt raises outside the
+   handler's try block and the message is never acked.
+2. **API before Vue** when the UI depends on new fields (old API + new UI is usually a silent no-op;
+   new API + old UI is always fine).
+3. **Terraform before worker** when the task-def shape changes (volumes, env, memory). Terraform
+   replaces the task-def with `photogrammetry_image_tag` / `image_tag` from `terraform.tfvars`, so
+   set those to the *currently deployed* SHA first or the new revision points at `latest`.
+4. **Batch worker-image changes** and bake once — a bake is ~20 min of GPU instance time.
+
+Pushing one commit that touches several directories triggers all their workflows in parallel;
+if ordering matters, push in separate commits/pushes and watch each finish.
+
+## Steps
+
+### API / Vue
 ```bash
-cd chat-api
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
-docker build -t chat-api-prod .
-docker tag chat-api-prod:latest 123456789012.dkr.ecr.us-east-1.amazonaws.com/chat-api-prod:latest
-docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/chat-api-prod:latest
-aws ecs update-service --cluster chat-api-prod --service chat-api-prod --force-new-deployment
+git push origin main
+gh run watch                # or: gh run list --limit 5
+AWS_PROFILE=claude-ro aws ecs describe-services --cluster chat-api-prod --services chat-api-prod \
+  --query 'services[0].deployments[].[status,rolloutState,taskDefinition]' --output text
 ```
+Rollback: `git revert` and push. Migrations are forward-only; don't roll back past a schema change
+without a down-migration in hand.
 
-## transcription-worker
-
-Push to `main` → GitHub Actions `worker.yml` → ECR push → registers a new ECS task-definition
-revision (automatic via OIDC). There is no service to roll: the API launches the worker per job
-with `RunTask`, so the next launch just picks up the new revision — nothing to restart.
-
-The worker's Docker image is also baked into the ECS GPU AMI (CUDA + PyTorch + baked models, ~7 GB compressed) so
-a cold start after idle doesn't also pull the image. Rebuild the AMI only when the base image or
-model layers change:
-
+### Workers
 ```bash
-AWS_PROFILE=<admin> ./scripts/deploy/build-gpu-ami.sh <base-ami> <image-uri:tag> <subnet-id> <sg-id> <instance-profile> [env]
-# then set the printed AMI id as gpu_ami_id and apply the prod environment
+git push origin main                                  # CI registers revision N
+AWS_PROFILE=claude-ro aws ecs describe-task-definition --task-definition photogrammetry-prod-worker \
+  --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text
 ```
-
-Where each argument comes from:
-- `<base-ami>` — the ECS GPU-optimized AMI currently pinned as `gpu_ami_id` in prod's tfvars
-  (Terraform pins it on purpose; don't chase "latest").
-- `<image-uri:tag>` — the transcription-worker image just pushed to ECR (from `build-worker.sh`
-  or the `worker.yml` CI run).
-- `<subnet-id>`, `<sg-id>`, `<instance-profile>` — `terraform output` of the `prod` environment:
-  a subnet from `gpu_security_group_id`'s VPC, `gpu_security_group_id`, and
-  `gpu_instance_profile_name`.
-- `[env]` — defaults to `prod`.
-
-Check current worker state (`off` / `starting` / `running`) with:
-
+Then bake, once per batch:
 ```bash
-./scripts/deploy/gpu-status.sh
+cd infra/environments/prod && AWS_PROFILE=neil-admin terraform output   # sg, instance profile
+AWS_PROFILE=neil-admin BAKE_MARKET=on-demand ./scripts/deploy/build-gpu-ami.sh \
+  <base-ami: gpu_ami_id in prod tfvars> \
+  <ecr>/photogrammetry-prod-worker:<sha>,<ecr>/transcription-worker-prod:<sha> \
+  <subnet-id> <gpu_security_group_id> <gpu_instance_profile_name>
 ```
+Put the printed AMI id in `prod/terraform.tfvars` as `gpu_ami_id`, apply `prod` (launch-template
+version bump only). The script keeps this AMI and the previous one and deregisters older ones.
+The AMI name carries the UTC time, so same-day rebakes are fine.
 
-Live debugging of a worker is now SSM to the instance `gpu-status.sh` shows, not `ecs execute-command`
-— `enableExecuteCommand` went away with the service when the worker became a run-to-completion task.
-
-### Rollback
-
-Set `gpu_controller_enabled = false` in prod's tfvars and apply, then force a new API deployment.
-`RunTask` stops, the GPU pool drains to 0 within its idle window, and jobs queue on SQS (4-day
-retention) until the controller is re-enabled.
-
-### Capturing fixtures from production
-
-Set `DEV_CAPTURE_FIXTURES_S3_PREFIX=dev-fixtures` in the task definition (already set in Terraform) to write pipeline output to S3 after each job. Download with:
-
+Smoke after a worker deploy: run the sample scan (≈ 90 s on the GPU once the instance is up), then
+whatever the change targets. Watch it with:
 ```bash
-aws s3 cp --recursive s3://chat-audio-prod-123456789012/dev-fixtures/<job_id>/ ./fixtures/<job_id>/
+AWS_PROFILE=claude-ro ./scripts/deploy/gpu-status.sh
+AWS_PROFILE=claude-ro aws logs tail /ecs/photogrammetry-prod-worker --since 30m --follow
 ```
+Expect ~5 min instance start + (if not baked) ~5 min pull before the first log line. ECS managed
+scaling often launches two instances for one task; the spare idles ~10 min then scales in.
 
-Fixtures can be replayed locally via `dev_worker.py` without ML models. See [docs/mock-api.md](../mock-api.md) for details.
-
-To stop capturing, remove `DEV_CAPTURE_FIXTURES_S3_PREFIX` from the Terraform env block and apply.
-
-## chat-vue
-
+### Infra
+Two environments, applied separately. `prod` owns the API, frontend, Cognito, GPU capacity
+(ASG / launch template / AMI). `transcription-prod` owns both worker task-defs, queues, and the
+audio bucket.
 ```bash
-cd chat-vue
-npm run build
-aws s3 sync dist/ s3://<BUCKET_NAME>/ --delete
-aws cloudfront create-invalidation --distribution-id <DIST_ID> --paths "/*"
+cd infra/environments/<env>
+terraform init -backend-config=backend.hcl
+AWS_PROFILE=claude-ro  terraform plan  -lock=false      # read-only preview is fine with the RO profile
+AWS_PROFILE=neil-admin terraform apply
 ```
+A task-def "must be replaced" in the plan is normal whenever its shape changes — it registers a new
+revision; nothing running is touched.
 
-## DB Migrations
-
+## Verify production state (5 min)
 ```bash
-# Via ECS exec (production)
-TASK=$(aws ecs list-tasks --cluster chat-api-prod --query "taskArns[0]" --output text)
-aws ecs execute-command --cluster chat-api-prod --task "$TASK" \
-  --container chat-api --interactive \
-  --command "uv run alembic -c app/db/alembic.ini upgrade head"
+export AWS_PROFILE=claude-ro
+gh run list --limit 10                                                     # every deploy green?
+aws ecs describe-task-definition --task-definition chat-api-prod           --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text
+aws ecs describe-task-definition --task-definition photogrammetry-prod-worker --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text
+aws ecs describe-task-definition --task-definition transcription-prod-worker  --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text
+aws s3api head-object --bucket chat-peaslee-frontend-prod --key index.html --query LastModified
+./scripts/deploy/gpu-status.sh                                             # ASG 0/0 when idle
+for q in photogrammetry-prod-dlq transcription-dlq-prod; do aws sqs get-queue-attributes \
+  --queue-url "$(aws sqs get-queue-url --queue-name $q --query QueueUrl --output text)" \
+  --attribute-names ApproximateNumberOfMessages --query Attributes --output text; done
+(cd infra/environments/transcription-prod && terraform plan -lock=false | grep -E '^(Plan|No changes)')
+(cd infra/environments/prod                && terraform plan -lock=false | grep -E '^(Plan|No changes)')
 ```
+Image SHAs should be ancestors of `origin/main` (`git merge-base --is-ancestor <sha> origin/main`);
+both plans should say `No changes` unless you know what's pending. Pending work, grouped by
+surface, lives in `docs/TODO.md`. DLQ triage: `sqs-drain.md`.
