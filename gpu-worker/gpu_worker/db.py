@@ -22,6 +22,7 @@ class GpuSession(Base):
     task_arn: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     instance_id: Mapped[Optional[str]] = mapped_column(String(32))
     started_processing_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    instance_booted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     warm_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

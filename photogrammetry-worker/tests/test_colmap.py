@@ -123,3 +123,51 @@ def test_other_mapper_failures_propagate(tmp_path):
     from pipeline.runner import StageError
     with pytest.raises(StageError):
         sparse_reconstruct(_MapperFails("E... something else broke\n"), tmp_path, tmp_path / "images", True)
+
+
+# ── registered image names (which photos the model actually used) ────────────
+import struct
+
+from pipeline.colmap import registered_image_names
+
+
+def write_images_bin(path, names, points2d=(0, 2)):
+    """Minimal COLMAP images.bin: per image id, qvec, tvec, camera_id, name\\0, points2D."""
+    buf = bytearray(struct.pack("<Q", len(names)))
+    for i, name in enumerate(names, start=1):
+        buf += struct.pack("<i", i) + struct.pack("<4d", 1, 0, 0, 0) + struct.pack("<3d", 0, 0, 0)
+        buf += struct.pack("<i", 1) + name.encode() + b"\0"
+        n = points2d[i % len(points2d)]
+        buf += struct.pack("<Q", n) + b"".join(struct.pack("<ddq", 1.0, 2.0, -1) for _ in range(n))
+    path.write_bytes(bytes(buf))
+
+
+def test_registered_image_names_from_images_bin(tmp_path):
+    write_images_bin(tmp_path / "images.bin", ["0003.jpg", "0001.jpg", "0007.jpg"])
+    assert registered_image_names(tmp_path) == {"0001.jpg", "0003.jpg", "0007.jpg"}
+
+
+def test_registered_image_names_from_images_txt(tmp_path):
+    (tmp_path / "images.txt").write_text(
+        "# Image list with two lines of data per image:\n"
+        "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n"
+        "1 1 0 0 0 0 0 0 1 0002.jpg\n"
+        "10.5 20.5 -1 30 40 7\n"
+        "2 1 0 0 0 0 0 0 1 0005.jpg\n"
+        "\n"
+    )
+    assert registered_image_names(tmp_path) == {"0002.jpg", "0005.jpg"}
+
+
+def test_registered_image_names_empty_without_model_files(tmp_path):
+    assert registered_image_names(tmp_path) == set()
+    assert registered_image_names(tmp_path / "nope") == set()
+
+
+def test_sparse_reconstruct_carries_registered_names(tmp_path):
+    work, images = tmp_path / "w", tmp_path / "i"
+    make_sparse(work, ["0"])
+    write_images_bin(work / "sparse" / "0" / "images.bin", ["0001.jpg", "0002.jpg"])
+    model = sparse_reconstruct(FakeRunner({"0": 2}), work, images, use_gpu=False)
+    assert model.registered_images == 2
+    assert model.registered_names == frozenset({"0001.jpg", "0002.jpg"})

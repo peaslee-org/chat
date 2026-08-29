@@ -34,7 +34,9 @@ class FakeRecon:
         if name == self.fail_at: raise StageError("tool", f"{name} exploded")
 
     def sfm(self, images):
-        self._step("sfm"); return SparseModel(self.work / "sparse" / "0", self.registered)
+        self._step("sfm")
+        names = frozenset(sorted(p.name for p in images.iterdir())[:self.registered])
+        return SparseModel(self.work / "sparse" / "0", self.registered, names)
     def dense(self, images, model):
         self._step("dense"); d = self.work / "dense"; d.mkdir(parents=True, exist_ok=True); return d
     def reconstruct_mesh(self, dense):
@@ -510,3 +512,53 @@ def test_warnings_are_written_as_they_arise(tmp_path):
         FakeRecon._step = orig
     texture_entry = [w for n, w in seen if isinstance(n, tuple) and n[0] == "texture"][0]
     assert texture_entry and texture_entry[0].startswith("Mesh simplified")
+
+
+# ── per-photo status: which inputs the model used ────────────────────────────
+
+def test_photo_status_written_after_sfm_on_success(tmp_path):
+    job, _, _, deps = make(tmp_path, image_count=10, recon_kwargs={"registered": 7})
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert job.photo_status == {**{f"{i:04d}.jpg": "registered" for i in range(1, 8)},
+                                **{f"{i:04d}.jpg": "unregistered" for i in range(8, 11)}}
+
+
+def test_photo_status_written_before_registration_failure(tmp_path):
+    job, _, _, deps = make(tmp_path, image_count=10, recon_kwargs={"registered": 5})
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "failed" and job.error_message.startswith("Only 5 of 10 photos could be matched")
+    assert sum(v == "registered" for v in job.photo_status.values()) == 5
+    assert set(job.photo_status) == {f"{i:04d}.jpg" for i in range(1, 11)}
+
+
+class OddSizeS3(FakeS3):
+    """0003.jpg comes down at a different resolution (normalise skips it); 0004.jpg is not an image."""
+    def download(self, key, dest):
+        self.downloaded.append(key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if key.endswith("0003.jpg"):
+            Image.new("RGB", (100, 100)).save(dest)
+        elif key.endswith("0004.jpg"):
+            dest.write_bytes(b"not an image")
+        else:
+            Image.new("RGB", (600, 800)).save(dest)
+
+
+def test_photo_status_marks_skipped_photos_with_a_reason(tmp_path):
+    job, _, _, deps = make(tmp_path, image_count=10, recon_kwargs={"registered": 8}, s3_cls=OddSizeS3)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.photo_status["0003.jpg"] == "skipped:different resolution"
+    assert job.photo_status["0004.jpg"] == "skipped:unreadable"
+    assert job.photo_status["0001.jpg"] == "registered"
+    assert len(job.photo_status) == 10
+
+
+def test_resume_writes_photo_status_from_the_sfm_checkpoint(tmp_path):
+    job, _, recons, deps = make(tmp_path, status="processing", image_count=10)
+    w = work_dir(deps, job)
+    Checkpoints(w).done("sfm", sparse=str(w / "sparse" / "0"), registered_images=10,
+                        registered_names=[f"{i:04d}.jpg" for i in range(1, 10)])
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert "sfm" not in recons[0].calls
+    assert job.photo_status["0009.jpg"] == "registered" and job.photo_status["0010.jpg"] == "unregistered"
