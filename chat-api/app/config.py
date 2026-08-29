@@ -84,8 +84,11 @@ class Settings(BaseSettings):
     gpu_hourly_rate_usd: float = 0.20           # estimate only; the usage panel labels it so
     gpu_cost_tag_key: str = "CostCenter"
     gpu_cost_tag_value: str = "gpu"
-    gpu_wait_estimate_starting_seconds: int = 120
-    gpu_wait_estimate_off_seconds: int = 180
+    # Fallbacks only: GpuController measures the off→ready time from the ledger (median of the
+    # last 10 job starts) once it has 3 samples. 420 s is what the ledger showed on 2026-08-29
+    # (capacity-provider reaction + instance boot + image pull + first claim).
+    gpu_wait_estimate_starting_seconds: int = 420
+    gpu_wait_estimate_off_seconds: int = 420
 
     @property
     def cognito_jwks_url(self) -> str:

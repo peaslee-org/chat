@@ -69,10 +69,12 @@ class GpuSessionRepository:
         return int((await self.db.execute(stmt)).scalar_one())
 
     async def create(self, *, task_arn: str, started_by: str, reason: str,
-                     warm_until: Optional[datetime]) -> GpuSession:
+                     warm_until: Optional[datetime],
+                     estimated_startup_seconds: Optional[int] = None) -> GpuSession:
         row = GpuSession(
             task_arn=task_arn, started_by=started_by, reason=reason,
             warm_until=warm_until, family=self.family,
+            estimated_startup_seconds=estimated_startup_seconds,
         )
         self.db.add(row)
         await self.db.flush()
@@ -95,6 +97,32 @@ class GpuSessionRepository:
             .values(release_mode=mode, release_requested_at=now, release_requested_by=user_id, warm_until=None)
         )
         return result.rowcount
+
+    async def recent_startups(self, family: str, limit: int = 10) -> list[GpuSession]:
+        """The family's latest job-triggered launches that a worker actually claimed — the sample
+        the startup estimate is measured from (started_processing_at − started_at). Warm starts
+        are excluded: with nothing queued, the claim never happens."""
+        stmt = (
+            select(GpuSession)
+            .where(
+                GpuSession.family == family,
+                GpuSession.reason == "job",
+                GpuSession.started_processing_at.is_not(None),
+            )
+            .order_by(GpuSession.started_at.desc())
+            .limit(limit)
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def open_session(self, family: str) -> Optional[GpuSession]:
+        """The family's live (unended) session, newest first — None when no worker is up."""
+        stmt = (
+            select(GpuSession)
+            .where(GpuSession.ended_at.is_(None), GpuSession.family == family)
+            .order_by(GpuSession.started_at.desc())
+            .limit(1)
+        )
+        return (await self.db.execute(stmt)).scalar_one_or_none()
 
     async def sessions_since(self, since: datetime) -> list[GpuSession]:
         stmt = select(GpuSession).where(GpuSession.started_at >= since).order_by(GpuSession.started_at.desc())

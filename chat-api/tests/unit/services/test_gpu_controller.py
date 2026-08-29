@@ -11,7 +11,7 @@ NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
 
 
 def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_sessions=0,
-         family="transcription"):
+         family="transcription", startups=None, open_session=None):
     repo = MagicMock()
     repo.advisory_lock = AsyncMock()
     repo.hours_between = AsyncMock(
@@ -22,6 +22,8 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
     repo.create = AsyncMock()
     repo.extend_warm = AsyncMock()
     repo.sessions_since = AsyncMock(return_value=[])
+    repo.recent_startups = AsyncMock(return_value=list(startups or []))
+    repo.open_session = AsyncMock(return_value=open_session)
     repo.latest_cost_snapshot = AsyncMock(return_value=None)
     repo.save_cost_snapshot = AsyncMock()
     launcher = MagicMock()
@@ -31,7 +33,7 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
         gpu_idle_exit_seconds=900, gpu_max_lifetime_seconds=10800,
         gpu_daily_cap_hours=3.0, gpu_monthly_cap_hours=30.0,
         gpu_warm_per_user_per_day=3, gpu_hourly_rate_usd=0.2,
-        gpu_wait_estimate_starting_seconds=120, gpu_wait_estimate_off_seconds=180,
+        gpu_wait_estimate_starting_seconds=420, gpu_wait_estimate_off_seconds=420,
         gpu_cost_tag_key="CostCenter", gpu_cost_tag_value="gpu",
     )
     gc._state_cache.clear()
@@ -42,7 +44,7 @@ async def test_ensure_worker_launches_when_nothing_running():
     ctl, repo, launcher = make()
     state = await ctl.ensure_worker("job", "u1")
     assert state.worker_state == "starting"
-    assert state.estimated_wait_seconds == 120
+    assert state.estimated_wait_seconds == 420
     launcher.run_worker_task.assert_called_once_with("u1")
     repo.advisory_lock.assert_awaited_once()
     repo.create.assert_awaited_once()
@@ -182,7 +184,7 @@ async def test_ensure_worker_invalidates_only_its_family():
 async def test_usage_summary_carries_family():
     ctl, repo, _ = make(family="photogrammetry")
     s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                   family="photogrammetry", instance_id="i-1", started_processing_at=None)
+                   family="photogrammetry", instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
     repo.sessions_since = AsyncMock(return_value=[s])
     usage = await ctl.usage("u")
     assert usage.sessions[0].family == "photogrammetry"
@@ -194,7 +196,7 @@ async def test_usage_defaults_family_to_transcription_when_not_stamped():
     ctl, repo, _ = make()
     repo.sessions_since = AsyncMock(return_value=[
         MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
-                   family="transcription", instance_id="i-1", started_processing_at=None)
+                   family="transcription", instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None)
     ])
     u = await ctl.usage("u1")
     assert len(u.sessions) == 1
@@ -206,7 +208,7 @@ async def test_usage_hours_is_zero_for_a_session_that_never_got_an_instance():
     GpuSessionRepository.hours_between's exclusion of such rows."""
     ctl, repo, _ = make()
     s = MagicMock(started_at=NOW, ended_at=NOW + timedelta(hours=1), reason="job", started_by="u",
-                   end_reason=None, family="transcription", instance_id=None, started_processing_at=None)
+                   end_reason=None, family="transcription", instance_id=None, started_processing_at=None, estimated_startup_seconds=None)
     repo.sessions_since = AsyncMock(return_value=[s])
     u = await ctl.usage("u1")
     assert u.sessions[0].hours == 0.0
@@ -219,6 +221,7 @@ async def test_usage_hours_starts_the_clock_at_started_processing_at():
     s = MagicMock(
         started_at=NOW, started_processing_at=NOW + timedelta(minutes=10), ended_at=NOW + timedelta(hours=1),
         reason="job", started_by="u", end_reason=None, family="transcription", instance_id="i-1",
+        estimated_startup_seconds=None,
     )
     repo.sessions_since = AsyncMock(return_value=[s])
     u = await ctl.usage("u1")
@@ -261,3 +264,101 @@ async def test_release_rejects_unknown_mode():
     repo.request_release = AsyncMock(return_value=1)
     with pytest.raises(ValueError):
         await ctl.release("now", "admin1")
+
+
+# ── measured startup estimates (item C) ───────────────────────────────────────────────────────
+
+def startup(seconds: int, reason="job", started_at=NOW - timedelta(hours=1)):
+    return MagicMock(
+        started_at=started_at, started_processing_at=started_at + timedelta(seconds=seconds),
+        reason=reason, started_by="u", end_reason="idle", family="transcription", instance_id="i-1",
+        ended_at=started_at + timedelta(hours=1), estimated_startup_seconds=None,
+    )
+
+
+async def test_off_estimate_is_the_median_of_recent_startups():
+    ctl, *_ = make(startups=[startup(300), startup(500), startup(400)])
+    state = await ctl.get_state()
+    assert state.worker_state == "off"
+    assert state.estimate_basis == "measured"
+    assert state.estimate_samples == 3
+    assert state.startup_estimate_seconds == 400
+    assert state.estimated_wait_seconds == 400
+    assert state.starting_since is None
+
+
+async def test_fewer_than_three_samples_falls_back_to_the_config_default():
+    ctl, *_ = make(startups=[startup(300), startup(500)])
+    state = await ctl.get_state()
+    assert state.estimate_basis == "default"
+    assert state.estimate_samples == 2
+    assert state.startup_estimate_seconds == 420
+    assert state.estimated_wait_seconds == 420
+
+
+async def test_starting_reports_remaining_time_and_starting_since():
+    since = NOW - timedelta(seconds=150)
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since))
+    state = await ctl.get_state()
+    assert state.worker_state == "starting"
+    assert state.starting_since == since
+    assert state.startup_estimate_seconds == 400
+    assert state.estimated_wait_seconds == 250
+
+
+async def test_starting_remaining_clamps_at_zero():
+    since = NOW - timedelta(seconds=999)
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=MagicMock(started_at=since))
+    state = await ctl.get_state()
+    assert state.estimated_wait_seconds == 0
+
+
+async def test_starting_without_an_open_row_reports_the_full_estimate():
+    ctl, *_ = make(tasks=["PENDING"], startups=[startup(400)] * 3, open_session=None)
+    state = await ctl.get_state()
+    assert state.starting_since is None
+    assert state.estimated_wait_seconds == 400
+
+
+async def test_running_has_zero_wait_but_still_carries_the_estimate():
+    ctl, *_ = make(tasks=["RUNNING"], startups=[startup(400)] * 3)
+    state = await ctl.get_state()
+    assert state.estimated_wait_seconds == 0
+    assert state.startup_estimate_seconds == 400
+
+
+async def test_ensure_worker_records_the_promised_estimate_on_the_ledger_row():
+    ctl, repo, _ = make(startups=[startup(380), startup(420), startup(400)])
+    state = await ctl.ensure_worker("job", "u1")
+    assert state.estimated_wait_seconds == 400
+    assert repo.create.await_args.kwargs["estimated_startup_seconds"] == 400
+
+
+async def test_recent_startups_are_asked_for_the_controller_family():
+    ctl, repo, _ = make(family="photogrammetry")
+    await ctl.get_state()
+    assert repo.recent_startups.await_args.args[0] == "photogrammetry"
+
+
+async def test_usage_exposes_promised_vs_actual_startup_and_the_median():
+    ctl, repo, _ = make(startups=[startup(300), startup(500), startup(400)])
+    s = startup(360)
+    s.estimated_startup_seconds = 400
+    repo.sessions_since = AsyncMock(return_value=[s, startup(0)])
+    u = await ctl.usage("u1")
+    assert u.sessions[0].estimated_startup_seconds == 400
+    assert u.sessions[0].actual_startup_seconds == 360
+    assert u.startup_median_seconds == 400
+    assert u.startup_samples == 3
+
+
+async def test_usage_actual_startup_is_none_before_the_worker_claims():
+    ctl, repo, _ = make()
+    s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
+                  family="transcription", instance_id=None, started_processing_at=None,
+                  estimated_startup_seconds=420)
+    repo.sessions_since = AsyncMock(return_value=[s])
+    u = await ctl.usage("u1")
+    assert u.sessions[0].actual_startup_seconds is None
+    assert u.sessions[0].estimated_startup_seconds == 420
+    assert u.startup_median_seconds is None and u.startup_samples == 0

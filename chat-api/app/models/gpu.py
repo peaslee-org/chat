@@ -31,6 +31,9 @@ class GpuSession(Base):
     release_mode: Mapped[Optional[str]] = mapped_column(String(10))
     release_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     release_requested_by: Mapped[Optional[str]] = mapped_column(String(64))
+    # The off→ready estimate shown to the user when this task was launched; compared with
+    # started_processing_at − started_at in the usage panel.
+    estimated_startup_seconds: Mapped[Optional[int]] = mapped_column(Integer)
 
 
 class GpuCostSnapshot(Base):
