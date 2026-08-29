@@ -39,3 +39,15 @@ def test_status_response_warnings_default_to_empty_list():
     now = datetime.now(timezone.utc)
     r = JobStatusResponse(job_id=uuid4(), name="n", status="queued", image_count=5, created_at=now, updated_at=now)
     assert r.warnings == []
+
+
+def test_photo_listing_schemas_shape():
+    from app.schemas.photogrammetry import JobPhotosResponse, PhotoItem, SamplePhotosResponse
+
+    item = PhotoItem(filename="0001.jpg", url="https://dl/0001.jpg", thumb_url="https://dl/t.jpg")
+    assert JobPhotosResponse(photos=[item]).model_dump()["photos"][0]["thumb_url"] == "https://dl/t.jpg"
+    sample = SamplePhotosResponse(name="Sample scan", image_count=1, photos=[item])
+    assert sample.model_dump() == {
+        "name": "Sample scan", "image_count": 1,
+        "photos": [{"filename": "0001.jpg", "url": "https://dl/0001.jpg", "thumb_url": "https://dl/t.jpg"}],
+    }

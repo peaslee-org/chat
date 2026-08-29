@@ -377,3 +377,83 @@ class TestLocalService:
         assert kwargs["image_count"] == n and kwargs["name"] == "Sample scan"
         repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
         walk.assert_awaited_once_with(res.job_id)
+
+
+class TestListJobPhotos:
+    async def test_404_when_not_owner(self):
+        svc, *_ = make_service(job=None)
+        with pytest.raises(NotFoundError):
+            await svc.list_job_photos("user1", uuid4())
+
+    async def test_presigns_photo_and_thumbnail_under_the_job_thumbs_prefix(self):
+        job = make_job(status="processing")
+        keys = [f"{job.input_prefix}0002.jpg", f"{job.input_prefix}0001.png"]
+        svc, _, storage = make_service(job=job, keys=keys)
+        thumbs_prefix = f"photogrammetry/user1/{job.id}/thumbs/"
+        with patch.object(ps, "ensure_thumbnails", return_value={
+            keys[0]: f"{thumbs_prefix}0002.jpg", keys[1]: f"{thumbs_prefix}0001.jpg",
+        }) as ensure:
+            res = await svc.list_job_photos("user1", job.id)
+        ensure.assert_called_once_with(storage, sorted(keys), thumbs_prefix)
+        assert [p.filename for p in res.photos] == ["0001.png", "0002.jpg"]
+        assert res.photos[0].url == f"https://dl/{job.input_prefix}0001.png"
+        assert res.photos[0].thumb_url == f"https://dl/{thumbs_prefix}0001.jpg"
+
+    async def test_photo_without_thumbnail_falls_back_to_the_original_url(self):
+        job = make_job(status="complete")
+        key = f"{job.input_prefix}0001.jpg"
+        svc, *_ = make_service(job=job, keys=[key])
+        with patch.object(ps, "ensure_thumbnails", return_value={}):
+            res = await svc.list_job_photos("user1", job.id)
+        assert res.photos[0].thumb_url == res.photos[0].url == f"https://dl/{key}"
+
+    async def test_no_uploads_yet_is_an_empty_list(self):
+        job = make_job(status="pending")
+        svc, *_ = make_service(job=job, keys=[])
+        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+            res = await svc.list_job_photos("user1", job.id)
+        assert res.photos == []
+        ensure.assert_called_once()
+
+
+class TestListSamplePhotos:
+    async def test_409_when_sample_set_missing(self):
+        svc, *_ = make_service(keys=[])
+        with pytest.raises(ConflictError):
+            await svc.list_sample_photos()
+
+    async def test_lists_under_the_sample_prefix_with_thumbs_beside_images(self):
+        keys = ["samples/photogrammetry/images/0001.jpg", "samples/photogrammetry/images/0002.jpg"]
+        svc, _, storage = make_service(keys=keys)
+        with patch.object(ps, "ensure_thumbnails", return_value={
+            k: k.replace("images/", "thumbs/") for k in keys
+        }) as ensure:
+            res = await svc.list_sample_photos()
+        storage.list_keys_with_prefix.assert_called_once_with("samples/photogrammetry/images/")
+        ensure.assert_called_once_with(storage, keys, "samples/photogrammetry/thumbs/")
+        assert res.name == "Sample scan" and res.image_count == 2
+        assert res.photos[1].thumb_url == "https://dl/samples/photogrammetry/thumbs/0002.jpg"
+
+    async def test_needs_no_gpu_controller(self):
+        keys = ["samples/photogrammetry/images/0001.jpg"]
+        svc, *_ = make_service(keys=keys, gpu=None)
+        with patch.object(ps, "ensure_thumbnails", return_value={}):
+            res = await svc.list_sample_photos()
+        assert res.image_count == 1
+
+
+class TestLocalSamplePhotos:
+    async def test_seeds_local_storage_from_the_committed_assets_once(self, tmp_path):
+        from app.services.audio_storage import LocalAudioStorageService
+
+        storage = LocalAudioStorageService("http://localhost:8000", str(tmp_path))
+        settings = MagicMock(photogrammetry_sample_prefix="samples/photogrammetry/")
+        svc = LocalPhotogrammetryService(MagicMock(), storage, settings)
+        res = await svc.list_sample_photos()
+        n = len(list((ASSET_DIR / "images").glob("*.jpg")))
+        assert res.image_count == n == len(res.photos)
+        assert res.photos[0].url.endswith("/dev-upload/samples/photogrammetry/images/0001.jpg")
+        assert res.photos[0].thumb_url.endswith("/dev-upload/samples/photogrammetry/thumbs/0001.jpg")
+        assert (tmp_path / "samples/photogrammetry/thumbs/0001.jpg").exists()
+        again = await svc.list_sample_photos()
+        assert again.image_count == n  # idempotent: no duplicate seeding

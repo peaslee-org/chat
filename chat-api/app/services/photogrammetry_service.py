@@ -25,13 +25,17 @@ from app.schemas.photogrammetry import (
     JobCreateRequest,
     JobCreateResponse,
     JobListResponse,
+    JobPhotosResponse,
     JobStatusResponse,
     MeshUrlResponse,
+    PhotoItem,
     SampleJobResponse,
+    SamplePhotosResponse,
     UploadTarget,
     extension_of,
 )
 from app.services.gpu_controller import GpuCapExceeded
+from app.services.thumbnails import ensure_thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +165,38 @@ class PhotogrammetryService:
         job = await self._get_or_404(user_id, job_id)
         await self._repo.delete_job(job.id)
 
+    # ── input photos ─────────────────────────────────────────────────────────
+
+    async def list_job_photos(self, user_id: str, job_id: UUID) -> JobPhotosResponse:
+        job = await self._get_or_404(user_id, job_id)
+        thumbs_prefix = job.input_prefix.rsplit("input/", 1)[0] + "thumbs/"
+        return JobPhotosResponse(photos=await self._photos(job.input_prefix, thumbs_prefix))
+
+    async def list_sample_photos(self) -> SamplePhotosResponse:
+        base = self._settings.photogrammetry_sample_prefix
+        photos = await self._photos(f"{base}images/", f"{base}thumbs/")
+        if not photos:
+            raise ConflictError("Sample photo set has not been uploaded")
+        return SamplePhotosResponse(name="Sample scan", image_count=len(photos), photos=photos)
+
+    async def _photos(self, images_prefix: str, thumbs_prefix: str) -> list[PhotoItem]:
+        """Presigned originals + thumbnails (made on first request, cached beside them)."""
+        keys = sorted(self._storage.list_keys_with_prefix(images_prefix))
+        thumbs = await asyncio.to_thread(ensure_thumbnails, self._storage, keys, thumbs_prefix)
+        presign = self._storage.generate_presigned_download_url
+        items = []
+        for key in keys:
+            url = presign(key, ttl_seconds=DOWNLOAD_TTL_SECONDS)
+            thumb_key = thumbs.get(key)
+            items.append(PhotoItem(
+                filename=Path(key).name,
+                url=url,
+                thumb_url=(
+                    presign(thumb_key, ttl_seconds=DOWNLOAD_TTL_SECONDS) if thumb_key else url
+                ),
+            ))
+        return items
+
     # ── sample ───────────────────────────────────────────────────────────────
 
     async def create_sample_job(self, user_id: str) -> SampleJobResponse:
@@ -255,6 +291,14 @@ class LocalPhotogrammetryService(PhotogrammetryService):
         await self._repo.db.commit()
         asyncio.create_task(self._mock_process_job(job_id))
         return SampleJobResponse(job_id=job_id)
+
+    async def list_sample_photos(self) -> SamplePhotosResponse:
+        """Seed the committed sample photos into the dev sink once, then list them like prod."""
+        images_prefix = f"{self._settings.photogrammetry_sample_prefix}images/"
+        if not self._storage.list_keys_with_prefix(images_prefix):
+            for i, path in enumerate(sorted((ASSET_DIR / "images").glob("*.jpg")), start=1):
+                self._storage.write_object(f"{images_prefix}{i:04d}.jpg", path.read_bytes())
+        return await super().list_sample_photos()
 
     async def _mock_process_job(self, job_id: UUID) -> None:
         try:

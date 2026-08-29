@@ -9,13 +9,24 @@ from app.schemas.photogrammetry import (
     JobCreateRequest,
     JobCreateResponse,
     JobListResponse,
+    JobPhotosResponse,
     JobStatusResponse,
     MeshUrlResponse,
     SampleJobResponse,
+    SamplePhotosResponse,
 )
 from app.services.photogrammetry_service import PhotogrammetryService
 
 router = APIRouter()
+
+
+@router.get("/samples", response_model=SamplePhotosResponse)
+async def list_sample_photos(
+    current_user: dict = Depends(get_current_user),
+    service: PhotogrammetryService = Depends(get_photogrammetry_service),
+) -> SamplePhotosResponse:
+    """The bundled sample photo set with thumbnails: what New Scan shows in sample mode."""
+    return await service.list_sample_photos()
 
 
 @router.post("/jobs/sample", status_code=202, response_model=SampleJobResponse)
@@ -61,6 +72,15 @@ async def confirm_job(
     service: PhotogrammetryService = Depends(get_photogrammetry_service),
 ) -> None:
     await service.confirm_job(current_user["sub"], job_id)
+
+
+@router.get("/jobs/{job_id}/photos", response_model=JobPhotosResponse)
+async def list_job_photos(
+    job_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    service: PhotogrammetryService = Depends(get_photogrammetry_service),
+) -> JobPhotosResponse:
+    return await service.list_job_photos(current_user["sub"], job_id)
 
 
 @router.get("/jobs/{job_id}/mesh", response_model=MeshUrlResponse)

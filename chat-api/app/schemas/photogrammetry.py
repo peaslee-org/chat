@@ -68,6 +68,22 @@ class SampleJobResponse(BaseModel):
     job_id: UUID
 
 
+class PhotoItem(BaseModel):
+    filename: str
+    url: str        # presigned GET of the original
+    thumb_url: str  # presigned GET of the 256 px thumbnail (the original when none could be made)
+
+
+class JobPhotosResponse(BaseModel):
+    photos: List[PhotoItem]
+
+
+class SamplePhotosResponse(BaseModel):
+    name: str
+    image_count: int
+    photos: List[PhotoItem]
+
+
 class MeshUrlResponse(BaseModel):
     url: str                                    # plain GET — what <model-viewer> loads
     download_url: str                           # same object, Content-Disposition: attachment

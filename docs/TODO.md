@@ -94,9 +94,10 @@ each API item an ECS deploy; Vue items a CloudFront deploy; infra items a Terraf
 
 ## Vue (chat-vue)
 
-- [ ] **Transcribe "Try the sample" is silently a no-op while a sample job is pending** (2026-08-28:
-  clicking it did not POST; deleting the stuck job first did). Either disable the button with a hint or
-  let it create a new job.
+- [x] ~~"Try the sample" is silently a no-op while a sample job is pending~~ — photogrammetry side
+  fixed 2026-08-29: **Sample** now opens New Scan preloaded with the sample set (thumbnails via
+  `GET /photogrammetry/samples`); a 409 shows inline and disables Start. The *transcribe* sample
+  button still has the old behaviour.
 
 - [x] ~~Deploy the GLB / preview download buttons~~ (`9ba40c9`) live since 2026-08-28.
 
