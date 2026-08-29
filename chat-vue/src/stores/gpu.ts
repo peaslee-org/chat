@@ -1,5 +1,5 @@
 import { defineStore } from "pinia"
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import axios from "axios"
 import * as api from "@/lib/gpuApi"
 import type { GpuFamily, GpuState, GpuUsage } from "@/types"
@@ -20,6 +20,30 @@ export const useGpuStore = defineStore("gpu", () => {
   let generation = 0
 
   const idleOutAt = computed(() => (state.value?.warm_until ? new Date(state.value.warm_until) : null))
+
+  // ── startup countdown ──
+  // The API returns remaining time as of the poll; between polls a 1 s clock keeps it and the
+  // elapsed figure moving. The clock only runs while a worker is starting.
+  const now = ref(Date.now())
+  let clock: ReturnType<typeof setInterval> | null = null
+  const startingSince = computed(() => {
+    const s = state.value
+    return s?.worker_state === "starting" && s.starting_since ? new Date(s.starting_since).getTime() : null
+  })
+  const elapsedSeconds = computed(() =>
+    startingSince.value === null ? null : Math.max(0, Math.floor((now.value - startingSince.value) / 1000)),
+  )
+  const remainingSeconds = computed(() => {
+    const s = state.value
+    if (!s || s.worker_state !== "starting") return 0
+    if (elapsedSeconds.value === null) return s.estimated_wait_seconds
+    return Math.max(0, s.startup_estimate_seconds - elapsedSeconds.value)
+  })
+  function stopClock() { if (clock) { clearInterval(clock); clock = null } }
+  watch(startingSince, (since) => {
+    stopClock()
+    if (since !== null) { now.value = Date.now(); clock = setInterval(() => (now.value = Date.now()), 1000) }
+  }, { immediate: true })
 
   async function refreshState(f: GpuFamily = family.value) {
     try { state.value = await api.getGpuState(f); error.value = null }
@@ -68,7 +92,11 @@ export const useGpuStore = defineStore("gpu", () => {
     polling = false
     generation += 1
     if (timer) { clearTimeout(timer); timer = null }
+    stopClock()
   }
 
-  return { state, usage, warming, error, family, idleOutAt, refreshState, refreshUsage, warm, startPolling, stopPolling }
+  return {
+    state, usage, warming, error, family, idleOutAt, elapsedSeconds, remainingSeconds,
+    refreshState, refreshUsage, warm, startPolling, stopPolling,
+  }
 })
