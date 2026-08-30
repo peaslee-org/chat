@@ -1,4 +1,5 @@
 """GpuSessionRepository — statement shape verified against a mocked AsyncSession (no real DB)."""
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -185,3 +186,37 @@ async def test_last_ended_session_is_the_most_recently_ended_row_of_the_family()
     assert "ended_at IS NOT NULL" in sql
     assert "family = 'photogrammetry'" in sql
     assert "ORDER BY gpu_sessions.ended_at DESC" in sql and "LIMIT 1" in sql
+
+
+async def test_create_stamps_the_launching_job():
+    repo, db = make_repo(family="photogrammetry")
+    db.add = MagicMock()
+    db.flush = AsyncMock()
+    jid = uuid.uuid4()
+    row = await repo.create(task_arn="arn", started_by="u", reason="job", warm_until=None, job_id=jid)
+    assert row.job_id == jid
+
+
+async def test_job_labels_looks_each_family_up_in_its_own_jobs_table():
+    """Sessions of both families come back from sessions_since (one pool, one budget); a scan's
+    label is its name, a transcript's is its created_at (it has no name)."""
+    repo, db = make_repo()
+    pg, tr = uuid.uuid4(), uuid.uuid4()
+    pg_rows = MagicMock(); pg_rows.all.return_value = [(pg, "Sample scan", NOW)]
+    tr_rows = MagicMock(); tr_rows.all.return_value = [(tr, SINCE)]
+    db.execute = AsyncMock(side_effect=[pg_rows, tr_rows])
+    sessions = [MagicMock(family="photogrammetry", job_id=pg), MagicMock(family="transcription", job_id=tr),
+                MagicMock(family="transcription", job_id=None)]
+    labels = await repo.job_labels(sessions)
+    sql = [str(c.args[0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+           for c in db.execute.await_args_list]
+    assert "photogrammetry_jobs" in sql[0] and str(pg) in sql[0]
+    assert "transcription_jobs" in sql[1] and str(tr) in sql[1]
+    assert labels[pg].name == "Sample scan" and labels[pg].created_at == NOW
+    assert labels[tr].name is None and labels[tr].created_at == SINCE
+
+
+async def test_job_labels_with_no_job_sessions_does_not_hit_the_db():
+    repo, db = make_repo()
+    assert await repo.job_labels([MagicMock(family="transcription", job_id=None)]) == {}
+    db.execute.assert_not_awaited()

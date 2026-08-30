@@ -158,7 +158,7 @@ class TestConfirmJob:
         storage.list_keys_with_prefix.assert_called_once_with(job.input_prefix)
         repo.update_job_status.assert_awaited_once_with(job.id, "queued")
         repo.db.commit.assert_awaited()
-        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1", job_id=job.id)
 
     async def test_cap_exceeded_leaves_job_queued(self):
         job = make_job(image_count=6)
@@ -277,7 +277,7 @@ class TestSampleJob:
         assert kwargs["image_count"] == 7
         assert kwargs["name"] == "Sample scan"
         repo.update_job_status.assert_awaited_once_with(res.job_id, "queued")
-        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1", job_id=res.job_id)
 
     async def test_sample_job_publishes(self):
         gpu = MagicMock()
