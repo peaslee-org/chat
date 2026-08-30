@@ -64,7 +64,7 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 | `SQS_VISIBILITY_TIMEOUT` | `600` | no — extended every `SQS_VISIBILITY_EXTENSION_INTERVAL` (300) while a job runs |
 | `WORK_DIR` | `/tmp/pg` | no — in prod a host-path volume (`/var/lib/photogrammetry`) so scratch survives a container restart |
 | `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU. Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load |
-| `TEXTURE_MAX_SIZE` | `4096` | no — long edge of each atlas embedded in the GLB after cropping to its used UV box (JPEG q85) |
+| `TEXTURE_MAX_SIZE` | `4096` | no — pixel budget (this²) per atlas embedded in the GLB after cropping to its used UV box (JPEG q85); a thin strip keeps full resolution, so an edge can still be up to 8192 (OpenMVS's atlas size — three.js downscales above a device's `MAX_TEXTURE_SIZE` with a console warning) |
 
 ## Pipeline (as built)
 
@@ -78,7 +78,7 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 | dense | `dense` | `image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | fixed for the 16 GB T4 |
 | mesh | `mesh` | `ReconstructMesh`; then `RefineMesh` **only if** images ≤ `REFINE_MAX_IMAGES` (100) **and** faces ≤ `REFINE_MAX_FACES` (400 k) | refine roughly doubles faces at ~16 GB virtual on 675 k — that OOM-cycled on 2026-08-28 |
 | texture | `texture` | `TextureMesh --decimate FACE_BUDGET/faces` when faces > `FACE_BUDGET` (500 k), warning "Mesh simplified from N to about 500,000 faces to fit the viewer"; `--global-seam-leveling 0 --local-seam-leveling 0` (leveling blackens faces in this build — root cause open in `docs/TODO.md`) | |
-| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct); each atlas is cropped to the box its UVs use, capped at `TEXTURE_MAX_SIZE` on the long edge and embedded as JPEG q85 (`pipeline/export.py::shrink_atlas` — uncropped 8192² PNGs made the 51-photo GLB 45 MB), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
+| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct); each atlas is cropped to the box its UVs use, capped at `TEXTURE_MAX_SIZE`² pixels and embedded as JPEG q85 (`pipeline/export.py::shrink_atlas`); corners sharing position + UV are welded (`merge_vertices`, OpenMVS writes one `vt` per corner — unwelded geometry, not the atlases, was the bulk of the 51-photo 45 MB GLB), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
 
 Each stage writes `<stage>.done` (atomic, JSON payload — e.g. the sfm marker carries `sparse`,
 `registered_images`, `registered_names`) under `WORK_DIR/<job_id>/`; a redelivered job resumes at

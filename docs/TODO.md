@@ -112,8 +112,11 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 ## Recently done (2026-08-28 → 30)
 
 - 2026-08-30 worker batch (one AMI re-bake): GLB atlases cropped to their used UV box, capped at
-  `TEXTURE_MAX_SIZE` (4096) and embedded as JPEG q85 — measure the 51-photo set after deploy
-  (was 45 MB); Draco / quantised attributes still open if it's not enough. Photogrammetry fails
+  `TEXTURE_MAX_SIZE`² pixels and embedded as JPEG q85; sample 3.28 → 2.17 MB. Inspection showed
+  OpenMVS atlases were already JPEG and the bulk was unwelded geometry (3 verts/face) — vertices
+  sharing position + UV are now welded (sample GLB 2.17 → 1.22 MB, 86 232 → 17 384 vertices;
+  51-photo set: 45 → 40.8 MB with the crop alone, 15.9 MB with the weld simulated on
+  that file). Draco / quantised attributes still open if it's not enough. Photogrammetry fails
   the row on permanent S3 errors (`TRANSIENT_S3_CODES` allowlist) and declares `botocore`.
   Transcription honours `ReleaseWatcher.abort` (Transcribe wait + per-turn) → row `transcribing`,
   message redelivered.

@@ -24,15 +24,22 @@ def obj_to_glb(obj: Path, out: Path, max_texture_size: int = DEFAULT_MAX_TEXTURE
     for geometry in scene.geometry.values():
         geometry.apply_transform(CV_TO_GLTF)
         shrink_atlas(geometry, max_texture_size)
+        # OpenMVS writes one `vt` per face corner, so with process=False every corner is its own
+        # vertex — 3 per face, ~36 MB of geometry at 500 k faces. Weld corners that share position
+        # *and* UV (merge_tex=False keeps seams split); ~5× fewer vertices on the sample scan.
+        geometry.merge_vertices()
     out.parent.mkdir(parents=True, exist_ok=True)
     scene.export(out, file_type="glb")
     return out
 
 
 def shrink_atlas(geometry: trimesh.Trimesh, max_texture_size: int) -> None:
-    """Crop the geometry's texture to the box its UVs actually use, cap its long edge, and mark it
-    for JPEG embedding. OpenMVS writes square power-of-two atlases and packs only part of the last
-    one, so a big scan embedded two mostly-empty 8192² PNGs (45 MB). In place; UVs are remapped."""
+    """Crop the geometry's texture to the box its UVs actually use, cap its *area* at
+    max_texture_size², and mark it for JPEG embedding. OpenMVS writes square power-of-two
+    atlases and packs only part of the last one — a small scan is a thin strip along the top of
+    an 8192² image — so the crop is what saves bytes; the area cap (rather than a long-edge cap)
+    leaves such a strip at full texel density and still halves a full 8192² atlas to 4096².
+    In place; UVs are remapped."""
     visual = geometry.visual
     material = getattr(visual, "material", None)
     image = getattr(material, "image", None)
@@ -49,8 +56,8 @@ def shrink_atlas(geometry: trimesh.Trimesh, max_texture_size: int) -> None:
     cropped = image.convert("RGB").crop((x0, top, x1, bottom))
     cw, ch = cropped.size
     visual.uv = np.column_stack([(uv[:, 0] * w - x0) / cw, (uv[:, 1] * h - (h - bottom)) / ch])
-    if max(cw, ch) > max_texture_size:
-        scale = max_texture_size / max(cw, ch)
+    if cw * ch > max_texture_size ** 2:
+        scale = math.sqrt(max_texture_size ** 2 / (cw * ch))
         cropped = cropped.resize((max(1, round(cw * scale)), max(1, round(ch * scale))), Image.LANCZOS)
     # trimesh keeps a PIL image whose .format is JPEG as JPEG — but re-encodes it with Pillow's
     # defaults, so hand it the raw pixels (never JPEG-encoded) and the quality via encoderinfo.
