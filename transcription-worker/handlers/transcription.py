@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from sqlalchemy import select
 
 from config import Settings
 from db import get_session
+from gpu_worker.sqs import Interrupted
 from models import SpeakerProfile, SpeakerSample, TranscriptionJob, TranscriptionJobEvent, TranscriptSegment, TranscriptTurnDistance
 from services.aligner import align_words_to_turns, OVERLAP
 from services.diarizer import PyannoteDiarizer
@@ -42,7 +44,16 @@ def _log_event(job_id: uuid.UUID, event: str, detail: dict | None = None) -> Non
 
 
 
-def process_transcription_job(body: dict, settings: Settings) -> None:
+def _raise_if_aborted(abort: "threading.Event | None") -> None:
+    if abort is not None and abort.is_set():
+        raise Interrupted("GPU release requested")
+
+
+def process_transcription_job(body: dict, settings: Settings, abort: "threading.Event | None" = None) -> None:
+    """`abort` is ReleaseWatcher.abort: an *immediate* GPU release. It is polled at the two places a
+    job spends real time — the Transcribe wait and the per-turn embedding loop — and raises
+    Interrupted, which puts the row back to `processing` (the API's pre-worker state) and leaves
+    the message for redelivery. Diarization itself (one in-process torch call) is not interruptible."""
     job_id = uuid.UUID(body["job_id"])
     aws_job_name = body["aws_transcribe_job_name"]
     speaker_ids = body.get("speaker_ids") or []
@@ -64,7 +75,7 @@ def process_transcription_job(body: dict, settings: Settings) -> None:
         # Step 2: Poll AWS Transcribe
         logger.info("Polling AWS Transcribe for job %s", aws_job_name)
         _log_event(job_id, "transcribe.polling")
-        aws_job = poller.wait_for_completion(aws_job_name)
+        aws_job = poller.wait_for_completion(aws_job_name, abort=abort)
         _log_event(job_id, "transcribe.complete")
 
         # Step 4: Download transcript JSON
@@ -217,6 +228,7 @@ def process_transcription_job(body: dict, settings: Settings) -> None:
         turn_dist_rows: list[dict] = []
         logger.info("Embedding %d turn(s) individually", len(all_turns))
         for i, turn in enumerate(all_turns):
+            _raise_if_aborted(abort)
             duration = turn["end"] - turn["start"]
             part = source_waveform[
                 :,
@@ -343,6 +355,16 @@ def process_transcription_job(body: dict, settings: Settings) -> None:
             job_id, elapsed, matched_pct,
         )
 
+    except Interrupted:
+        # Nothing has been written yet (segments land in step 9, after the last abort check), so
+        # the redelivered message re-runs the job from the top.
+        logger.warning("Transcription job %s interrupted by GPU release — back to processing", job_id)
+        with get_session() as session:
+            job = session.get(TranscriptionJob, job_id)
+            if job:
+                job.status = "processing"
+                session.add(TranscriptionJobEvent(job_id=job_id, source="worker", event="job.interrupted"))
+        raise
     except Exception as exc:
         step = "processing"
         error_msg = f"{step}: {type(exc).__name__}: {exc}"

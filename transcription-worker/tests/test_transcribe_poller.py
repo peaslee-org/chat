@@ -8,6 +8,7 @@ import os
 # The worker has no package structure; source files live at the repo root.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import pytest
 from unittest.mock import MagicMock
 from services.transcribe_poller import TranscribePoller
 
@@ -271,3 +272,31 @@ class TestParseWords:
         words = poller.parse_words(transcript)
         assert len(words) == 1
         assert words[0]["word"] == "Hello"
+
+
+# ---------------------------------------------------------------------------
+# wait_for_completion — release abort
+# ---------------------------------------------------------------------------
+
+def test_wait_for_completion_raises_interrupted_when_abort_is_set():
+    """An *immediate* GPU release sets ReleaseWatcher.abort; the poll loop (the longest wait in
+    the job) must give up on the next tick instead of sleeping out its 30 s interval."""
+    import threading
+    from gpu_worker.sqs import Interrupted
+    poller = make_poller()
+    poller.client.get_transcription_job.return_value = {
+        "TranscriptionJob": {"TranscriptionJobStatus": "IN_PROGRESS"}
+    }
+    abort = threading.Event()
+    abort.set()
+    with pytest.raises(Interrupted):
+        poller.wait_for_completion("job-1", poll_interval=30, abort=abort)
+    assert poller.client.get_transcription_job.call_count == 0     # checked before each request
+
+
+def test_wait_for_completion_without_abort_still_returns_on_completed():
+    poller = make_poller()
+    poller.client.get_transcription_job.return_value = {
+        "TranscriptionJob": {"TranscriptionJobStatus": "COMPLETED"}
+    }
+    assert poller.wait_for_completion("job-1")["TranscriptionJobStatus"] == "COMPLETED"

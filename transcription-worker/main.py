@@ -19,6 +19,7 @@ from handlers.transcription import process_transcription_job
 from handlers.embedding import process_sample_embedding
 from gpu_worker.db import make_session_factory
 from gpu_worker.ecs_metadata import instance_id, task_arn
+from gpu_worker.release_watcher import ReleaseWatcher
 from gpu_worker.session import GpuSessionStore
 from gpu_worker.sqs import run_sqs_worker
 
@@ -30,9 +31,10 @@ logger = logging.getLogger(__name__)
 
 settings = Settings()
 
-# Existing handlers take (body, settings); the shell passes (body, message).
+# Existing handlers take (body, settings); the shell passes (body, message). ReleaseWatcher.abort
+# is the process-wide "immediate release" flag the shell's watcher thread sets.
 HANDLERS = {
-    "transcription_job": lambda body, _msg: process_transcription_job(body, settings),
+    "transcription_job": lambda body, _msg: process_transcription_job(body, settings, abort=ReleaseWatcher.abort),
     "sample_embedding": lambda body, _msg: process_sample_embedding(body, settings),
 }
 
