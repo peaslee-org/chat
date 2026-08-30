@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue"
 import { RouterLink } from "vue-router"
 import { useGpuStore } from "@/stores/gpu"
 import { durationLabel, elapsedLabel, workerStateLabel } from "@/lib/workerState"
-import type { GpuFamily, GpuSessionSummary } from "@/types"
+import type { GpuFamily, GpuSessionJob, GpuSessionSummary } from "@/types"
 
 const props = withDefaults(defineProps<{ family?: GpuFamily }>(), { family: "transcription" })
 const showWarm = computed(() => props.family === "transcription")
@@ -78,11 +78,11 @@ function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 /** Scan → its name; transcript → its time (it has no name). The page's ?job= opens it. */
-function jobLabel(s: GpuSessionSummary): string {
-  return s.job?.name ?? `Transcript ${when(s.job!.created_at)}`
+function jobLabel(job: GpuSessionJob): string {
+  return job.name ?? `Transcript ${when(job.created_at)}`
 }
-function jobLink(s: GpuSessionSummary): { path: string; query: { job: string } } {
-  return { path: s.family === "photogrammetry" ? "/photogrammetry" : "/transcribe", query: { job: s.job!.id } }
+function jobLink(family: GpuFamily, job: GpuSessionJob): { path: string; query: { job: string } } {
+  return { path: family === "photogrammetry" ? "/photogrammetry" : "/transcribe", query: { job: job.id } }
 }
 
 onMounted(() => { gpu.startPolling(props.family); void gpu.refreshUsage(); clock = setInterval(() => (now.value = Date.now()), 1000) })
@@ -147,7 +147,7 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
         <tbody>
           <tr v-for="s in startups" :key="s.started_at">
             <td class="max-w-[16rem] truncate pr-3" data-testid="job">
-              <RouterLink v-if="s.job" :to="jobLink(s)" class="text-indigo-300 hover:underline" :title="jobLabel(s)">{{ jobLabel(s) }}</RouterLink>
+              <RouterLink v-if="s.job" :to="jobLink(s.family, s.job)" class="text-indigo-300 hover:underline" :title="jobLabel(s.job)">{{ jobLabel(s.job) }}</RouterLink>
               <span v-else>—</span>
             </td>
             <td class="pr-3">{{ when(s.started_at) }}</td>

@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue"
-import { useRoute, useRouter } from "vue-router"
-import { takeJobQuery } from "@/lib/jobQuery"
+import { useJobDeepLink } from "@/lib/jobQuery"
 import RunSidebar from "@/components/transcribe/RunSidebar.vue"
 import RunDetailView from "@/components/transcribe/RunDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
 import { useTranscribeStore } from "@/stores/transcribe"
 
 const store = useTranscribeStore()
-const route = useRoute()
-const router = useRouter()
+// Only a run in the loaded list can be opened (jobs are user-scoped; one may have been deleted);
+// selectJob loads the transcript and rethrows on failure — the sidebar shows the job either way.
+const openLinkedJob = useJobDeepLink(id => {
+  if (store.jobs.some(j => j.job_id === id)) store.selectJob(id).catch(() => {})
+})
 const showNewJobForm = ref(false)
 
 const SIDEBAR_MIN = 160
@@ -44,8 +46,7 @@ onUnmounted(stopDrag)
 
 onMounted(async () => {
   await Promise.all([store.loadSpeakers(true), store.loadJobs(true)])
-  const linked = takeJobQuery(route, router)   // ?job=<id> from the usage panel's Startups links
-  if (linked) void store.selectJob(linked)
+  openLinkedJob()   // ?job=<id> from the usage panel's Startups links (cold load; the watch handles clicks)
   store.resumePollingForActiveJobs()
   store.resumePollingForProcessingSamples()
 })

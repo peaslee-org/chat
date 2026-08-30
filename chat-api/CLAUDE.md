@@ -178,7 +178,9 @@ time. Each launch records the estimate it promised (`estimated_startup_seconds`)
 returns per session the kind, the promised and actual startup, the stage breakdown
 (capacity, boot, pull, container, init) so the panel can hold the estimate to account, and the
 `job` it was launched for (`gpu_sessions.job_id`, stamped by `ensure_worker("job", …, job_id=)`;
-`{id, name, created_at}` looked up in the family's jobs table, `null` for warm-ups or a deleted job).
+`{id, name, created_at}` looked up in the family's jobs table, `null` for warm-ups, a deleted job, or
+another user's launch — the list is everyone's, but a scan's name is its owner's content and the link
+only works for them).
 
 *Admin release.* `POST /api/v1/gpu/release?family=…&mode=graceful|immediate` (Cognito `admin`
 group; 403 otherwise, 409 with no live worker) writes `release_mode` / `release_requested_at` /

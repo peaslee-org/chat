@@ -106,7 +106,9 @@ src/
     transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
     photogrammetryApi.ts   Photogrammetry API calls (jobs, uploads, mesh URLs, job photos, sample photos)
     gpuApi.ts          GET /gpu/state, POST /gpu/warm, GET /gpu/usage (all take `family`)
-    jobQuery.ts        takeJobQuery(route, router): one-shot `?job=<id>` deep link used by both views
+    jobQuery.ts        useJobDeepLink(open): `?job=<id>` deep link for both views — a watch (the Startups
+                       links are same-route navigations, so onMounted never sees them) plus a check()
+                       for the cold load; the param is stripped once consumed
     workerState.ts     workerStateLabel() ("GPU ready" / "GPU starting · ~N min left" / "GPU off — starts
                        on your next job"), elapsedLabel() m:ss, durationLabel() "6m20s"
     trafficRecorder.ts Axios interceptor for recording/replaying API traffic (mock dev)

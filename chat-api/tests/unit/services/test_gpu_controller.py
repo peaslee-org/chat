@@ -6,7 +6,7 @@ import pytest
 
 from app.services import gpu_controller as gc
 from app.services.ecs_launcher import GpuLaunchError
-from app.schemas.gpu import GpuSessionJob
+from app.repositories.gpu import JobLabel
 from app.services.gpu_controller import GpuCapExceeded, GpuController
 
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
@@ -560,7 +560,7 @@ async def test_usage_attaches_the_launching_job_to_each_session():
                   container_started_at=None, instance_id="i-1", started_processing_at=None,
                   estimated_startup_seconds=None, job_id=jid)
     repo.sessions_since = AsyncMock(return_value=[s])
-    repo.job_labels = AsyncMock(return_value={jid: GpuSessionJob(id=jid, name="Sample scan", created_at=NOW)})
+    repo.job_labels = AsyncMock(return_value={jid: JobLabel("Sample scan", NOW)})
     usage = await ctl.usage("u")
     repo.job_labels.assert_awaited_once_with([s])
     assert usage.sessions[0].job.id == jid
@@ -581,3 +581,22 @@ async def test_usage_session_without_a_job_or_with_a_deleted_job_has_job_none():
     repo.sessions_since = AsyncMock(return_value=rows)
     usage = await ctl.usage("u")
     assert [x.job for x in usage.sessions] == [None, None]
+
+
+async def test_usage_attaches_a_job_only_to_the_callers_own_sessions():
+    """/gpu/usage is visible to every user (one pool, one budget), but a scan's name is another
+    user's content and its link would dead-end (jobs are user-scoped) — so only your own launches
+    carry a job."""
+    ctl, repo, _ = make(family="photogrammetry")
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    def row(uid, jid):
+        return MagicMock(started_at=NOW, ended_at=None, reason="job", started_by=uid, end_reason=None,
+                         family="photogrammetry", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None,
+                         container_started_at=None, instance_id="i-1", started_processing_at=None,
+                         estimated_startup_seconds=None, job_id=jid)
+    repo.sessions_since = AsyncMock(return_value=[row("me", mine), row("someone-else", theirs)])
+    repo.job_labels = AsyncMock(return_value={mine: JobLabel("Mine", NOW), theirs: JobLabel("Theirs", NOW)})
+    usage = await ctl.usage("me")
+    assert usage.sessions[0].job.name == "Mine"
+    assert usage.sessions[1].job is None
+    assert [s.job_id for s in repo.job_labels.await_args.args[0]] == [mine]    # not even looked up

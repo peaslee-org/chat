@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from uuid import UUID
 
 from app.schemas.gpu import (
-    GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState,
+    GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState, GpuSessionJob,
 )
 from app.services.ecs_launcher import GpuLaunchError
 
@@ -276,7 +276,9 @@ class GpuController:
         cold_seconds, _, cold_samples = estimates["cold"]
         warm_seconds, _, warm_samples = estimates["warm"]
         rows = await self._repo.sessions_since(month_start)
-        jobs = await self._repo.job_labels(rows)
+        # The list is everyone's (one pool, one budget) but a job's name is its owner's content and
+        # its link only works for them — so only the caller's own launches carry a job.
+        jobs = await self._repo.job_labels([s for s in rows if s.started_by == user_id])
         sessions = [
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
@@ -288,7 +290,11 @@ class GpuController:
                 ),
                 kind=startup_kind(s),
                 stages=startup_stages(s),
-                job=jobs.get(s.job_id) if s.job_id is not None else None,
+                job=(
+                    GpuSessionJob(id=s.job_id, name=label.name, created_at=label.created_at)
+                    if s.job_id is not None and s.started_by == user_id and (label := jobs.get(s.job_id)) is not None
+                    else None
+                ),
                 # Matches hours_between's phantom-hours rule: a row that never got an instance
                 # cost nothing, and the clock starts when the worker claimed it, not on enqueue.
                 hours=(

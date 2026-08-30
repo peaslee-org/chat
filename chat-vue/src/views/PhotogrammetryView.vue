@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue"
-import { useRoute, useRouter } from "vue-router"
-import { takeJobQuery } from "@/lib/jobQuery"
+import { useJobDeepLink } from "@/lib/jobQuery"
 import ScanSidebar from "@/components/photogrammetry/ScanSidebar.vue"
 import ScanDetailView from "@/components/photogrammetry/ScanDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
@@ -9,8 +8,8 @@ import type { NewScanMode } from "@/components/photogrammetry/newScanMode"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 
 const store = usePhotogrammetryStore()
-const route = useRoute()
-const router = useRouter()
+// Only a scan in the loaded list can be opened (jobs are user-scoped; one may have been deleted).
+const openLinkedJob = useJobDeepLink(id => { if (store.jobs.some(j => j.job_id === id)) store.selectJob(id) })
 const formMode = ref<NewScanMode>("closed")
 
 function toggleNew() {
@@ -45,8 +44,7 @@ function startDrag() {
 onUnmounted(stopDrag)
 onMounted(async () => {
   await store.loadJobs(true)
-  const linked = takeJobQuery(route, router)   // ?job=<id> from the usage panel's Startups links
-  if (linked) void store.selectJob(linked)
+  openLinkedJob()   // ?job=<id> from the usage panel's Startups links (cold load; the watch handles clicks)
   store.resumePollingForActiveJobs()
 })
 </script>
