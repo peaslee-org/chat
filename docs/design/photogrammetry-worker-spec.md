@@ -70,7 +70,7 @@ Runs in a scratch directory `/tmp/pg/<job_id>` on the instance's 80 GB root, rem
 | SfM | `sfm` | `colmap feature_extractor` (SIFT, GPU) → `colmap exhaustive_matcher` → `colmap mapper` | take the model with the most registered images; **fail if registered < 60 % of `image_count`** ("Only N of M photos could be matched — add overlap and try again") |
 | dense | `dense` | `colmap image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | resolution level fixed for the 16 GB T4 |
 | mesh | `mesh` | `ReconstructMesh` → `RefineMesh` | **`RefineMesh` skipped when `image_count` > 100** (time cap) |
-| texture | `texture` | `TextureMesh` → `mesh_textured.obj` + atlas PNG → per-material atlas crop/area-cap/JPEG (`shrink_atlas`, `TEXTURE_MAX_SIZE` 4096) + vertex weld (`merge_vertices`) → `trimesh` scene `.export("mesh.glb")` | GLB via trimesh (pure Python, no EGL); `preview.png` = `input/0001.*` resized to 640 px on the long edge |
+| texture | `texture` | `TextureMesh` → `mesh_textured.obj` + atlas JPEG → per-material atlas crop/area-cap/JPEG (`shrink_atlas`, `TEXTURE_MAX_SIZE` 4096) + vertex weld (`merge_vertices`) → `trimesh` scene `.export("mesh.glb")` | GLB via trimesh (pure Python, no EGL); `preview.png` = `input/0001.*` resized to 640 px on the long edge |
 | publish | — | upload `output/mesh.glb`, `output/preview.png`; row → `complete`, `mesh_s3_key`, `preview_s3_key`, `completed_at`; ack | |
 
 Each stage is a subprocess with stdout/stderr captured to the task log. `stage` is written to the

@@ -64,7 +64,7 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 | `SQS_VISIBILITY_TIMEOUT` | `600` | no — extended every `SQS_VISIBILITY_EXTENSION_INTERVAL` (300) while a job runs |
 | `WORK_DIR` | `/tmp/pg` | no — in prod a host-path volume (`/var/lib/photogrammetry`) so scratch survives a container restart |
 | `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU. Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load |
-| `TEXTURE_MAX_SIZE` | `4096` | no — pixel budget (this²) per atlas embedded in the GLB after cropping to its used UV box (JPEG q85); a thin strip keeps full resolution |
+| `TEXTURE_MAX_SIZE` | `4096` | no — pixel budget (this²) per atlas embedded in the GLB after cropping to its used UV box (JPEG q85); a thin strip keeps full resolution, so an edge can still be up to 8192 (OpenMVS's atlas size — three.js downscales above a device's `MAX_TEXTURE_SIZE` with a console warning) |
 
 ## Pipeline (as built)
 

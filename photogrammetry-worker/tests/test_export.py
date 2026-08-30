@@ -199,6 +199,9 @@ def test_corners_sharing_position_and_uv_values_are_welded(tmp_path):
     assert len(mesh.faces) == 2
     assert len(mesh.vertices) == 4               # not 6
     assert mesh.visual.uv.shape == (4, 2)
+    # UVs stayed with their positions through the weld: the fixture maps (x, y) → (u, v) and the
+    # export flips y, so each vertex's uv is (x, -y).
+    assert np.allclose(mesh.visual.uv, mesh.vertices[:, :2] * [1, -1])
 
 
 def test_uv_seams_keep_their_own_vertices(tmp_path):
