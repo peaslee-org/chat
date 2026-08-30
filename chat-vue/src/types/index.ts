@@ -130,6 +130,13 @@ export interface StartupStages {
   init: number | null       // task running → first job claimed
 }
 
+/** The job a worker was launched for: a scan has a name, a transcript only its created_at. */
+export interface GpuSessionJob {
+  id: string
+  name: string | null
+  created_at: string
+}
+
 export interface GpuSessionSummary {
   started_at: string; ended_at: string | null; reason: string; started_by: string
   end_reason: string | null; hours: number; family: GpuFamily
@@ -139,6 +146,8 @@ export interface GpuSessionSummary {
   actual_startup_seconds: number | null
   kind: StartKind | null
   stages: StartupStages | null
+  /** null for warm-ups, or when the job has since been deleted. */
+  job: GpuSessionJob | null
 }
 
 export interface GpuUsage {

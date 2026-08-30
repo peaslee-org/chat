@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue"
+import { RouterLink } from "vue-router"
 import { useGpuStore } from "@/stores/gpu"
 import { durationLabel, elapsedLabel, workerStateLabel } from "@/lib/workerState"
 import type { GpuFamily, GpuSessionSummary } from "@/types"
@@ -38,7 +39,8 @@ const dot = computed(() => ({
 }[gpu.state?.worker_state ?? "off"]))
 
 // ── startups: promised vs actual with per-stage timings, newest first; collapsed by default ──
-const MAX_STARTUPS = 10
+// Only this page's family: the medians in the summary line are the family's too.
+const MAX_STARTUPS = 5
 const STARTUPS_OPEN_KEY = "gpuStartupsOpen"
 function readStartupsOpen(): boolean {
   try { return localStorage.getItem(STARTUPS_OPEN_KEY) === "1" } catch { return false }
@@ -63,7 +65,7 @@ function stage(s: GpuSessionSummary, key: (typeof STAGES)[number]): string {
 }
 const startups = computed<GpuSessionSummary[]>(() =>
   (gpu.usage?.sessions ?? [])
-    .filter(s => s.actual_startup_seconds !== null)
+    .filter(s => s.actual_startup_seconds !== null && s.family === props.family)
     .sort((a, b) => b.started_at.localeCompare(a.started_at))
     .slice(0, MAX_STARTUPS),
 )
@@ -74,6 +76,13 @@ function delta(s: GpuSessionSummary): { text: string; late: boolean } | null {
 }
 function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+}
+/** Scan → its name; transcript → its time (it has no name). The page's ?job= opens it. */
+function jobLabel(s: GpuSessionSummary): string {
+  return s.job?.name ?? `Transcript ${when(s.job!.created_at)}`
+}
+function jobLink(s: GpuSessionSummary): { path: string; query: { job: string } } {
+  return { path: s.family === "photogrammetry" ? "/photogrammetry" : "/transcribe", query: { job: s.job!.id } }
 }
 
 onMounted(() => { gpu.startPolling(props.family); void gpu.refreshUsage(); clock = setInterval(() => (now.value = Date.now()), 1000) })
@@ -122,6 +131,7 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
       <table v-if="startupsOpen && startups.length" class="mt-1 w-full max-w-4xl text-left tabular-nums">
         <thead class="text-gray-500">
           <tr>
+            <th class="pr-3 font-normal">Job</th>
             <th class="pr-3 font-normal">When</th>
             <th class="pr-3 font-normal">Kind</th>
             <th class="pr-3 font-normal" title="RunTask → instance booted">Capacity</th>
@@ -136,6 +146,10 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
         </thead>
         <tbody>
           <tr v-for="s in startups" :key="s.started_at">
+            <td class="max-w-[16rem] truncate pr-3" data-testid="job">
+              <RouterLink v-if="s.job" :to="jobLink(s)" class="text-indigo-300 hover:underline" :title="jobLabel(s)">{{ jobLabel(s) }}</RouterLink>
+              <span v-else>—</span>
+            </td>
             <td class="pr-3">{{ when(s.started_at) }}</td>
             <td class="pr-3" data-testid="kind">
               <span

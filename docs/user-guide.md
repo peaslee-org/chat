@@ -94,8 +94,8 @@ switched off when nobody is using it, so the first scan after a quiet spell has 
 
 **Usage** (right end of the bar) opens a panel with today's and this month's GPU hours against the
 caps (3 h/day, 30 h/month), the estimated cost, and **Startups** — how long recent starts actually
-took compared with what was promised. It's collapsed to one line; click it to see each start broken
-down by stage. If a cap is reached, new scans wait until it resets; the header on the scan shows
+took compared with what was promised. It's collapsed to one line; click it to see the last five
+starts broken down by stage, each linked to the scan (or transcript) it was started for. If a cap is reached, new scans wait until it resets; the header on the scan shows
 the notice.
 
 The **Transcribe** page has the same bar for its own GPU, plus a **Warm it up** button that starts

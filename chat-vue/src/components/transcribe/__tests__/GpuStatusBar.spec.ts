@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { RouterLinkStub, mount } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
 
 vi.mock("@/lib/gpuApi", () => ({ getGpuState: vi.fn(), warmGpu: vi.fn(), getGpuUsage: vi.fn() }))
 
 import * as api from "@/lib/gpuApi"
 import GpuStatusBar from "../GpuStatusBar.vue"
-import type { GpuState, GpuUsage } from "@/types"
+import type { GpuSessionSummary, GpuState, GpuUsage } from "@/types"
+
+const SCAN_ID = "11111111-1111-4111-8111-111111111111"
+const TRANSCRIPT_ID = "22222222-2222-4222-8222-222222222222"
+const stubs = { RouterLink: RouterLinkStub }
 
 const T0 = new Date("2026-08-29T10:00:00Z")
 const startingState: GpuState = {
@@ -24,14 +28,25 @@ const usage: GpuUsage = {
   sessions: [
     { started_at: "2026-08-29T09:00:00Z", ended_at: "2026-08-29T09:30:00Z", reason: "job", started_by: "u", end_reason: "idle",
       hours: 0.5, family: "photogrammetry", estimated_startup_seconds: 360, actual_startup_seconds: 445,
-      kind: "cold", stages: { capacity: 140, boot: 95, pull: 120, container: 20, init: 70 } },
+      kind: "cold", stages: { capacity: 140, boot: 95, pull: 120, container: 20, init: 70 },
+      job: { id: SCAN_ID, name: "Sample scan", created_at: "2026-08-29T08:59:00Z" } },
     { started_at: "2026-08-28T09:00:00Z", ended_at: "2026-08-28T09:30:00Z", reason: "job", started_by: "u", end_reason: "idle",
       hours: 0.5, family: "photogrammetry", estimated_startup_seconds: 400, actual_startup_seconds: 370,
-      kind: null, stages: null },
+      kind: null, stages: null, job: null },
     { started_at: "2026-08-27T09:00:00Z", ended_at: "2026-08-27T09:30:00Z", reason: "warm", started_by: "u", end_reason: "idle",
       hours: 0.5, family: "photogrammetry", estimated_startup_seconds: null, actual_startup_seconds: null,
-      kind: null, stages: null },
+      kind: null, stages: null, job: null },
+    { started_at: "2026-08-26T09:00:00Z", ended_at: "2026-08-26T09:30:00Z", reason: "job", started_by: "u", end_reason: "idle",
+      hours: 0.5, family: "transcription", estimated_startup_seconds: 400, actual_startup_seconds: 300,
+      kind: "warm", stages: null, job: { id: TRANSCRIPT_ID, name: null, created_at: "2026-08-26T08:58:00Z" } },
   ],
+}
+function measured(n: number, family: GpuSessionSummary["family"] = "photogrammetry"): GpuSessionSummary[] {
+  return Array.from({ length: n }, (_, i) => ({
+    started_at: `2026-08-${String(20 - i).padStart(2, "0")}T09:00:00Z`, ended_at: null, reason: "job", started_by: "u",
+    end_reason: null, hours: 0.1, family, estimated_startup_seconds: 400, actual_startup_seconds: 400 + i,
+    kind: "cold", stages: null, job: null,
+  }))
 }
 
 describe("GpuStatusBar", () => {
@@ -43,7 +58,7 @@ describe("GpuStatusBar", () => {
   afterEach(() => { vi.useRealTimers() })
 
   it("shows remaining and elapsed time while the GPU is starting, with the estimate's basis as a title", async () => {
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     const label = w.find('[data-testid="gpu-label"]')
     expect(label.text()).toBe("GPU starting · ~4 min left · 2:10 elapsed")
@@ -55,19 +70,19 @@ describe("GpuStatusBar", () => {
 
   it("says the estimate is a default when nothing has been measured", async () => {
     vi.mocked(api.getGpuState).mockResolvedValue({ ...startingState, estimate_basis: "default", estimate_samples: 0 })
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     expect(w.find('[data-testid="gpu-label"]').attributes("title")).toContain("estimate: default, no cold starts measured yet")
     w.unmount()
   })
 
   it("names the kind of start in the label title", async () => {
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     expect(w.find('[data-testid="gpu-label"]').attributes("title")).toContain("cold start")
     vi.mocked(api.getGpuState).mockResolvedValue({ ...startingState, start_kind: "warm" })
     w.unmount()
-    const w2 = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w2 = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     expect(w2.find('[data-testid="gpu-label"]').attributes("title")).toContain("warm start")
     w2.unmount()
@@ -75,7 +90,7 @@ describe("GpuStatusBar", () => {
 
   it("collapses the startups table by default behind a cold/warm summary, and remembers expanding it", async () => {
     localStorage.removeItem("gpuStartupsOpen")
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     await w.find('[data-testid="usage-toggle"]').trigger("click")
     const toggle = w.find('[data-testid="startups-toggle"]')
@@ -87,7 +102,7 @@ describe("GpuStatusBar", () => {
     expect(w.find('[data-testid="startups"] table').exists()).toBe(true)
     expect(localStorage.getItem("gpuStartupsOpen")).toBe("1")
     w.unmount()
-    const w2 = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w2 = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     await w2.find('[data-testid="usage-toggle"]').trigger("click")
     expect(w2.find('[data-testid="startups-toggle"]').attributes("aria-expanded")).toBe("true")
@@ -97,12 +112,12 @@ describe("GpuStatusBar", () => {
 
   it("lists measured startups with kind and stages against their promises", async () => {
     localStorage.setItem("gpuStartupsOpen", "1")
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     await w.find('[data-testid="usage-toggle"]').trigger("click")
     const panel = w.find('[data-testid="startups"]')
     const head = panel.find("thead").text().replace(/\s+/g, " ")
-    for (const col of ["When", "Kind", "Capacity", "Boot", "Pull", "Container", "Init", "Total", "Promised", "Δ"]) expect(head).toContain(col)
+    for (const col of ["Job", "When", "Kind", "Capacity", "Boot", "Pull", "Container", "Init", "Total", "Promised", "Δ"]) expect(head).toContain(col)
     const rows = panel.findAll("tbody tr")
     expect(rows[0].find('[data-testid="kind"]').text()).toBe("cold")
     expect(rows[0].text()).toContain("2m20s")            // capacity
@@ -110,7 +125,7 @@ describe("GpuStatusBar", () => {
     expect(rows[1].find('[data-testid="kind"]').text()).toBe("—")
     expect(rows[1].findAll("td").filter(td => td.text() === "—").length).toBeGreaterThanOrEqual(6)  // kind + 5 stages
     localStorage.removeItem("gpuStartupsOpen")
-    expect(rows).toHaveLength(2)                       // the warm session has no measurement
+    expect(rows).toHaveLength(2)                       // the warm session has no measurement; the transcription one is another page's
     expect(rows[0].text()).toContain("6m00s")          // promised
     expect(rows[0].text()).toContain("7m25s")          // actual
     expect(rows[0].text()).toContain("+1m25s")
@@ -120,10 +135,52 @@ describe("GpuStatusBar", () => {
     w.unmount()
   })
 
+  it("links each startup to the scan it was launched for, by name", async () => {
+    localStorage.setItem("gpuStartupsOpen", "1")
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
+    await vi.advanceTimersByTimeAsync(0)
+    await w.find('[data-testid="usage-toggle"]').trigger("click")
+    const rows = w.findAll('[data-testid="startups"] tbody tr')
+    const link = rows[0].findComponent(RouterLinkStub)
+    expect(link.text()).toBe("Sample scan")
+    expect(link.props("to")).toEqual({ path: "/photogrammetry", query: { job: SCAN_ID } })
+    expect(rows[1].findComponent(RouterLinkStub).exists()).toBe(false)   // launched by a since-deleted job
+    expect(rows[1].find('[data-testid="job"]').text()).toBe("—")
+    localStorage.removeItem("gpuStartupsOpen")
+    w.unmount()
+  })
+
+  it("shows the transcription page its own startups, labelled by the transcript's time", async () => {
+    localStorage.setItem("gpuStartupsOpen", "1")
+    const w = mount(GpuStatusBar, { props: { family: "transcription" }, global: { stubs } })
+    await vi.advanceTimersByTimeAsync(0)
+    await w.find('[data-testid="usage-toggle"]').trigger("click")
+    const rows = w.findAll('[data-testid="startups"] tbody tr')
+    expect(rows).toHaveLength(1)
+    const link = rows[0].findComponent(RouterLinkStub)
+    expect(link.text()).toMatch(/^Transcript /)
+    expect(link.props("to")).toEqual({ path: "/transcribe", query: { job: TRANSCRIPT_ID } })
+    localStorage.removeItem("gpuStartupsOpen")
+    w.unmount()
+  })
+
+  it("shows at most five startups, newest first", async () => {
+    vi.mocked(api.getGpuUsage).mockResolvedValue({ ...usage, sessions: measured(7) })
+    localStorage.setItem("gpuStartupsOpen", "1")
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
+    await vi.advanceTimersByTimeAsync(0)
+    await w.find('[data-testid="usage-toggle"]').trigger("click")
+    const rows = w.findAll('[data-testid="startups"] tbody tr')
+    expect(rows).toHaveLength(5)
+    expect(rows[0].text()).toContain("6m40s")          // actual of the newest (400 s)
+    localStorage.removeItem("gpuStartupsOpen")
+    w.unmount()
+  })
+
   it("says so when no startups have been measured", async () => {
     vi.mocked(api.getGpuUsage).mockResolvedValue({ ...usage, startup_median_seconds: null, startup_samples: 0,
       cold_median_seconds: null, cold_samples: 0, warm_median_seconds: null, warm_samples: 0, sessions: [] })
-    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" } })
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
     await vi.advanceTimersByTimeAsync(0)
     await w.find('[data-testid="usage-toggle"]').trigger("click")
     expect(w.find('[data-testid="startups"]').text()).toContain("no measured starts yet")

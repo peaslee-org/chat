@@ -65,3 +65,17 @@ describe("gpu store — startup countdown", () => {
     expect(store.elapsedSeconds).toBe(10)
   })
 })
+
+describe("gpu store — usage", () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it("asks for the usage of the family being polled, so medians and startups match the page", async () => {
+    vi.mocked(api.getGpuState).mockResolvedValue(starting(0))
+    vi.mocked(api.getGpuUsage).mockResolvedValue({} as never)
+    const gpu = useGpuStore()
+    gpu.startPolling("photogrammetry")
+    await gpu.refreshUsage()
+    expect(api.getGpuUsage).toHaveBeenLastCalledWith("photogrammetry")
+    gpu.stopPolling()
+  })
+})

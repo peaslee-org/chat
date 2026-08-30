@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue"
+import { useRoute, useRouter } from "vue-router"
+import { takeJobQuery } from "@/lib/jobQuery"
 import RunSidebar from "@/components/transcribe/RunSidebar.vue"
 import RunDetailView from "@/components/transcribe/RunDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
 import { useTranscribeStore } from "@/stores/transcribe"
 
 const store = useTranscribeStore()
+const route = useRoute()
+const router = useRouter()
 const showNewJobForm = ref(false)
 
 const SIDEBAR_MIN = 160
@@ -40,6 +44,8 @@ onUnmounted(stopDrag)
 
 onMounted(async () => {
   await Promise.all([store.loadSpeakers(true), store.loadJobs(true)])
+  const linked = takeJobQuery(route, router)   // ?job=<id> from the usage panel's Startups links
+  if (linked) void store.selectJob(linked)
   store.resumePollingForActiveJobs()
   store.resumePollingForProcessingSamples()
 })

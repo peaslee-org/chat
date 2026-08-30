@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue"
+import { useRoute, useRouter } from "vue-router"
+import { takeJobQuery } from "@/lib/jobQuery"
 import ScanSidebar from "@/components/photogrammetry/ScanSidebar.vue"
 import ScanDetailView from "@/components/photogrammetry/ScanDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
@@ -7,6 +9,8 @@ import type { NewScanMode } from "@/components/photogrammetry/newScanMode"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 
 const store = usePhotogrammetryStore()
+const route = useRoute()
+const router = useRouter()
 const formMode = ref<NewScanMode>("closed")
 
 function toggleNew() {
@@ -41,6 +45,8 @@ function startDrag() {
 onUnmounted(stopDrag)
 onMounted(async () => {
   await store.loadJobs(true)
+  const linked = takeJobQuery(route, router)   // ?job=<id> from the usage panel's Startups links
+  if (linked) void store.selectJob(linked)
   store.resumePollingForActiveJobs()
 })
 </script>

@@ -50,7 +50,7 @@ export const useGpuStore = defineStore("gpu", () => {
     catch (e) { if (!(axios.isAxiosError(e) && e.response?.status === 503)) error.value = "GPU status unavailable" }
   }
   async function refreshUsage() {
-    try { usage.value = await api.getGpuUsage() } catch { /* panel shows nothing */ }
+    try { usage.value = await api.getGpuUsage(family.value) } catch { /* panel shows nothing */ }
   }
   async function warm() {
     warming.value = true
