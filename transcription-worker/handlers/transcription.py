@@ -52,8 +52,8 @@ def _raise_if_aborted(abort: "threading.Event | None") -> None:
 def process_transcription_job(body: dict, settings: Settings, abort: "threading.Event | None" = None) -> None:
     """`abort` is ReleaseWatcher.abort: an *immediate* GPU release. It is polled at the two places a
     job spends real time — the Transcribe wait and the per-turn embedding loop — and raises
-    Interrupted, which puts the row back to `processing` (the API's pre-worker state) and leaves
-    the message for redelivery. Diarization itself (one in-process torch call) is not interruptible."""
+    Interrupted, which puts the row back to `transcribing` (the API's pre-worker `job_status`) and
+    leaves the message for redelivery. Diarization itself (one in-process torch call) is not interruptible."""
     job_id = uuid.UUID(body["job_id"])
     aws_job_name = body["aws_transcribe_job_name"]
     speaker_ids = body.get("speaker_ids") or []
@@ -358,11 +358,11 @@ def process_transcription_job(body: dict, settings: Settings, abort: "threading.
     except Interrupted:
         # Nothing has been written yet (segments land in step 9, after the last abort check), so
         # the redelivered message re-runs the job from the top.
-        logger.warning("Transcription job %s interrupted by GPU release — back to processing", job_id)
+        logger.warning("Transcription job %s interrupted by GPU release — back to transcribing", job_id)
         with get_session() as session:
             job = session.get(TranscriptionJob, job_id)
             if job:
-                job.status = "processing"
+                job.status = "transcribing"
                 session.add(TranscriptionJobEvent(job_id=job_id, source="worker", event="job.interrupted"))
         raise
     except Exception as exc:

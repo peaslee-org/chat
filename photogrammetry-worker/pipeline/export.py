@@ -37,14 +37,15 @@ def shrink_atlas(geometry: trimesh.Trimesh, max_texture_size: int) -> None:
     material = getattr(visual, "material", None)
     image = getattr(material, "image", None)
     uv = getattr(visual, "uv", None)
-    if image is None or uv is None or len(uv) == 0:
-        return
+    if image is None or uv is None or len(uv) == 0 or getattr(image, "encoderinfo", None):
+        return      # nothing to shrink, or this material was already shrunk (shared between geometries)
     w, h = image.size
     u0, v0 = np.clip(uv.min(axis=0), 0.0, 1.0)
     u1, v1 = np.clip(uv.max(axis=0), 0.0, 1.0)
-    # UV origin is bottom-left; image rows count from the top. Snap outwards to whole texels.
-    x0, x1 = math.floor(u0 * w), min(w, max(math.ceil(u1 * w), math.floor(u0 * w) + 1))
-    top, bottom = math.floor((1 - v1) * h), min(h, max(math.ceil((1 - v0) * h), math.floor((1 - v1) * h) + 1))
+    # UV origin is bottom-left; image rows count from the top. Snap outwards to whole texels; a box
+    # pinned to the far edge (all u == 1) still gets one texel rather than an empty crop.
+    x0, top = min(math.floor(u0 * w), w - 1), min(math.floor((1 - v1) * h), h - 1)
+    x1, bottom = min(w, max(math.ceil(u1 * w), x0 + 1)), min(h, max(math.ceil((1 - v0) * h), top + 1))
     cropped = image.convert("RGB").crop((x0, top, x1, bottom))
     cw, ch = cropped.size
     visual.uv = np.column_stack([(uv[:, 0] * w - x0) / cw, (uv[:, 1] * h - (h - bottom)) / ch])

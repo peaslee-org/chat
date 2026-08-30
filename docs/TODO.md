@@ -8,6 +8,9 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
+- [ ] **Immediate release leaves the message invisible for up to `SQS_VISIBILITY_TIMEOUT` (600 s).**
+  Only `SpotWatcher` calls `change_message_visibility(0)`; the shell's `except Interrupted` should
+  do the same when `ReleaseWatcher.abort` is set so the next worker gets the job at once.
 - [ ] **GPU idle-release countdown that survives polling.** Today `warm_until` is only in the
   *Warm* response; the 30 s `/gpu/state` poll returns `null`, so the bar's `idle-out in mm:ss`
   vanishes, and a job-launched worker never has one. Real release time is
@@ -112,7 +115,7 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   `TEXTURE_MAX_SIZE` (4096) and embedded as JPEG q85 — measure the 51-photo set after deploy
   (was 45 MB); Draco / quantised attributes still open if it's not enough. Photogrammetry fails
   the row on permanent S3 errors (`TRANSIENT_S3_CODES` allowlist) and declares `botocore`.
-  Transcription honours `ReleaseWatcher.abort` (Transcribe wait + per-turn) → row `processing`,
+  Transcription honours `ReleaseWatcher.abort` (Transcribe wait + per-turn) → row `transcribing`,
   message redelivered.
 
 - Photogrammetry robustness batch (resumable stages, no-cycling backstop at receive 5, mesh budget,

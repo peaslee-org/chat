@@ -33,14 +33,15 @@ Unit tests live in `tests/` and require only `pytest` and `scipy` (no SpeechBrai
 | File | Covers |
 |---|---|
 | `tests/test_transcribe_poller.py` | `parse_words`: word timestamp extraction; `parse_diarized_transcript` (legacy); `wait_for_completion` gives up with `Interrupted` when the `abort` event is set |
-| `tests/test_transcription_handler.py` | `process_transcription_job` release handling — `Interrupted` puts the row back to `processing` (not `failed`) and re-raises; the abort flag is checked before each turn of the embedding loop. Stubs torch/pyannote/speechbrain/`db` in `sys.modules` like `test_embedder.py` |
+| `tests/test_transcription_handler.py` | `process_transcription_job` release handling — `Interrupted` puts the row back to `transcribing` (not `failed`) and re-raises; the abort flag is checked before each turn of the embedding loop. Stubs torch/pyannote/speechbrain/`db` in `sys.modules` like `test_embedder.py` |
 | `tests/test_matcher.py` | `match_speaker`: threshold logic, multi-sample averaging, best-candidate selection |
 | `tests/test_aligner.py` | `align_words_to_turns`: bisect assignment, gap words, overlap detection via `find_overlaps` |
 
 Lifecycle (loop, spot watcher, ledger, SQS shell) lives in `../gpu-worker` — run its tests there.
 An admin *immediate* release sets `ReleaseWatcher.abort`; `main.py` passes it to
 `process_transcription_job(..., abort=)`, which polls it in the Transcribe wait and per turn in
-the embedding loop and raises `Interrupted` (row → `processing`, message redelivered).
+the embedding loop and raises `Interrupted` (row → `transcribing`, message redelivered once the
+SQS visibility timeout lapses — nothing releases it early yet, see `docs/TODO.md`).
 
 ## Environment Variables
 

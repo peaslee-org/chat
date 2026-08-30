@@ -160,3 +160,14 @@ def test_atlas_is_embedded_as_jpeg_encoded_once_at_quality_85(tmp_path):
         expected = io.BytesIO()
         im.crop((2, 0, 4, 4)).save(expected, format="JPEG", quality=85)
     assert images[0][1].rstrip(b"\x00") == expected.getvalue()     # GLB pads views to 4 bytes
+
+
+def test_uvs_pinned_to_the_far_corner_still_export_a_one_texel_atlas(tmp_path):
+    """All UVs at (1, 0) put the used box on the atlas's right/bottom edge; the crop must not
+    collapse to zero width (which made trimesh fail the whole job at publish)."""
+    Image.new("RGB", (4, 4), (255, 0, 0)).save(tmp_path / "tex.png")
+    (tmp_path / "c.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
+    (tmp_path / "c.obj").write_text(
+        "mtllib c.mtl\nv 0 0 0\nv 1 0 0\nv 1 1 0\nvt 1 0\nusemtl m\nf 1/1 2/1 3/1\n")
+    mesh = trimesh.load(obj_to_glb(tmp_path / "c.obj", tmp_path / "mesh.glb"), force="mesh")
+    assert mesh.visual.material.baseColorTexture.size == (1, 1)

@@ -185,7 +185,8 @@ group; 403 otherwise, 409 with no live worker) writes `release_mode` / `release_
 current job (`graceful`) or aborts it so the message is redelivered (`immediate` — the
 photogrammetry runner kills the tool process; the transcription handler checks the flag in the
 Transcribe wait loop and between turns in the embedding loop, then puts the row back to
-`processing`; the in-process pyannote call itself is not interruptible). Ledger
+`transcribing`; the in-process pyannote call itself is not interruptible; either worker's message
+reappears only after the SQS visibility timeout). Ledger
 `end_reason = released`. `/api/v1/gpu/*` returns 503 unless `GPU_CONTROLLER_ENABLED=true` or a mock
 flag is set.
 

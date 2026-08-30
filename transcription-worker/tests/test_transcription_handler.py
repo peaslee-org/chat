@@ -1,13 +1,10 @@
 """process_transcription_job — release/abort handling.
 
 The handler imports torch, torchaudio, pyannote and speechbrain at module level and db.py builds
-an engine from Settings at import; none of that exists on the host, so (as in test_embedder.py)
-the missing roots are stubbed in sys.modules and the handler's collaborators are patched.
+an engine from Settings at import; none of that exists on the host, so tests/conftest.py stubs
+the missing roots in sys.modules and this module patches the handler's collaborators.
 """
-import importlib.util
 import json
-import os
-import sys
 import threading
 import uuid
 from contextlib import contextmanager
@@ -15,23 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-def _missing(root: str) -> bool:
-    if isinstance(sys.modules.get(root), MagicMock):
-        return True                       # already stubbed by another test module
-    try:
-        return importlib.util.find_spec(root) is None
-    except ValueError:                    # a stub without __spec__
-        return True
-
-
-for _stub in ["torch", "torchaudio", "torchaudio.transforms", "speechbrain", "speechbrain.pretrained",
-              "pyannote", "pyannote.audio", "config"]:
-    if _missing(_stub.split(".")[0]):
-        sys.modules.setdefault(_stub, MagicMock())
-sys.modules.setdefault("db", MagicMock())     # would otherwise create_engine(Settings().DATABASE_URL)
-
+# torch/pyannote/speechbrain/config/db are stubbed in tests/conftest.py before collection.
 import handlers.transcription as handler_mod
 from gpu_worker.sqs import Interrupted
 from handlers.transcription import process_transcription_job
@@ -46,7 +27,7 @@ TURNS = [{"start": 0.0, "end": 1.5, "speaker_label": "SPEAKER_00"},
 
 
 def make_job():
-    job = MagicMock(status="processing", error_message=None, audio_s3_key="audio/a.wav", user_id="u1",
+    job = MagicMock(status="transcribing", error_message=None, audio_s3_key="audio/a.wav", user_id="u1",
                     speaker_count_hint=None)
     session = MagicMock()
     session.get.return_value = job
@@ -89,15 +70,17 @@ def events(session):
             if getattr(call.args[0], "event", None) is not None]
 
 
-def test_interrupted_while_polling_puts_the_job_back_to_processing_and_reraises():
+def test_interrupted_while_polling_puts_the_job_back_to_transcribing_and_reraises():
     """Interrupted is an Exception, so without its own clause it falls into the generic handler
-    and the row ends `failed` — for a release that only meant "come back later"."""
+    and the row ends `failed` — for a release that only meant "come back later". The status it
+    goes back to must be a real `job_status` value (a MagicMock row accepts anything)."""
     poller = MagicMock()
     poller.wait_for_completion.side_effect = Interrupted("released")
     with pytest.raises(Interrupted):
         run(poller=poller, abort=threading.Event())
     job, session = _last["job"], _last["session"]
-    assert job.status == "processing"     # the API's pre-worker state, so the redelivery re-runs it
+    assert job.status == "transcribing"   # the API's pre-worker state, so the redelivery re-runs it
+    assert job.status in handler_mod.TranscriptionJob.__table__.c.status.type.enums   # a real job_status
     assert job.error_message is None
     assert "job.failed" not in events(session)
 
