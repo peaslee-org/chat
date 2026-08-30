@@ -14,7 +14,8 @@ normalisation, per-photo status) since 2026-08-29.
 cd photogrammetry-worker && uv sync --extra dev
 uv run pytest -q                    # 106 tests (2026-08-29); no AWS, DB, COLMAP or OpenMVS needed
 
-# Build the image (context is the repo root; ~10 GB of layers — CI does this on push)
+# Build the image (context is the repo root; ~10 GB of layers — CI does this on push). Python packages
+# are pinned by constraints.txt (pip freeze of the acceptance-tested image); tests/test_constraints.py guards it.
 docker build -f photogrammetry-worker/Dockerfile -t photogrammetry-worker:dev .
 docker run --env-file .env photogrammetry-worker:dev
 ```

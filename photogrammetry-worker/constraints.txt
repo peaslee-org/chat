@@ -1,0 +1,30 @@
+# Every package in the deployed image, pinned (pip freeze of photogrammetry-prod-worker:f84062a9, the image
+# that passed acceptance on 2026-08-29). The Dockerfile passes this with -c so a rebuild
+# reproduces that image instead of resolving whatever is newest (speechbrain 1.1.1 broke prod
+# that way on 2026-08-28). To upgrade: edit the pin (or rebuild without -c, freeze, and paste).
+# Regenerate from a running image:
+#   docker run --rm --entrypoint pip <image> freeze | grep -v '^gpu-worker @'
+annotated-types==0.8.0
+boto3==1.43.83
+botocore==1.43.83
+certifi==2026.7.22
+charset-normalizer==3.5.1
+greenlet==3.5.5
+idna==3.19
+jmespath==1.1.0
+numpy==2.5.2
+pillow==12.3.0
+psycopg2-binary==2.9.12
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+requests==2.34.2
+s3transfer==0.19.2
+six==1.17.0
+SQLAlchemy==2.0.52
+trimesh==5.0.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.7.0

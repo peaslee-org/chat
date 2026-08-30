@@ -10,15 +10,17 @@ RUN python3.12 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
 COPY gpu-worker/ /app/gpu-worker/
-RUN pip install --no-cache-dir /app/gpu-worker
+# constraints.txt pins every package (torch included) to the acceptance-tested image; see the header there.
+COPY transcription-worker/constraints.txt /app/constraints.txt
+RUN pip install --no-cache-dir -c /app/constraints.txt /app/gpu-worker
 COPY transcription-worker/pyproject.toml .
 
 ARG HUGGINGFACE_TOKEN
 
 # pyannote 4.x pins torch/torchcodec/torchaudio — install first so its versions win
-RUN pip install --no-cache-dir "pyannote.audio==4.0.4"
+RUN pip install --no-cache-dir -c /app/constraints.txt "pyannote.audio==4.0.4"
 # speechbrain pinned: an unpinned rebuild picked up 1.1.1 (from_hparams API change) and broke prod, 2026-08-28.
-RUN pip install --no-cache-dir "speechbrain==1.1.1" pydub boto3 pydantic-settings pgvector asyncpg sqlalchemy psycopg2-binary scipy requests soundfile
+RUN pip install --no-cache-dir -c /app/constraints.txt "speechbrain==1.1.1" pydub boto3 pydantic-settings pgvector asyncpg sqlalchemy psycopg2-binary scipy requests soundfile
 
 # Pre-download pyannote model at build time (revision pinned 2026-03-06)
 ENV HF_HOME=/app/hf_cache
