@@ -1,4 +1,6 @@
 # Audio Transcription & Speaker Diarization
+> **Status (2026-08-29).** Implemented (v1.1 scope): S3 audio bucket, SQS queue + DLQ, worker, four tables, speaker profiles/samples/matching, sample job. Divergences: diarization is done by **pyannote-audio** on the GPU worker, not by AWS Transcribe (see `pyannote-diarization-plan.md` and ADR 002 — Transcribe supplies word timestamps only); PostgreSQL + pgvector is **EC2-hosted**, not RDS; the worker is a run-to-completion ECS EC2 GPU task, not Fargate; deploys via GitHub Actions. Current reference: `chat-api/CLAUDE.md`, `transcription-worker/CLAUDE.md`, `docs/glossary-transcription-diarization.md`.
+
 ## Feature Design Specification
 
 **Version:** 1.1 · **Status:** Draft

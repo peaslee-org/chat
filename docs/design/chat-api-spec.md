@@ -1,5 +1,7 @@
 # Audio Transcription — chat-api Implementation Spec
 
+> **Status (2026-08-29).** Built as specified in the main: jobs → presigned upload → confirm → AWS Transcribe (word timestamps only) + SQS → worker → segments/transcript; speaker profiles, samples and matching are live. Divergences from this draft: the database is **EC2-hosted PostgreSQL with pgvector**, not RDS (RDS decommissioned 2026-03-15; the DSN is a Secrets Manager secret); the worker is a **run-to-completion ECS task on EC2 GPU capacity** launched per job by the API's GPU controller, not a standing Fargate service; CI/CD is GitHub Actions (`.github/workflows/deploy.yml`), not CodePipeline. Current reference: `chat-api/CLAUDE.md` (endpoints, config), `transcription-worker/CLAUDE.md`, `docs/runbooks/deploy.md`.
+
 **Based on:** `audio_transcription_spec.md` v1.1
 **Project:** `chat-api/` (FastAPI, Python, PostgreSQL, AWS)
 **Status:** Draft

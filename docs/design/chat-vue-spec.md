@@ -1,5 +1,14 @@
 # Audio Transcription — chat-vue Implementation Spec
 
+> **Status (2026-08-29).** Historical implementation spec for the Transcribe UI — kept for the
+> design narrative; the code is the reference now. Built as specified: `/transcribe` route, speaker
+> profiles + samples, two-phase presigned S3 uploads, 5 s job / 3 s sample polling, toasts. Since
+> then: the `GpuStatusBar` (GPU state, warm-up, usage panel with measured startup estimates) sits
+> above both the transcribe and scan pages; toasts render top-right of the body pane rather than a
+> bottom-right `Teleport`; a `/photogrammetry` (Scan) feature, `/profile` and `/admin` were added;
+> vitest specs exist. Current docs: `chat-vue/CLAUDE.md`, `chat-vue/README.md`, `docs/user-guide.md`.
+
+
 **Based on:** `audio_transcription_spec.md` v1.1
 **Project:** `chat-vue/` (Vue 3, TypeScript, Tailwind CSS, Vite)
 **Status:** Draft

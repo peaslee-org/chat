@@ -1,6 +1,10 @@
 # chat-vue
 
-Vue 3 · TypeScript · Tailwind CSS · AWS Cognito · Vite
+Vue 3 · TypeScript · Tailwind CSS · Pinia · AWS Cognito (PKCE) · Vite · vitest
+
+The browser app for **chat.peaslee.org**: three tabs — **Chat** (Claude via Bedrock), **Transcribe**
+(audio → transcript with speaker diarization) and **Scan** (photos → textured 3D mesh). A `/profile`
+page and an `/admin` area (user list) round it out. End-user documentation: [docs/user-guide.md](../docs/user-guide.md).
 
 ## Quick start (local)
 
@@ -10,38 +14,45 @@ npm install
 npm run dev                    # Vite dev server on http://localhost:5173
 ```
 
-Add `http://localhost:5173/callback` to your Cognito App Client's allowed callback URLs.
+For feature work run the backend too (`../chat-api`, with its mocks and `DEV_AUTH_BYPASS=true`) and set
+`VITE_DEV_AUTH_BYPASS=true` here — no Cognito needed. Open **http://localhost:5173** (not `127.0.0.1`,
+which is outside the API's CORS allow-list). Against a real Cognito pool, add
+`http://localhost:5173/callback` to the App Client's allowed callback URLs.
 
 ## Environment variables
 
 | Variable | Example |
 |---|---|
-| `VITE_API_BASE_URL` | `https://api.example.com` |
+| `VITE_API_BASE_URL` | `http://localhost:8000` (empty → Vite proxies `/api/*` to `localhost:8000`) |
 | `VITE_COGNITO_DOMAIN` | `myapp.auth.us-east-1.amazoncognito.com` |
 | `VITE_COGNITO_CLIENT_ID` | `abc123xyz` |
-| `VITE_COGNITO_REDIRECT_URI` | `https://app.example.com/callback` |
+| `VITE_COGNITO_REDIRECT_URI` | `http://localhost:5173/callback` |
 | `VITE_COGNITO_SCOPE` | `openid email profile` |
+| `VITE_DEV_AUTH_BYPASS` | `true` — dev builds only: skip Cognito, send no `Authorization` header |
+| `VITE_MOCK_API` | `true` — replay recorded traffic through MSW (see below) |
+| `VITE_PHOTOGRAMMETRY_POLL_INTERVAL_MS` | `3000` — scan job polling interval |
 
-Set `VITE_API_BASE_URL=http://localhost:8000` to call the backend directly, or leave it empty to use the Vite dev server proxy.
+## Scripts
 
-## Other commands
+| Command | What it does |
+|---|---|
+| `npm run dev` | Vite dev server |
+| `npm run test` | vitest (unit/component specs under `src/**/__tests__/`) |
+| `npm run build` | `vue-tsc` + production build → `dist/` |
+| `npm run preview` | serve `dist/` on http://localhost:4173 |
+| `npm run lint` | eslint `--fix` |
+| `npm run type-check` | `vue-tsc --noEmit` — currently checks nothing (solution-style root tsconfig); use `npx vue-tsc -p tsconfig.app.json --noEmit` |
 
-```bash
-npm run type-check    # vue-tsc --noEmit
-npm run lint
-npm run build         # production build → dist/
-npm run preview       # serve dist/ on http://localhost:4173
-```
+## Deploy
 
-## Deploy to S3 + CloudFront
+Pushing to `main` with changes under `chat-vue/` runs `.github/workflows/deploy.yml`, which deploys
+the API first (if it changed) and then this app via the reusable `vue.yml`: build with the `VITE_*`
+secrets → `aws s3 sync dist/ --delete` to the frontend bucket → CloudFront invalidation. To redeploy
+without a code change: `gh workflow run Deploy -f vue=true`. Details: [docs/runbooks/deploy.md](../docs/runbooks/deploy.md).
 
-```bash
-npm run build
-aws s3 sync dist/ s3://your-bucket-name --delete
-aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
-```
-
-CloudFront must return `index.html` for 403/404 responses for SPA routing to work.
+Manual fallback: `npm run build && aws s3 sync dist/ s3://<frontend-bucket> --delete && aws cloudfront
+create-invalidation --distribution-id <id> --paths "/*"`. CloudFront must return `index.html` for
+403/404 responses so SPA routes (and the `/callback` redirect) work.
 
 ## Mock API (traffic capture + replay)
 
@@ -55,69 +66,37 @@ window.__traffic.export()  // downloads traffic.json
 localStorage.removeItem('__recordTraffic'); location.reload()  // stop
 ```
 
-Copy `traffic.json` → `src/mocks/traffic.json`, add `VITE_MOCK_API=true` to `.env.local`, then `npm run dev`. MSW intercepts matched requests; unmatched ones (e.g. Cognito) pass through. Presigned S3 PUTs are always stubbed `200 OK`.
-
-See [docs/mock-api.md](../docs/mock-api.md) for the full guide including the fully-offline backend mode.
+Copy `traffic.json` → `src/mocks/traffic.json`, add `VITE_MOCK_API=true` to `.env.local`, then `npm run dev`. MSW intercepts matched requests; unmatched ones (e.g. Cognito) pass through. Presigned S3 PUTs are always stubbed `200 OK`. Replay is static — jobs don't progress; for that use the API's own mocks (see [docs/mock-api.md](../docs/mock-api.md)).
 
 ## Debugging (local dev)
 
-Runtime errors (API failures, auth errors) are surfaced in the UI via the `error` state in each Pinia store. The axios interceptor automatically logs out the user on any `401` response.
+Runtime errors (API failures, auth errors) are surfaced in the UI via the `error` state in each Pinia store and as toasts (top-right of the body pane) for job failures and new scan warnings. The axios interceptor logs the user out on any `401`.
 
-Transcribe job polling uses 5 s intervals; sample status polling uses 3 s intervals. Both resume on page reload. The `transcribe` store emits toast notifications (auto-dismiss 8 s) on `processing → failed` sample transitions, rendered via `Teleport` in `TranscribeView`.
+Polling: transcribe jobs 5 s, speaker samples 3 s, scan jobs 3 s (60 s while the GPU worker is off), GPU state 30 s. All resume on page reload.
 
 ## Logs and monitoring
 
-The frontend is a static SPA — there is no server-side process and no application logs. Observability comes from two sources:
-
-**CloudFront** — access logs (requests, cache hits/misses, error rates) can be enabled on the distribution via the AWS Console or Terraform. Not enabled by default.
-
-**chat-api** — all API errors are logged server-side with structured JSON fields (`user_id`, `conversation_id`, stack traces). See the [chat-api README](../chat-api/README.md#logs) for log group locations and example CloudWatch Logs Insights queries.
-
-No client-side error tracking (Sentry, LogRocket, etc.) is currently configured.
+The frontend is a static SPA — there is no server-side process and no application logs. CloudFront access logs can be enabled on the distribution (not enabled by default). API-side errors are logged by chat-api — see its [README](../chat-api/README.md). No client-side error tracking (Sentry, LogRocket, etc.) is configured.
 
 ## Project layout
 
 ```
 src/
-  main.ts              App entry: creates Vue app, installs Pinia + Router
-  App.vue              Root component — just <RouterView>
-  types/index.ts       Shared TypeScript interfaces (chat + transcribe types)
-  config/cognito.ts    Cognito OAuth URL builders
-  config/models.ts     Static Bedrock model list and DEFAULT_MODEL_ID
-  lib/
-    pkce.ts            PKCE code_verifier + code_challenge (WebCrypto)
-    axios.ts           Axios instance with auth interceptor and 401 handler
-    transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
-    trafficRecorder.ts Axios interceptor for recording/replaying API traffic (mock dev)
-  stores/
-    auth.ts            Authentication state: token, login(), handleCallback(), logout()
-    chat.ts            Conversation list + active thread, sendMessage(), deleteConversation()
-    models.ts          Fetches available models from GET /api/v1/models
-    transcribe.ts      Speaker profiles + samples + jobs; job/sample polling; toast system
-  router/index.ts      Routes: / (ChatView), /transcribe (TranscribeView), /callback (CallbackView)
-  views/
-    ChatView.vue       Main layout: sidebar + message thread
-    CallbackView.vue   OAuth callback handler
-    TranscribeView.vue Transcribe layout: resizable sidebar + detail panel; toast overlay
-  components/
-    ConversationSidebar.vue
-    MessageList.vue
-    MessageBubble.vue
-    MessageInput.vue
-    transcribe/
-      RunSidebar.vue           Left panel: job list + new job form toggle
-      RunDetailView.vue        Right panel: job detail, transcript, speaker panel
-      NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)
-      AudioFileDropzone.vue    Drag-and-drop / click-to-upload audio file picker
-      TranscribeJobCard.vue    Job summary card in the sidebar list
-      JobStatusBadge.vue       Status chip (pending / transcribing / matching / complete / failed)
-      JobPanel.vue             Job metadata + activity log for the selected job
-      TranscriptDisplay.vue    Rendered transcript segments with speaker labels
-      SpeakerPanel.vue         Speaker profile management panel
-      SpeakerProfileCard.vue   Expandable card: speaker name, samples list, upload
-      SpeakerSampleRow.vue     Single sample row with status and delete action
-      SampleStatusBadge.vue    Status chip (processing / ready / failed) for a sample
-  mocks/
-    handlers.ts        MSW handlers built from traffic.json (deduplicates by method+path)
-    browser.ts         MSW worker setup
+  main.ts / App.vue    App entry (Pinia + Router) and <RouterView>
+  types/index.ts       Shared TypeScript interfaces (chat, transcribe, photogrammetry, gpu, admin)
+  config/              cognito.ts (OAuth URL builders), models.ts (Bedrock model list)
+  lib/                 axios.ts, pkce.ts, transcribeApi.ts, photogrammetryApi.ts, gpuApi.ts,
+                       workerState.ts (GPU labels), trafficRecorder.ts
+  stores/              auth, chat, models, transcribe, photogrammetry, gpu, profile, admin
+  router/index.ts      / · /transcribe · /photogrammetry · /profile · /admin · /callback
+  views/               ChatView, TranscribeView, PhotogrammetryView, CallbackView, profile/, admin/
+  components/          chat (ConversationSidebar, MessageList, MessageBubble, MessageInput)
+    transcribe/        GpuStatusBar (shared), RunSidebar, RunDetailView, NewJobForm, AudioFileDropzone,
+                       AudioPlayer, TranscribeJobCard, JobStatusBadge, JobPanel, TranscriptDisplay,
+                       MatchingAnalysis, SpeakerPanel, SpeakerProfileCard, SpeakerSampleRow, SampleStatusBadge
+    photogrammetry/    ScanSidebar, ScanJobCard, ScanStatusBadge, StageStrip, ImageDropzone, NewScanForm,
+                       PhotoGrid, ScanDetailView, MeshViewer
+  mocks/               MSW handlers built from traffic.json, worker setup
 ```
+
+See [CLAUDE.md](CLAUDE.md) for the component-by-component map and the auth flow.

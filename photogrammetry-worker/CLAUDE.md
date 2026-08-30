@@ -1,47 +1,36 @@
 # photogrammetry-worker
 
 Standalone Python worker: a run-to-completion ECS task on the shared `gpu-<env>` capacity
-provider, launched per job by the API's `RunTask` and exiting itself when idle (see Lifecycle
-below). No HTTP server. Takes a confirmed job's photos from S3, runs COLMAP → OpenMVS → texturing,
-and writes `mesh.glb` + `preview.png` back to S3, walking the job row through
-`processing/sfm → dense → mesh → texture → complete`. Stages are checkpointed in the scratch dir
-(`<stage>.done` markers), so a restarted job resumes from the first incomplete stage instead of
-redoing finished work; a stage that crashed mid-run is failed rather than re-run.
+provider, launched per job by the API's `RunTask` and exiting itself when idle (lifecycle lives in
+`../gpu-worker`). No HTTP server. Takes a confirmed scan's photos from S3, runs COLMAP → OpenMVS →
+texturing, and writes `output/mesh.glb` + `output/preview.png` back to S3, walking the job row
+through `processing/sfm → dense → mesh → texture → complete`. Live in production since
+2026-08-28; the robustness batch (resumable stages, mesh budget, no OOM cycling, photo
+normalisation, per-photo status) since 2026-08-29.
 
 ## Key Commands
 
 ```bash
-# Install dependencies (dev)
 cd photogrammetry-worker && uv sync --extra dev
+uv run pytest -q                    # 106 tests (2026-08-29); no AWS, DB, COLMAP or OpenMVS needed
 
-# Run tests (no AWS creds, DB, COLMAP, or OpenMVS needed)
-uv run pytest -q
-
-# Build Docker image (build context is the repo root)
+# Build the image (context is the repo root; ~10 GB of layers — CI does this on push)
 docker build -f photogrammetry-worker/Dockerfile -t photogrammetry-worker:dev .
-
-# Run container locally
 docker run --env-file .env photogrammetry-worker:dev
 ```
 
-**The image has not been built locally.** This machine's root disk had ~7 GB free when this
-worker was implemented (2026-08-27); the COLMAP base image alone is 3.2 GB and the CUDA `-devel`
-build stage adds several GB more, so `docker build` was never run here. `docker build --check
--f photogrammetry-worker/Dockerfile .` (BuildKit lint, no image pull of layers) reported no
-warnings. The first real build happens in CI on push (`.github/workflows/photogrammetry-worker.yml`).
-The CPU smoke test below is the documented procedure — run it from the runbook once disk is
-available (fitlet or a box with headroom), not before.
+### Smoke tests
 
-### CPU smoke test (deferred — run when disk allows)
+**Production smoke** (after any worker deploy): start the *Sample* scan (22 photos, ≈100 s on an
+A10G/T4 once the worker is up) and re-run the 51-photo set — expect ≈680 k faces → refine skipped
+→ `--decimate 0.73` → 500 k textured, the "Mesh simplified…" warning on the card, zero
+`CAMERA_SINGLE_DIM_ERROR` lines, one attempt. Watch with `scripts/deploy/gpu-status.sh` and
+`aws logs tail /ecs/photogrammetry-prod-worker --follow`.
 
-Proves the tool chain and the file names in the reconstruction stages end to end, on the
-committed sample (22 photos, `chat-api/app/assets/photogrammetry/images/`), without a GPU:
+**CPU smoke** (no GPU; slow, tens of minutes) proves the tool chain end to end on the committed
+sample (`chat-api/app/assets/photogrammetry/images/`):
 
 ```bash
-DOCKER_BUILDKIT=1 docker build -f photogrammetry-worker/Dockerfile -t photogrammetry-worker:dev . 2>&1 | tail -20
-docker run --rm photogrammetry-worker:dev colmap -h | head -3
-docker run --rm photogrammetry-worker:dev TextureMesh --help | head -3
-
 mkdir -p /tmp/pgsmoke/work /tmp/pgsmoke/images && cp chat-api/app/assets/photogrammetry/images/*.jpg /tmp/pgsmoke/images/
 docker run --rm -i -e COLMAP_USE_GPU=0 -e LD_LIBRARY_PATH=/opt/cuda-stubs -v /tmp/pgsmoke:/tmp/pgsmoke photogrammetry-worker:dev python - <<'PY'
 import threading, time
@@ -51,58 +40,83 @@ from pipeline.runner import Runner
 from pipeline.export import obj_to_glb, make_preview
 work, images = Path("/tmp/pgsmoke/work"), Path("/tmp/pgsmoke/images")
 r = Reconstruction(Runner(time.monotonic() + 7200, threading.Event()), work, use_gpu=False)
-m = r.sfm(images); print("registered", m.registered_images)
+m = r.sfm(images); print("registered", m.registered_images, sorted(m.registered_names)[:3])
 d = r.dense(images, m); ply, faces = r.reconstruct_mesh(d); obj = r.texture(d, ply)
 print(obj_to_glb(obj, work / "mesh.glb").stat().st_size, make_preview(sorted(images.iterdir())[0], work / "preview.png"))
 PY
 ```
 
-Expected: build succeeds, both binaries print usage; `registered N` with N ≥ 14 (60% of 22),
-a non-trivial `mesh.glb`, and `preview.png`. Slow on CPU (tens of minutes). If an OpenMVS output
-name differs, fix `pipeline/openmvs.py` + its test. The smoke skips `r.refine_mesh(d, ply)` (also
-available); `texture(..., decimate=<ratio>)` decimates the mesh above the face budget.
+Expected: `registered N` with N ≥ 14 (60 % of 22), a non-trivial `mesh.glb`, and `preview.png`.
+The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`).
 
 ## Environment Variables
 
 | Variable | Default | Required |
 |---|---|---|
-| `DATABASE_URL` | — | yes |
+| `DATABASE_URL` | — | yes (`postgresql+asyncpg://` or `+psycopg2://`; normalised to psycopg2) |
 | `AUDIO_BUCKET_NAME` | — | yes |
 | `PHOTOGRAMMETRY_SQS_QUEUE_URL` | — | yes |
 | `AWS_REGION` | `us-east-1` | no |
-| `IDLE_EXIT_SECONDS` | `900` | no |
-| `MAX_LIFETIME_SECONDS` | `10800` | no |
-| `PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS` | `3600` | no |
-| `SQS_VISIBILITY_TIMEOUT` | `600` | no |
-| `SQS_VISIBILITY_EXTENSION_INTERVAL` | `300` | no |
-| `WORK_DIR` | `/tmp/pg` | no |
-| `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU (smoke test). Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load, and only the NVIDIA runtime provides the real one. |
+| `IDLE_EXIT_SECONDS` | `900` | no — must match the API's `GPU_IDLE_EXIT_SECONDS` |
+| `MAX_LIFETIME_SECONDS` | `10800` | no — must match `GPU_MAX_LIFETIME_SECONDS` |
+| `PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS` | `3600` | no — `JobTimeout` fails the row |
+| `SQS_VISIBILITY_TIMEOUT` | `600` | no — extended every `SQS_VISIBILITY_EXTENSION_INTERVAL` (300) while a job runs |
+| `WORK_DIR` | `/tmp/pg` | no — in prod a host-path volume (`/var/lib/photogrammetry`) so scratch survives a container restart |
+| `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU. Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load |
 
-`DATABASE_URL` may use either `postgresql+asyncpg://` or `postgresql+psycopg2://` scheme —
-`gpu_worker.db.make_session_factory` normalises it to psycopg2 automatically.
+## Pipeline (as built)
 
-## Pipeline
-
-| Step | Row `stage` | Command(s) | Rule |
+| Step | Row `stage` | What happens | Rule |
 |---|---|---|---|
-| load | — | load the row (plain `get`; concurrent delivery is prevented by the SQS visibility timeout, extended while the job runs); if status ∉ {`queued`, `processing`} → ack and return | idempotent on redelivery |
-| fetch | `sfm` (status → `processing`) | list `input_prefix`; download; fail if fewer than `image_count` objects | |
-| SfM | `sfm` | `colmap feature_extractor` (SIFT, GPU) → `colmap exhaustive_matcher` → `colmap mapper` | take the model with the most registered images; **fail if registered < 60% of `image_count`** ("Only N of M photos could be matched — add overlap and try again") |
-| dense | `dense` | `colmap image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | resolution level fixed for the 16 GB T4 |
-| mesh | `mesh` | `ReconstructMesh` → `RefineMesh` | **`RefineMesh` skipped when `image_count` > 100** (time cap) |
-| texture | `texture` | `TextureMesh` → `mesh_textured.obj` + atlas PNG → `trimesh.load(...).export("mesh.glb")` | GLB via trimesh (pure Python, no EGL); `preview.png` = first input photo resized to 640 px on the long edge |
-| publish | — | upload `output/mesh.glb`, `output/preview.png`; row → `complete`, `mesh_s3_key`, `preview_s3_key`, `completed_at`; ack | |
+| load | — | `get` the row; if status ∉ {`queued`, `processing`} → ack and return, remove any scratch | idempotent on redelivery |
+| attempts | — | `ApproximateReceiveCount` ≥ `MAX_ATTEMPTS` (5 = the queue's `maxReceiveCount`), or a `stage.started` marker without its `.done` (the previous attempt died mid-stage) → row `failed` ("did not finish after 5 attempts…") | **no OOM cycling**: a stage that crashed is never retried |
+| fetch | `sfm` (status → `processing`) | list `input_prefix` (direct children only), download; fail if fewer than `image_count` objects | transient S3 errors leave the row `processing` and re-raise (redelivery resumes) |
+| photos | `sfm` | `pipeline/photos.py`: EXIF orientation applied and stripped (so COLMAP sees upright pixels), unreadable files skipped with a warning, photos whose pixel size differs from the majority skipped (`CAMERA_SINGLE_DIM_ERROR` otherwise); fail if fewer than `MIN_IMAGES` (5) usable | warnings → `job.warnings` |
+| SfM | `sfm` | `colmap feature_extractor` → `exhaustive_matcher` → `mapper`; the sub-model with the most registered images wins; `photo_status` written per input (`registered` / `unregistered` / `skipped:<why>`, names read from `images.bin`) **before** the gate | **fail if registered < 60 % of usable** ("Only N of M photos could be matched — add overlap and try again") |
+| dense | `dense` | `image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | fixed for the 16 GB T4 |
+| mesh | `mesh` | `ReconstructMesh`; then `RefineMesh` **only if** images ≤ `REFINE_MAX_IMAGES` (100) **and** faces ≤ `REFINE_MAX_FACES` (400 k) | refine roughly doubles faces at ~16 GB virtual on 675 k — that OOM-cycled on 2026-08-28 |
+| texture | `texture` | `TextureMesh --decimate FACE_BUDGET/faces` when faces > `FACE_BUDGET` (500 k), warning "Mesh simplified from N to about 500,000 faces to fit the viewer"; `--global-seam-leveling 0 --local-seam-leveling 0` (leveling blackens faces in this build — root cause open in `docs/TODO.md`) | |
+| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct; atlases are embedded as written, which makes GLBs large — 45 MB for 500 k faces + two 8192² atlases, open item), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
+
+Each stage writes `<stage>.done` (atomic, JSON payload — e.g. the sfm marker carries `sparse`,
+`registered_images`, `registered_names`) under `WORK_DIR/<job_id>/`; a redelivered job resumes at
+the first incomplete stage. `main.py` sweeps job dirs older than 24 h at start. Scratch is removed
+on success and on deterministic failure; kept on transient failure/interruption for the resume.
 
 ## Failure mapping
 
-| Event | Row | Ack? |
+| Event | Row | SQS |
 |---|---|---|
-| Any `StageError`, `JobTimeout`, or other exception in a stage | `failed`, `error_message` = the rule's text or the first line of the tool's stderr (≤ 1000 chars) | **acked** — a deterministic failure must not retry three times on a $0.53/h box |
-| Spot interruption notice (`gpu_worker.sqs.Interrupted`) | reset to `queued`, `stage = NULL` | **released**, not acked — `SpotWatcher` has already released the SQS message with `VisibilityTimeout=0`; next worker restarts from scratch |
-| Worker dies mid-job (OOM, crash) | stays `processing` | redelivered after the visibility timeout (≤ 3 times, then DLQ) — the load step accepts `processing` and restarts |
+| `StageError`, `JobTimeout`, any other exception in a stage | `failed`, `error_message` = the rule's text or the tool's first stderr line (≤ 1000 chars); `photo_status` and `warnings` kept | acked — a deterministic failure must not retry on a GPU box |
+| 5th receive, or a `stage.started` marker with no `.done` | `failed` ("did not finish after 5 attempts (interrupted or out of memory)…") | acked |
+| Spot interruption (`gpu_worker.sqs.Interrupted`) | back to `queued`, `stage = NULL` | released with `VisibilityTimeout=0` by `SpotWatcher`; next worker resumes from the markers |
+| Transient S3 (`ClientError`/`BotoCoreError`) | stays `processing` | not acked; redelivered after the visibility timeout (all S3 errors today — allowlisting only transient codes is a `docs/TODO.md` item) |
+| Worker dies mid-job (OOM, crash) | stays `processing` | redelivered; the next attempt sees the `stage.started` marker and fails the row |
+| Admin `immediate` release | `queued` | released; the runner aborts the tool process |
 
-Scratch (`WORK_DIR/<job_id>`) is removed in every case.
+## File map
 
-## Lifecycle
+| Path | Role |
+|---|---|
+| `main.py` | Entry: settings, deps, stale-scratch sweep, `gpu_worker.sqs.run_sqs_worker` with `HANDLERS = {"photogrammetry_job": …}`; passes the receive count to the handler |
+| `handlers/photogrammetry.py` | The job: attempts gate, fetch, photos, stages with checkpoints, warnings, photo status, publish, failure mapping |
+| `pipeline/photos.py` | Orientation normalisation + usable/skipped/unreadable report |
+| `pipeline/colmap.py` | `sparse_reconstruct` (best sub-model, `registered_image_names` from `images.bin`/`images.txt`), `undistort` |
+| `pipeline/openmvs.py` | Interface/Densify/Reconstruct/Refine/Texture wrappers; parses face counts from tool output |
+| `pipeline/reconstruct.py` | `Reconstruction`: sfm / dense / reconstruct_mesh / refine_mesh / texture(decimate) |
+| `pipeline/export.py` | `obj_to_glb` (per-material, y-up), `make_preview` |
+| `pipeline/checkpoints.py` | Stage markers, crash detection, `sweep_stale` |
+| `pipeline/runner.py` | Subprocess runner with the job deadline and the abort event |
+| `models.py` | `PhotogrammetryJob` (duplicated from chat-api on purpose: `warnings`, `photo_status`, keys, stage) |
 
-Lifecycle lives in `../gpu-worker` — run its tests there.
+## Deployment
+
+Push to `main` (changes under `photogrammetry-worker/` or `gpu-worker/`) runs
+`.github/workflows/photogrammetry-worker.yml` via `deploy.yml` after the API: buildx build (no
+provenance/SBOM manifests — the ECR keep-last-2 rule counts them), ECR push, new
+`photogrammetry-prod-worker` task-definition revision. The API's `RunTask` uses the latest revision
+on the next launch. The image is also baked into the GPU AMI (`scripts/deploy/build-gpu-ami.sh`);
+until a re-bake every cold start pulls the changed layers (~5 min). Terraform
+(`infra/modules/photogrammetry`) owns the queue (`maxReceiveCount` 5), the task-definition shape
+(host-path scratch volume) and IAM; its `photogrammetry_image_tag` must be set to the deployed SHA
+before an apply or the replaced revision points at `latest`. Runbook: `docs/runbooks/deploy.md`.

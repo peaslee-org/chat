@@ -24,7 +24,7 @@ package "VPC: chat-api-prod (10.0.0.0/16)" {
     rectangle "<b>ECS Fargate Task</b>\nFastAPI :8000\n256 CPU / 512 MB\nSG: port 8000 from ALB" as ecs #ED7100/white
   }
 
-  rectangle "<b>RDS PostgreSQL 15</b>\nchat-api-prod / db: chatapi\ndb.t3.small, 100 GB\nSG: port 5432 from VPC" as rds #C7131F/white
+  rectangle "<b>PostgreSQL 16 + pgvector</b>\nself-hosted EC2 (outside Terraform)\ndb: chatapi\nSG: port 5432 from VPC" as rds #C7131F/white
 
   rectangle "<b>CloudWatch Logs</b>\n/ecs/chat-api-prod\n(30-day retention)" as cw #E7157B/white
 
@@ -36,9 +36,9 @@ rectangle "<b>AWS Bedrock</b>\nclaude-3-sonnet-20240229-v1:0\n(LLM Inference)" a
 rectangle "<b>AWS Cognito</b>\nUser Pool: chat-api-prod\nHosted UI + PKCE\nJWKS endpoint" as cognito #BF0816/white
 
 package "CI/CD Pipeline" {
-  rectangle "<b>GitHub</b>\npeaslee-org/chat-api\n(main branch)" as github #dae8fc
-  rectangle "<b>CodeBuild</b>\nRun tests → Build image\nPush to ECR" as codebuild #C7131F/white
-  rectangle "<b>CodePipeline</b>\nRolling deploy to ECS" as codepipeline #C7131F/white
+  rectangle "<b>GitHub</b>\npeaslee-org/chat\n(main branch)" as github #dae8fc
+  rectangle "<b>GitHub Actions: Deploy</b>\nchanges → api → vue + workers\ntest, build, push to ECR" as codebuild #C7131F/white
+  rectangle "<b>ECS rolling deploy</b>\nregister task-def → update service" as codepipeline #C7131F/white
   rectangle "<b>GitHub OIDC IAM Role</b>\ngithub-actions-prod" as oidc #DD344C/white
 }
 
@@ -56,7 +56,7 @@ ecs .right.> cognito : "JWKS fetch\n(RS256 verify)"
 ecr ..> ecs : pull image
 
 github --> codebuild : push to main
-codebuild --> codepipeline : imagedefinitions.json
+codebuild --> codepipeline : new task-definition revision
 oidc ..> codebuild : assume role
 oidc --> ecs : rolling deploy
 

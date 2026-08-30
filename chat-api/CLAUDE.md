@@ -6,36 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Local dev (without Docker):**
 ```bash
-uv sync
+uv sync --extra dev
 uv run scripts/run_local.sh      # uvicorn --reload on port 8000
 ```
 
-**Local dev (with Docker):**
+**Local database.** `docker-compose.yml` uses `postgres:16-alpine`, which lacks pgvector, so a clean
+`docker compose up` fails on the speaker-embedding migration (open item in `docs/TODO.md`). The
+working setup is a pgvector container on **5433** (the machine's native PostgreSQL owns 5432), with
+`.env`'s `DATABASE_URL` pointing at it:
+
 ```bash
-cp .env.example .env              # fill in values first
-docker compose up                 # api + postgres, port 8000
+docker run -d --name chatapi-pg-dev -p 5433:5432 -e POSTGRES_PASSWORD=<pw> -e POSTGRES_DB=chatapi pgvector/pgvector:pg16
+uv run alembic -c app/db/alembic.ini upgrade head
 ```
+
+With `DEV_AUTH_BYPASS=true`, `USE_MOCK_TRANSCRIPTION=true`, `USE_MOCK_PHOTOGRAMMETRY=true` and
+`USE_MOCK_BEDROCK=true` in `.env` the API runs with no AWS credentials at all (see *Mock / local dev*
+below and `docs/mock-api.md`). Open the SPA on `http://localhost:5173` — not `127.0.0.1` — or the
+`<model-viewer>` fetch fails CORS against `CORS_ORIGINS`.
 
 **Tests:**
 ```bash
-uv run pytest tests/unit -q                                               # all unit tests; no external deps needed
+uv run pytest -q                                                          # whole suite (259 on 2026-08-29); no external deps
 uv run pytest tests/unit/services/test_transcription_service.py -q       # transcription service + regression tests
-uv run pytest tests/unit/api/test_transcribe_jobs.py -q                  # job endpoint HTTP layer
-uv run pytest tests/unit/api/test_transcribe_speakers.py -q              # speaker endpoint HTTP layer
-uv run pytest tests/unit/services/test_photogrammetry_service.py -q          # photogrammetry service + mock walk
-uv run pytest tests/unit/api/test_photogrammetry_jobs.py -q                  # photogrammetry endpoint HTTP layer
+uv run pytest tests/unit/services/test_photogrammetry_service.py -q      # photogrammetry service + mock walk + photo listing
+uv run pytest tests/unit/services/test_gpu_controller.py -q              # GPU controller: launch, caps, startup estimates, stages
+uv run pytest tests/unit/services/test_thumbnails.py -q                  # thumbnail generation (real Pillow images)
+uv run pytest tests/unit/api/ -q                                          # HTTP layer for every router
 ```
 
-Key test classes in `tests/unit/services/test_transcription_service.py`:
-
-| Class | Covers |
-|---|---|
-| `TestInitiateJobUpload` | Concurrent job limit, S3 key shape |
-| `TestConfirmJobUpload` | 404/409/422 guards, Transcribe job start, SQS publish |
-| `TestGetJobStatus` | `matched_speaker_count` / `total_segment_count` forwarded from DB (regression) |
-| `TestGetTranscript` | Status guards, `speaker_name` from matched profile (regression), partial transcript |
-| `TestGetTranscriptSpeakerName` | Speaker name populated / null when unmatched (regression) |
-| `TestDeleteJob` | S3 key cleanup, repo delete call |
+`tests/unit/test_runtime_dependencies.py` guards that Pillow stays in `[project].dependencies`:
+the image installs with `uv sync --frozen --no-dev` (no extras), and a package that only lives in
+the `dev` extra is missing in production (`chat-api-prod:83` crash-looped on `No module named
+'PIL'`, 2026-08-29). Put runtime imports in the base dependency list.
 
 Note: `tests/integration/` exists but contains only stubs — no integration tests are written yet.
 
@@ -52,6 +55,11 @@ uv run alembic -c app/db/alembic.ini revision --autogenerate -m "your message"
 uv run alembic -c app/db/alembic.ini upgrade head
 ```
 
+Migrations run automatically at container start (`scripts/entrypoint.sh` runs `alembic upgrade
+head` before gunicorn binds), so an API deploy *is* the schema deploy. Chain ids in
+`app/db/migrations/versions/` (latest: `r8s9t0u1v2w3`). Deploy the API before any worker whose ORM
+model reads a new column.
+
 ## Architecture
 
 The app follows a layered pattern: **router → endpoint → service → repository/external service**.
@@ -60,34 +68,54 @@ The app follows a layered pattern: **router → endpoint → service → reposit
 app/
   main.py          FastAPI app factory; registers CORS, exception handlers, v1 router
   config.py        Pydantic Settings loaded from .env; accessed via get_settings() (lru_cache)
-  dependencies.py  FastAPI DI: get_db (async session) and get_current_user (Cognito JWT)
+  dependencies.py  FastAPI DI: get_db (async session) and get_current_user (Cognito JWT / dev bypass)
   api/v1/          Versioned HTTP layer — thin, delegates to services
     endpoints/     chat.py, conversations.py, health.py, models.py
-    transcribe/    jobs.py, speakers.py, dev.py (mock upload sink), deps.py
-    photogrammetry/ jobs.py, deps.py
+    transcribe/    jobs.py, speakers.py, dev.py (dev-upload sink), deps.py
+    photogrammetry/ jobs.py (jobs, samples, photos, mesh), deps.py
+    gpu/           router.py (state, warm, release, usage), deps.py
+    admin/         users.py (Cognito admin group only)
+    profile/       profile.py (the caller's own profile / groups)
   services/        Business logic
     chat.py        ChatService: orchestrates conversation repo + BedrockService
     conversation.py ConversationService: list/delete/get_messages
     bedrock.py     BedrockService: Bedrock invocation + model listing
     transcription_service.py  TranscriptionService (real) + LocalTranscriptionService (mock)
-    photogrammetry_service.py  PhotogrammetryService (real) + LocalPhotogrammetryService (mock)
-    audio_storage.py          S3 presigned URLs, object existence check, Transcribe job start
-    sqs_publisher.py          SQS publish for transcription jobs and speaker sample embeddings
+    photogrammetry_service.py PhotogrammetryService (real) + LocalPhotogrammetryService (mock)
+    thumbnails.py  ensure_thumbnails(): 256 px JPEG thumbnails made on demand, cached in S3
+    gpu_controller.py  GpuController: worker launch/caps/release, startup estimates, usage
+    ecs_launcher.py    EcsLauncher (RunTask on the GPU capacity provider, ListTasks/DescribeTasks) + mock
+    cost_explorer.py   Month-to-date GPU cost by cost-allocation tag (usage panel)
+    audio_storage.py   S3 presigned URLs, object read/write/list, Transcribe job start (+ local/dev variants)
+    sqs_publisher.py   SQS publish for transcription, embedding and photogrammetry jobs
   repositories/    Async SQLAlchemy queries only; no business logic
-    conversation.py
-    transcription.py
-    photogrammetry.py
+    conversation.py, transcription.py, photogrammetry.py, gpu.py
   models/          SQLAlchemy ORM models (inherit from app/models/base.py)
     conversation.py
     transcription.py  SpeakerProfile, SpeakerSample (pgvector embedding), TranscriptionJob, TranscriptSegment
-    photogrammetry.py  PhotogrammetryJob
-  schemas/         Pydantic request/response schemas
-    chat.py, conversation.py, models.py, transcription.py
-    photogrammetry.py
-  core/            security.py (Cognito JWKS verification), exceptions.py
+    photogrammetry.py PhotogrammetryJob (status/stage, input_prefix, mesh/preview keys, warnings, photo_status)
+    gpu.py            GpuSession (the worker-launch ledger), GpuCostSnapshot
+  schemas/         Pydantic request/response schemas (chat, conversation, models, transcription, photogrammetry, gpu)
+  core/            security.py (Cognito JWKS verification), exceptions.py, logging.py
   db/              session.py (engine + sessionmaker init'd at startup), Alembic migrations
-  assets/photogrammetry/  sample photo set + placeholder mesh for the mock
+  assets/photogrammetry/  22-photo sample set + placeholder mesh for the mock
 ```
+
+## Endpoints
+
+All under `/api/v1`; every route except `health` requires a Cognito bearer token.
+
+| Router | Routes |
+|---|---|
+| health | `GET /health`, `GET /health/ready` (`SELECT 1`) |
+| chat | `POST /chat` |
+| conversations | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
+| models | `GET /models` (Bedrock model list) |
+| profile | `GET /profile` (sub, email, groups) |
+| admin | `GET /admin/users` (Cognito `admin` group) |
+| transcribe | `POST /transcribe/jobs`, `POST /transcribe/jobs/sample`, `GET /transcribe/jobs`, `GET /transcribe/jobs/{id}`, `POST /transcribe/jobs/{id}/confirm`, `GET /transcribe/jobs/{id}/transcript`, `GET /transcribe/jobs/{id}/turn-distances`, `GET /transcribe/jobs/{id}/events`, `GET /transcribe/jobs/{id}/events/stream`, `DELETE /transcribe/jobs/{id}`; speakers: `POST/GET /transcribe/speakers`, `GET/PATCH/DELETE /transcribe/speakers/{id}`, `POST /transcribe/speakers/{id}/samples`, `POST /transcribe/speakers/{id}/samples/{sid}/confirm`, `DELETE …/samples/{sid}`; dev sink `PUT/GET /transcribe/dev-upload/{path}` (mock mode only) |
+| photogrammetry | `GET /photogrammetry/samples` (bundled set with thumbnails), `POST /photogrammetry/jobs/sample`, `POST /photogrammetry/jobs`, `GET /photogrammetry/jobs`, `GET /photogrammetry/jobs/{id}`, `POST /photogrammetry/jobs/{id}/confirm`, `GET /photogrammetry/jobs/{id}/photos` (originals + thumbnails + per-photo match status), `GET /photogrammetry/jobs/{id}/mesh` (viewer URL + attachment download URLs), `DELETE /photogrammetry/jobs/{id}` |
+| gpu | `GET /gpu/state`, `POST /gpu/warm`, `POST /gpu/release` (admin), `GET /gpu/usage` — all take `?family=transcription|photogrammetry` |
 
 **Request flow for chat:**
 1. `POST /api/v1/chat` → `dependencies.get_current_user` verifies Cognito JWT (JWKS cached in-process)
@@ -98,7 +126,7 @@ app/
 **Request flow for transcription:**
 1. `POST /api/v1/transcribe/jobs` — creates a `TranscriptionJob` (status: `pending`) and returns a presigned S3 upload URL
 2. Client uploads audio directly to S3, then calls `POST /api/v1/transcribe/jobs/{id}/confirm`
-3. `TranscriptionService.confirm_job_upload()` — verifies the S3 object exists, starts an AWS Transcribe job (word timestamps only — `ShowSpeakerLabels` is **not** set), publishes an SQS message with the job ID + AWS job name + optional speaker IDs, transitions status to `transcribing`
+3. `TranscriptionService.confirm_job_upload()` — verifies the S3 object exists, starts an AWS Transcribe job (word timestamps only — `ShowSpeakerLabels` is **not** set), publishes an SQS message with the job ID + AWS job name + optional speaker IDs, transitions status to `transcribing`, and asks the GPU controller for a worker
 4. The `transcription-worker` consumes SQS, runs pyannote-audio diarization + ECAPA-TDNN speaker matching, writes segments, and updates job status to `complete` or `failed`
 5. Client polls `GET /api/v1/transcribe/jobs/{id}` for status, then fetches `GET /api/v1/transcribe/jobs/{id}/transcript` when ready
 
@@ -108,53 +136,113 @@ app/
 - `POST /api/v1/transcribe/speakers/{id}/samples/{sid}/confirm` — validates audio (10–60 s, decodeable), transitions to `processing`, publishes SQS message to enqueue embedding generation; a worker updates status to `ready`
 - Speaker IDs can be passed at job-confirm time so the worker knows which profiles to match against
 
-**Database:** Async SQLAlchemy with asyncpg driver. `init_db()` is called at lifespan startup; `get_db()` yields an `AsyncSession` that commits on success and rolls back on exception. `SpeakerSample.embedding` uses `pgvector` (`Vector(192)`); `SpeakerSample.error_message` stores embedding failure reason set by the transcription worker.
+**Request flow for photogrammetry (scan):**
+1. `POST /api/v1/photogrammetry/jobs` with the filenames (5–150, jpg/png) — creates a `PhotogrammetryJob` (`pending`) under `photogrammetry/<user>/<job>/input/` and returns one presigned PUT per photo (15-minute TTL)
+2. The browser PUTs the photos, then `POST /jobs/{id}/confirm` — verifies the objects, publishes the SQS message, asks the GPU controller for a worker; status → `queued`
+3. `POST /jobs/sample` skips the upload: the job's `input_prefix` is the shared `samples/photogrammetry/images/` set (`PHOTOGRAMMETRY_SAMPLE_PREFIX`), uploaded once by hand
+4. The photogrammetry worker walks `processing/sfm → dense → mesh → texture → complete`, writing `warnings` (photo problems, mesh simplification) and `photo_status` (which photos SfM registered) on the row, `output/mesh.glb` + `output/preview.png` to S3
+5. `GET /jobs/{id}` is polled every 3 s; `GET /jobs/{id}/mesh` returns a plain presigned GET for `<model-viewer>` plus attachment-disposition download URLs; `GET /jobs/{id}/photos` lists the inputs with thumbnails and per-photo status
+6. Objects under `photogrammetry/` expire after 30 days (bucket lifecycle) — rows outlive them today (`docs/TODO.md`)
 
-**Auth:** All endpoints (except `/api/v1/health`) use `get_current_user`, which validates RS256 JWTs against Cognito's JWKS URL. The JWKS response is cached as a module-level global.
+**Photos and thumbnails.** `GET /jobs/{id}/photos` and `GET /samples` list the inputs
+(`_input_keys`: only direct children of the prefix — nothing nested counts as a photo) and call
+`thumbnails.ensure_thumbnails()`, which lists the thumbs prefix once, generates only the missing
+256 px JPEGs (Pillow `draft` decode at reduced size, EXIF-upright, q80) in a bounded thread pool,
+and writes them to S3. The thumbs prefix is the **sibling** of the inputs' own directory
+(`…/<job>/input/` → `…/<job>/thumbs/`, `samples/photogrammetry/images/` →
+`samples/photogrammetry/thumbs/`) — never inside the inputs, where the worker and the next listing
+would take them for photos (that happened once, 2026-08-29). A photo that can't be decoded gets
+`thumb_url = url`. Both URLs are presigned GETs; the task role's S3 policy covers the writes.
 
-**Models endpoint:** `GET /api/v1/models` returns available Bedrock models via `BedrockService.list_models()`.
+**GPU controller.** Both GPU workers are run-to-completion ECS tasks (EC2 launch type, shared
+`gpu-<env>` capacity provider) launched on demand by `GpuController` via `RunTask` — one
+controller per family, bound to `GPU_WORKER_TASK_FAMILY` (transcription) or
+`GPU_PHOTOGRAMMETRY_TASK_FAMILY` (photogrammetry), sharing the cluster, capacity provider and the
+`gpu_sessions` ledger. A launch happens when a job is confirmed, when `POST /gpu/warm` is called,
+or when a status poll finds an active job with no worker. `ensure_worker()` takes a DB advisory
+lock, reconciles stale open sessions, enforces the daily/monthly GPU-hour caps and the per-user
+warm cap, and records the launch as a `gpu_sessions` row. `GET /gpu/state` caches `ListTasks` for a
+few seconds and, while a session is open, copies the task's `pullStartedAt / pullStoppedAt /
+startedAt` onto the row once (`DescribeTasks`).
+
+*Startup estimates are measured, not configured.* The estimate is the median of
+`started_processing_at − started_at` (RunTask → the worker's first claim: capacity-provider
+reaction, instance boot, image pull, container up) over the family's last 20 job-triggered
+launches, split by kind: **cold** (the instance booted for this launch — the worker stamps
+`instance_booted_at` from the host's uptime) vs **warm** (the instance was still up, inside the
+ASG's scale-in lag after an idle exit, so only a container start is needed). `/gpu/state` quotes
+the warm median when the last session ended within `GPU_SCALE_IN_SECONDS`, else cold; below 3
+samples of a kind it falls back to `GPU_WAIT_ESTIMATE_OFF_SECONDS` / `_WARM_SECONDS`. While
+`starting` the response carries `starting_since` and `estimated_wait_seconds` is the *remaining*
+time. Each launch records the estimate it promised (`estimated_startup_seconds`); `GET /gpu/usage`
+returns per session the kind, the promised and actual startup, and the stage breakdown
+(capacity, boot, pull, container, init) so the panel can hold the estimate to account.
+
+*Admin release.* `POST /api/v1/gpu/release?family=…&mode=graceful|immediate` (Cognito `admin`
+group; 403 otherwise, 409 with no live worker) writes `release_mode` / `release_requested_at` /
+`release_requested_by` on the family's open row and clears `warm_until`; the worker's
+`ReleaseWatcher` (shared `gpu-worker` package) polls the row every 10 s and exits after its
+current job (`graceful`) or kills it so the message is redelivered (`immediate` — photogrammetry
+runner only; the transcription job path does not poll the flag yet, see `docs/TODO.md`). Ledger
+`end_reason = released`. `/api/v1/gpu/*` returns 503 unless `GPU_CONTROLLER_ENABLED=true` or a mock
+flag is set.
+
+**Database:** Async SQLAlchemy with asyncpg driver. `init_db()` is called at lifespan startup; `get_db()` yields an `AsyncSession` that commits on success and rolls back on exception. `SpeakerSample.embedding` uses `pgvector` (`Vector(192)`); `SpeakerSample.error_message` stores embedding failure reason set by the transcription worker. Production PostgreSQL is EC2-hosted (RDS was decommissioned 2026-03-15); the DSN is a Secrets Manager secret injected by ECS.
+
+**Auth:** All endpoints (except `/api/v1/health`) use `get_current_user`, which validates RS256 JWTs against Cognito's JWKS URL. The JWKS response is cached as a module-level global. Cognito groups drive `admin`-only routes.
 
 ## CI/CD
 
-`buildspec.yml` defines the AWS CodeBuild pipeline:
-1. `uv run pytest tests/unit` must pass
-2. Docker image is built and pushed to ECR, tagged with the short commit hash and `latest`
-3. `imagedefinitions.json` artifact is used by CodePipeline to update the ECS Fargate service
+`.github/workflows/deploy.yml` runs on every push to `main`, detects which directories changed and
+calls the reusable per-surface workflows in dependency order — `api.yml` first (this service),
+then `vue.yml` and the workers. `api.yml`: `uv run pytest tests/unit` → Docker build → ECR push
+tagged with the commit SHA and `latest` → register a new `chat-api-prod` task-definition revision
+→ `update-service` → `aws ecs wait services-stable`. ECS keeps the previous task set serving while
+a new revision crash-loops, so a failed rollout is "stuck", not "down". Manual redeploy:
+`gh workflow run Deploy -f api=true`. Details and recovery in `docs/runbooks/deploy.md`.
+`buildspec.yml`/CodePipeline are gone.
 
 Infrastructure is Terraform under `infra/` (per-environment in `infra/environments/`, shared modules in `infra/modules/`).
 
 ## Environment variables
 
-All settings are in `app/config.py` (`Settings` class). Copy `.env.example` to `.env` for local dev. Key vars:
+All settings are in `app/config.py` (`Settings` class, `pydantic-settings`, read from `.env`). Copy `.env.example` to `.env` for local dev.
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | asyncpg connection string |
-| `COGNITO_USER_POOL_ID` | Cognito pool for JWT validation |
-| `COGNITO_CLIENT_ID` | Cognito app client ID |
-| `AWS_REGION` | AWS region for Bedrock/SQS/S3 |
-| `BEDROCK_MODEL_ID` | Default Bedrock model (e.g. `anthropic.claude-3-sonnet-20240229-v1:0`) |
-| `USE_MOCK_BEDROCK` | Skip Bedrock, return canned response (local dev without AWS creds) |
-| `MOCK_BEDROCK_DELAY_SECONDS` | Artificial delay for mock Bedrock responses |
-| `AUDIO_BUCKET_NAME` | S3 bucket for audio uploads and transcription output |
-| `TRANSCRIBE_SQS_QUEUE_URL` | SQS queue URL consumed by the transcription worker |
-| `MAX_CONCURRENT_JOBS` | Per-user limit on active transcription jobs (default: 3) |
-| `USE_MOCK_TRANSCRIPTION` | Skip all AWS Transcribe/SQS calls; simulate job completion in-process |
-| `MOCK_UPLOAD_BASE_URL` | Base URL for mock presigned URLs (default: `http://localhost:8000`) |
-| `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS` | Delay before mock sample transitions `processing` → `ready` (default: 3) |
-| `MOCK_JOB_TRANSCRIBING_DELAY_SECONDS` | Delay in mock job `transcribing` stage (default: 5) |
-| `MOCK_JOB_MATCHING_DELAY_SECONDS` | Delay in mock job `matching` stage (default: 3) |
-| `USE_MOCK_PHOTOGRAMMETRY` | Skip S3/ECS; jobs walk `queued` → `sfm` → `dense` → `mesh` → `texture` → `complete` on timers and the viewer gets the committed placeholder mesh (`app/assets/photogrammetry/`) |
-| `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` | Seconds spent in each mock stage: `queued` → `sfm` → `dense` → `mesh` → `texture` → `complete` (default: 2.0) |
-| `PHOTOGRAMMETRY_MAX_IMAGES` | Per-scan max image count (default: 150) |
-| `PHOTOGRAMMETRY_SAMPLE_PREFIX` | Shared sample photo set in the audio bucket, uploaded once by hand (`images/0001.jpg` …) |
-| `GPU_PHOTOGRAMMETRY_TASK_FAMILY` | ECS task family of the photogrammetry worker; leave empty until it is deployed (`confirm` → 503) |
-
-**GPU controller:** The transcription worker runs as a run-to-completion ECS task launched on-demand by the API via `app/services/gpu_controller.py` (using ECS `RunTask`). It launches when a transcription job is confirmed, when `/api/v1/gpu/warm` is called, or when a status poll detects an active job with an off worker. The controller enforces daily and monthly GPU-hour caps (from environment) and a per-user warm cap tracked in the `gpu_sessions` table. The GPU-related environment variables (`GPU_CONTROLLER_ENABLED`, `GPU_CLUSTER`, `GPU_WORKER_TASK_FAMILY`, `GPU_CAPACITY_PROVIDER`, the cap/rate settings, and `GPU_COST_TAG_KEY`/`GPU_COST_TAG_VALUE` — the cost-allocation tag Cost Explorer is queried by for the usage panel's actual month-to-date figure) are defined in `.env.example`. The `/api/v1/gpu/*` endpoints return 503 Service Unavailable unless `GPU_CONTROLLER_ENABLED=true` or `USE_MOCK_TRANSCRIPTION=true`. The photogrammetry router builds its own GpuController bound to GPU_PHOTOGRAMMETRY_TASK_FAMILY (same cluster, capacity provider and gpu_sessions ledger); while that setting is empty, confirm returns 503 "photogrammetry worker not deployed". **Admin release:** `POST /api/v1/gpu/release?family=…&mode=graceful|immediate` (Cognito `admin` group only; 403 otherwise, 409 with no live worker) writes `release_mode` / `release_requested_at` / `release_requested_by` on the family's open `gpu_sessions` row and clears `warm_until`; the worker's `ReleaseWatcher` (shared `gpu-worker` package) polls the row every 10 s and exits after its current job (`graceful`) or kills it so the message is redelivered to the next worker (`immediate`; photogrammetry runner only — the transcription job path does not poll the flag yet). Ledger `end_reason = released`. Purpose: reload a bad deploy or free a stuck worker without waiting for idle-exit.
-
-**LangSmith tracing (optional):** set `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_API_KEY`, and `LANGCHAIN_PROJECT` to trace Bedrock invocations via the `@traceable` decorator on `BedrockService.invoke()`.
-
-Note: `.env.example` sets `CORS_ORIGINS=["http://localhost:3000"]` — change to `["http://localhost:5173"]` to match the Vite dev server.
+| Variable | Default | Description |
+|---|---|---|
+| `ENVIRONMENT` | `dev` | `prod` disables `/docs` and the dev-only overrides |
+| `LOG_LEVEL` | `INFO` | |
+| `CORS_ORIGINS` | `["*"]` | JSON list; must include `http://localhost:5173` for local dev and the CloudFront domain in prod |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/chatapi` | asyncpg DSN (prod: Secrets Manager) |
+| `AWS_REGION` / `AWS_ACCOUNT_ID` | `us-east-1` / `""` | |
+| `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_REGION` | `""`, `""`, `us-east-1` | JWT validation |
+| `BEDROCK_MODEL_ID` | `anthropic.claude-3-sonnet-20240229-v1:0` | Default model for new conversations |
+| `USE_MOCK_BEDROCK`, `MOCK_BEDROCK_DELAY_SECONDS` | `false`, `0` | Canned response instead of Bedrock |
+| `AUDIO_BUCKET_NAME` | `""` | S3 bucket for audio, photos, meshes, thumbnails, samples |
+| `TRANSCRIBE_SQS_QUEUE_URL` | `""` | Transcription worker queue |
+| `MAX_CONCURRENT_JOBS` | `3` | Per-user active-job limit (transcription and photogrammetry each) |
+| `USE_MOCK_TRANSCRIPTION` | `false` | `LocalTranscriptionService`; also enables the mock GPU launcher |
+| `MOCK_UPLOAD_BASE_URL` | `http://localhost:8000` | Base of dev-upload sink URLs as the browser sees them |
+| `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`, `MOCK_JOB_TRANSCRIBING_DELAY_SECONDS`, `MOCK_JOB_MATCHING_DELAY_SECONDS` | `3`, `5`, `3` | Mock transcription timings |
+| `MOCK_WORKER_EXTERNAL` | `false` | Leave confirmed jobs in `transcribing` for an external dev worker |
+| `DEV_AUTH_BYPASS`, `DEV_AUTH_USER_SUB` | `false`, `dev-user-001` | Skip Cognito entirely (never active when `ENVIRONMENT=prod`) |
+| `LOCAL_STORAGE_PATH` | `/tmp/mock-audio` | Where the dev-upload sink stores files |
+| `SAMPLE_AUDIO_S3_KEY`, `SAMPLE_BARRY_S3_KEY`, `SAMPLE_JANE_S3_KEY` | `samples/…` | Transcribe "Try the sample" objects |
+| `USE_MOCK_PHOTOGRAMMETRY` | `false` | `LocalPhotogrammetryService` (see below) |
+| `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` | `2.0` | Seconds per mock stage |
+| `PHOTOGRAMMETRY_MAX_IMAGES` | `150` | Per-scan cap (min is 5) |
+| `PHOTOGRAMMETRY_SAMPLE_PREFIX` | `samples/photogrammetry/` | Bundled set: `images/` + sibling `thumbs/` |
+| `GPU_PHOTOGRAMMETRY_TASK_FAMILY`, `PHOTOGRAMMETRY_SQS_QUEUE_URL` | `""` | Empty = worker not deployed → confirm returns 503 |
+| `LANGCHAIN_TRACING_V2`, `LANGCHAIN_PROJECT`, `LANGCHAIN_API_KEY` | `false`, `chat-api`, `""` | LangSmith tracing of `BedrockService.invoke()` |
+| `GPU_CONTROLLER_ENABLED` | `false` | Real ECS launches; otherwise `/gpu/*` is 503 unless a mock flag is set |
+| `GPU_CLUSTER`, `GPU_WORKER_TASK_FAMILY`, `GPU_CAPACITY_PROVIDER` | `""` | ECS cluster, transcription task family, capacity provider (e.g. `gpu-prod`) |
+| `GPU_IDLE_EXIT_SECONDS`, `GPU_MAX_LIFETIME_SECONDS` | `900`, `10800` | Must match the workers' values |
+| `GPU_DAILY_CAP_HOURS`, `GPU_MONTHLY_CAP_HOURS`, `GPU_WARM_PER_USER_PER_DAY` | `3`, `30`, `3` | Caps enforced at launch |
+| `GPU_HOURLY_RATE_USD` | `0.20` | Estimate shown in the usage panel |
+| `GPU_COST_TAG_KEY`, `GPU_COST_TAG_VALUE` | `CostCenter`, `gpu` | Cost Explorer tag for actual month-to-date |
+| `GPU_WAIT_ESTIMATE_STARTING_SECONDS`, `GPU_WAIT_ESTIMATE_OFF_SECONDS` | `420`, `420` | Cold-start fallback until ≥3 measured launches |
+| `GPU_WAIT_ESTIMATE_WARM_SECONDS` | `90` | Warm-start fallback until ≥3 measured |
+| `GPU_SCALE_IN_SECONDS` | `900` | ASG scale-in lag; a launch inside it is quoted as warm |
 
 In production (`ENVIRONMENT=prod`), `/docs` (Swagger UI) is disabled.
 
@@ -162,5 +250,5 @@ In production (`ENVIRONMENT=prod`), `/docs` (Swagger UI) is disabled.
 
 - **`USE_MOCK_BEDROCK=true`** — skips AWS Bedrock entirely, returns a canned response.
 - **`USE_MOCK_TRANSCRIPTION=true`** — uses `LocalTranscriptionService` instead of the real one. Jobs are completed in-process via `asyncio.create_task`: `transcribing` → `matching` → `complete` with configurable delays. Seeded with 4 mock transcript segments. Samples transition to `ready` after `MOCK_SAMPLE_PROCESSING_DELAY_SECONDS`. Also enables the mock GPU launcher for the `/api/v1/gpu/*` endpoints, so the Warm button and GPU state queries work locally without AWS resources.
-- **`/api/v1/transcribe/dev-upload/{path}`** — PUT/GET sink registered at app startup when mock transcription is enabled; acts as a no-op S3 replacement so browser presigned-URL uploads succeed.
-- **`USE_MOCK_PHOTOGRAMMETRY=true`** — uses `LocalPhotogrammetryService`. Confirmed jobs walk `queued → processing (sfm → dense → mesh → texture) → complete` with `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` per step, then the placeholder `app/assets/photogrammetry/{mesh.glb,preview.png}` is copied into the dev-upload sink under the job's `output/` keys; every status response carries `mock: true`. `POST /jobs/sample` copies the committed sample photos into the sink and confirms. `GET /samples` seeds the same photos under `samples/photogrammetry/images/` on first call; it and `GET /jobs/{id}/photos` then run the real listing + thumbnail path (`app/services/thumbnails.py`, 256 px JPEGs cached under a sibling `thumbs/` prefix, generated on first request). The `dev-upload` sink is registered when either mock flag is set and its GET serves stored files (the viewer loads the GLB from it).
+- **`/api/v1/transcribe/dev-upload/{path}`** — PUT/GET sink registered at app startup when either mock flag is set; acts as an S3 replacement so browser presigned-URL uploads succeed and stored files (mesh, preview, thumbnails) are served back.
+- **`USE_MOCK_PHOTOGRAMMETRY=true`** — uses `LocalPhotogrammetryService`. Confirmed jobs walk `queued → processing (sfm → dense → mesh → texture) → complete` with `MOCK_PHOTOGRAMMETRY_STAGE_DELAY_SECONDS` per step, then the placeholder `app/assets/photogrammetry/{mesh.glb,preview.png}` is copied into the dev-upload sink under the job's `output/` keys; every status response carries `mock: true`. `POST /jobs/sample` copies the committed sample photos into the sink and confirms. `GET /samples` seeds the same photos under `samples/photogrammetry/images/` on first call; it and `GET /jobs/{id}/photos` then run the real listing + thumbnail path. The mock walk does **not** write `warnings` or `photo_status`, so photo tiles show no match marks locally. Details: `docs/mock-api.md`.

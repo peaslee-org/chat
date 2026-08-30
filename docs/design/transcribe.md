@@ -1,5 +1,7 @@
 ## Audio Diarization Feature Design
 
+> **Status (2026-08-29).** Early design notes, superseded by `audio_transcription_spec.md` and the pyannote plan. The two-stage design (enrollment embeddings → diarization + matching) is what shipped, with ECAPA-TDNN 192-dim embeddings in pgvector on an **EC2-hosted** PostgreSQL (not RDS). See `transcription-worker/CLAUDE.md`.
+
 ### Two-Stage Pipeline
 
 **Stage 1: Speaker Enrollment (embedding extraction)**

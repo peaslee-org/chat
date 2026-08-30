@@ -9,7 +9,7 @@ actor User
 participant "Browser\nVue SPA\n(chat.example.com)" as Vue #fff2cc
 participant "AWS Cognito\nHosted UI\n+ Token endpoint" as Cognito #f8cecc
 participant "FastAPI\nECS Fargate\n(chat-api)" as API #d5e8d4
-participant "RDS PostgreSQL\nchatapi database" as RDS #f5f5f5
+participant "PostgreSQL\nchatapi database" as RDS #f5f5f5
 
 == ① Initiate Login ==
 

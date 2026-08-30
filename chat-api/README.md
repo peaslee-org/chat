@@ -1,25 +1,26 @@
 # chat-api
 
-FastAPI · AWS Bedrock · Cognito · PostgreSQL · ECS Fargate
+FastAPI · AWS Bedrock · Cognito · PostgreSQL (EC2-hosted, pgvector) · ECS Fargate
 
 ## Quick start (local)
 
 ```bash
 cp .env.example .env          # fill in values
-docker compose up             # starts api + postgres on port 8000
-```
-
-Or without Docker:
-
-```bash
 pip install uv
-uv sync
+uv sync --extra dev
+docker run -d --name chatapi-pg-dev -p 5433:5432 -e POSTGRES_PASSWORD=<pw> -e POSTGRES_DB=chatapi pgvector/pgvector:pg16
+uv run alembic -c app/db/alembic.ini upgrade head
 uv run scripts/run_local.sh   # uvicorn --reload on port 8000
 ```
 
-Set `USE_MOCK_BEDROCK=true` in `.env` to skip AWS Bedrock and return a canned response — useful without AWS credentials.
+The pgvector container on 5433 is the working local database (`docker compose up` still uses
+`postgres:16-alpine`, which lacks pgvector — the speaker-embedding migration fails on it; see
+`docs/TODO.md`). Point `DATABASE_URL` in `.env` at 5433.
 
-Note: `.env.example` sets `CORS_ORIGINS=["http://localhost:3000"]` — change to `["http://localhost:5173"]` to match the Vite dev server.
+For a fully offline setup set `USE_MOCK_BEDROCK=true`, `USE_MOCK_TRANSCRIPTION=true`,
+`USE_MOCK_PHOTOGRAMMETRY=true` and `DEV_AUTH_BYPASS=true` — no AWS credentials or Cognito needed;
+see `docs/mock-api.md`. `CORS_ORIGINS` must include `http://localhost:5173` (the Vite dev server),
+and open the SPA on `localhost`, not `127.0.0.1`.
 
 ## Migrations
 
@@ -34,8 +35,7 @@ uv run alembic -c app/db/alembic.ini upgrade head
 ## Tests
 
 ```bash
-uv run pytest tests/unit -q          # no external deps needed
-uv run pytest tests/ -q              # requires a running test database (chatapi_test)
+uv run pytest -q                     # whole suite, no external deps (tests/integration/ holds only stubs)
 ```
 
 ## Lint / type-check
@@ -95,9 +95,11 @@ The ALB target group polls `GET /api/v1/health` every 30 seconds (healthy after 
 
 **ECS Container Insights** is enabled on all clusters. It provides container-level CPU, memory, network, and task count metrics in CloudWatch under the `ECS/ContainerInsights` namespace — visible in the AWS Console under CloudWatch → Container Insights.
 
-**RDS** metrics (CPU, connections, free storage, IOPS) are available in CloudWatch under the `AWS/RDS` namespace. Automated backups are retained for 7 days. Deletion protection is enabled for prod.
+**PostgreSQL** is EC2-hosted (RDS was decommissioned 2026-03-15) — there are no `AWS/RDS` metrics; watch the instance's `AWS/EC2` metrics and disk from the host.
 
-**No CloudWatch alarms are configured yet** — `infra/modules/monitoring/` is a placeholder. Candidates for first alarms: 5xx error rate, ECS task restarts, RDS free storage, and ALB unhealthy host count.
+**GPU workers** log to `/ecs/transcription-worker-prod` and `/ecs/photogrammetry-prod-worker`; the GPU pool's state (ASG, tasks, queue depth) is one command: `scripts/deploy/gpu-status.sh`.
+
+**No CloudWatch alarms are configured yet** — `infra/modules/monitoring/` is a placeholder. Candidates for first alarms: 5xx error rate, ECS task restarts, ALB unhealthy host count, and the DLQs' message count.
 
 ## Project layout
 
@@ -113,7 +115,12 @@ app/
   schemas/         Pydantic request/response schemas
   core/            logging.py, security.py (Cognito JWKS), exceptions.py
   db/              Session factory + Alembic migrations
-infra/             Terraform (per-environment + modules)
-tests/             Unit and integration tests
-scripts/           entrypoint.sh, run_local.sh
+tests/             Unit tests (integration/ is stubs)
+scripts/           entrypoint.sh (runs migrations, then gunicorn), run_local.sh
 ```
+
+## Deploy
+
+Push to `main` → `.github/workflows/deploy.yml` → `api.yml`: tests, ECR push, new task-definition
+revision, rolling ECS update. Migrations run in the container's entrypoint before gunicorn binds.
+Runbook: `docs/runbooks/deploy.md`. Terraform lives at the repo root under `infra/`.

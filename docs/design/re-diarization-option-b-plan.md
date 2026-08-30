@@ -1,5 +1,7 @@
 # Feature Spec: Sliding-Window Re-Diarization (Option B)
 
+> **Status (2026-08-29).** Not implemented. Both options were overtaken by moving diarization off AWS Transcribe entirely (`pyannote-diarization-plan.md`, ADR 002); Transcribe now only provides word timestamps, so sliding-window re-diarization of its output is moot. Kept for the analysis.
+
 ## Background
 
 Option A (MaxSpeakerLabels fix) ensures AWS Transcribe is allowed to find the right number of speakers. Option B addresses the other failure mode: Transcribe sometimes assigns a long multi-speaker stretch to a single label, even when the speaker count is correct. This results in segments like:

@@ -71,7 +71,7 @@ package "AWS Cloud" as aws {
   }
 
   package "AI / Data" #FEF9C3 {
-    database "RDS / PostgreSQL\n+ pgvector" as rds
+    database "PostgreSQL 16 (self-hosted EC2)\n+ pgvector" as rds
     rectangle "AWS Bedrock\n(claude-3-sonnet)" as bedrock
     rectangle "AWS Transcribe\n(word-level timestamps)" as transcribe
     rectangle "SQS\njob queue + DLQ\n(maxReceiveCount=3)" as sqs

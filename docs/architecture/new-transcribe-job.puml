@@ -29,7 +29,7 @@ title New Transcription Job — Sequence Diagram\n(user already authenticated)
 actor "User" as user
 participant "Vue SPA\n(NewJobForm\n+ transcribe store)" as spa
 participant "chat-api\n(FastAPI)" as api
-participant "PostgreSQL\n(RDS)" as db
+participant "PostgreSQL\n(self-hosted EC2)" as db
 participant "S3" as s3
 participant "AWS Transcribe" as transcribe
 participant "SQS" as sqs

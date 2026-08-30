@@ -39,9 +39,15 @@ Browser (chat-vue SPA on S3 + CloudFront)
                   → PostgreSQL (TranscriptSegment / SpeakerProfile writes)
                   → S3 (transcript.txt output, speaker embeddings)
                   → worker exits (idle timeout, max lifetime, or spot notice); ASG scales back to 0
-      → S3 (photo sets under photogrammetry/<user>/<job>/input/) → RunTask photogrammetry worker
-                  (not yet built — confirm returns 503 until GPU_PHOTOGRAMMETRY_TASK_FAMILY is set;
-                  local dev uses the in-process mock, see docs/mock-api.md)
+      → S3 (photo sets under photogrammetry/<user>/<job>/input/, uploaded by the browser with
+                  presigned PUTs) → SQS → RunTask launches photogrammetry-worker (same GPU pool)
+                  → COLMAP SfM (+ photo_status: which photos registered) → dense cloud
+                  → OpenMVS reconstruct → refine only ≤ 400 k faces → texture, decimated to 500 k
+                  → GLB per material + preview → S3 output/; warnings + photo_status on the job row
+                  → stages checkpointed on a host-path scratch volume so a restart resumes
+      → thumbnails for any job's photos are made by the API on first request into …/thumbs/
+      → worker exits (idle timeout, max lifetime, or spot notice); ASG scales back to 0.
+        Local dev uses the in-process mock (USE_MOCK_PHOTOGRAMMETRY), see docs/mock-api.md
 ```
 
 **Auth:**
@@ -59,7 +65,7 @@ Browser (chat-vue SPA on S3 + CloudFront)
 
 - **CORS:** `CORS_ORIGINS` in chat-api must include the CloudFront domain in production and `http://localhost:5173` for local dev
 - **Cognito App Client:** must allowlist both the production callback URL and `http://localhost:5173/callback` for local dev
-- **Infrastructure:** Terraform under `infra/` manages ECR, ECS, EC2-hosted PostgreSQL, S3, CloudFront, Cognito, and SQS — all resources use the AWS default VPC (tagged `peaslee-org`). RDS was decommissioned 2026-03-15; the database DSN is a Secrets Manager secret injected by ECS (`database_url_secret_arn`); no credential passes through Terraform or its state. Each environment needs two gitignored files beside its `.tf`: `backend.hcl` (state bucket) and `terraform.tfvars` (account-specific names/ARNs) — copy the `.example` files.
+- **Infrastructure:** Terraform under `infra/` (two environments: `prod` — API, frontend, Cognito, the `gpu-prod` ASG/capacity provider; `transcription-prod` — both worker task-defs, queues, audio bucket) manages ECR, ECS, S3, CloudFront, Cognito, SQS and the GPU pool — all in the AWS default VPC (tagged `peaslee-org`). PostgreSQL is self-hosted on an EC2 instance outside Terraform. RDS was decommissioned 2026-03-15; the database DSN is a Secrets Manager secret injected by ECS (`database_url_secret_arn`); no credential passes through Terraform or its state. Each environment needs two gitignored files beside its `.tf`: `backend.hcl` (state bucket) and `terraform.tfvars` (account-specific names/ARNs) — copy the `.example` files.
 - **CI/CD:** `.github/workflows/deploy.yml` runs on push to `main`, detects changed surfaces and deploys them in dependency order (chat-api first — it migrates — then chat-vue and the workers) by calling the reusable per-surface workflows `api.yml`, `vue.yml`, `worker.yml`, `photogrammetry-worker.yml`. `tf-validate.yml` checks Terraform on PRs; apply is manual. See `docs/runbooks/deploy.md`.
 - **Observability:** LangSmith tracing is optional; set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` in `chat-api` to trace Bedrock calls via the `@traceable` decorator on `BedrockService.invoke()`
 - **Transcription worker CI/CD:** Push to `main` (changes under `transcription-worker/` or `gpu-worker/`) runs `worker.yml` via `deploy.yml`; GitHub Actions OIDC → IAM role `transcription-prod-worker-github-actions`; the workflow only registers a new ECS task-definition revision — there's no service to roll, since the API launches the worker per job with `RunTask`. The image is also baked into the ECS GPU AMI (`scripts/deploy/build-gpu-ami.sh`); rebuild the AMI only when the base image or model layers change.

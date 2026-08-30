@@ -1,5 +1,10 @@
 ### `chat-vue`
 
+> **Status (2026-08-29).** Summary of the original Transcribe UI design; built as described. See the
+> status block in `chat-vue-spec.md` for what changed since, and `chat-vue/CLAUDE.md` for the current
+> component map.
+
+
 Implements the frontend for the transcription feature at a new `/transcribe` route.
 
 #### New Modules

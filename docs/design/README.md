@@ -1,4 +1,40 @@
-# Audio Transcription & Speaker Diarization
+# Design documents
+
+Index of the design material in this directory and in `docs/superpowers/`. Newest first.
+
+## Photogrammetry (Scan)
+
+| Doc | What |
+|---|---|
+| [photogrammetry-worker-spec.md](photogrammetry-worker-spec.md) | The GPU worker: COLMAP → OpenMVS → textured GLB, run-to-completion on the shared pool |
+| [photogrammetry-ui-spec.md](photogrammetry-ui-spec.md) | The Scan page: upload, job cards, stage strip, 3D viewer |
+| [../superpowers/specs/2026-08-28-photogrammetry-robustness-design.md](../superpowers/specs/2026-08-28-photogrammetry-robustness-design.md) | Resumable stages, no-cycling rule, mesh budget, photo warnings — deployed 2026-08-29 |
+| `../superpowers/plans/2026-08-2{6,7,8}-photogrammetry-*.md` | Step-by-step implementation plans behind the three batches (executed; kept for the record) |
+
+## Transcription
+
+| Doc | What |
+|---|---|
+| [audio_transcription_spec.md](audio_transcription_spec.md) | Feature spec: enrolment, jobs, data model, infrastructure |
+| [pyannote-diarization-plan.md](pyannote-diarization-plan.md) | Why pyannote on a GPU worker rather than Transcribe's diarization (ADR 002) |
+| [re-diarization-option-b-plan.md](re-diarization-option-b-plan.md) | Re-running diarization on an existing job |
+| [transcribe.md](transcribe.md) | Early notes on the Transcribe integration (partly superseded by the spec) |
+
+## Application
+
+| Doc | What |
+|---|---|
+| [chat-api-spec.md](chat-api-spec.md) / [chat-api-summary.md](chat-api-summary.md) | Backend API spec and summary |
+| [chat-vue-spec.md](chat-vue-spec.md) / [chat-vue-summary.md](chat-vue-summary.md) | Frontend spec and summary |
+| [workspace-structure-recommendations.md](workspace-structure-recommendations.md) | Monorepo layout review (done) and open questions |
+| [chatgpt-ml-build-suggestions.md](chatgpt-ml-build-suggestions.md) | Third-party notes on ML dev/deploy loops, kept for reference |
+
+Decisions live in [`../adr/`](../adr/); operational reference in [`../aws/`](../aws/) and
+[`../runbooks/`](../runbooks/); the user-facing guide is [`../user-guide.md`](../user-guide.md).
+
+---
+
+# Audio Transcription & Speaker Diarization (feature overview)
 
 Transcribe audio files with named speaker labels. Upload a recording and a short voice sample per speaker — the service identifies who said what.
 

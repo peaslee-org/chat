@@ -1,5 +1,7 @@
 # Plan: Replace AWS Transcribe Diarization with pyannote-audio
 
+> **Status (2026-08-29).** Implemented: pyannote `speaker-diarization-community-1` on the GPU worker, word alignment from Transcribe timestamps, ECAPA-TDNN matching (ADR 001/002). Divergences from this plan: the worker is a **run-to-completion ECS EC2 task** (`g4dn.xlarge` class, spot/on-demand mix, scale 0–2) launched per job by the API — not a standing service; the model layers are baked into the image and the GPU AMI; the HuggingFace token comes from Secrets Manager. Account ids in this document are placeholders. Current reference: `transcription-worker/CLAUDE.md`, `gpu-worker/CLAUDE.md`, `docs/adr/004-run-to-completion-gpu-task.md`.
+
 ## Problem
 
 AWS Transcribe's built-in speaker diarization frequently produces incorrect speaker boundaries — large multi-speaker stretches are assigned to a single label, short back-and-forth turns are collapsed, and the cap on `MaxSpeakerLabels` can silently drop speakers entirely. Our word-level parser in `transcribe_poller.py` is correct; the bad data originates from Transcribe.

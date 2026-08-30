@@ -54,6 +54,8 @@ Lifecycle (loop, spot watcher, ledger, SQS shell) lives in `../gpu-worker` — r
 | `HUGGINGFACE_TOKEN` | `""` | yes (for pyannote model) |
 | `PYANNOTE_MODEL` | `pyannote/speaker-diarization-community-1` | no |
 | `DEV_CAPTURE_FIXTURES_S3_PREFIX` | `""` | no — set to e.g. `dev-fixtures` to capture pipeline output to S3 |
+| `IDLE_EXIT_SECONDS` | `900` | no — exit after this long without work (must match the API's `GPU_IDLE_EXIT_SECONDS`) |
+| `MAX_LIFETIME_SECONDS` | `10800` | no — hard cap on a worker's life (must match `GPU_MAX_LIFETIME_SECONDS`) |
 
 `DATABASE_URL` may use either `postgresql+asyncpg://` or `postgresql+psycopg2://` scheme — `db.py` normalises it to psycopg2 automatically.
 
@@ -115,7 +117,7 @@ main.py  (dispatches to HANDLERS; SQS poll loop, visibility extender, SpotWatche
 
 On any exception: job status → `failed`, `error_message` populated, SQS message left for retry.
 
-**Lifecycle.** The worker is a run-to-completion task: it exits after `IDLE_EXIT_SECONDS` (900) without work — extended by `gpu_sessions.warm_until` — or after `MAX_LIFETIME_SECONDS` (10800), or on a spot-interruption notice (between messages, never mid-job). It records instance id, heartbeat and end reason in `gpu_sessions` (row created by chat-api's RunTask); the ledger is best-effort. Local: `DEV_WORKER_IDLE_EXIT_SECONDS`.
+**Lifecycle** (shared `../gpu-worker` package, `gpu_worker.loop` / `sqs` / `session`). The worker is a run-to-completion task: it exits after `IDLE_EXIT_SECONDS` (900) without work — extended by `gpu_sessions.warm_until` — or after `MAX_LIFETIME_SECONDS` (10800), on a spot-interruption notice (`SpotWatcher`, between messages, never mid-job), or when an admin release is requested (`ReleaseWatcher` polls the row every 10 s: `graceful` exits after the current job; `immediate` is honoured only by the photogrammetry runner — this job path does not poll the abort flag yet, see `docs/TODO.md`). The ledger row (`gpu_sessions`, created by chat-api's `RunTask`) is best-effort: `claim()` on the first message stamps `started_processing_at`, `instance_id` and `instance_booted_at` (host uptime — lets the API tell cold from warm starts and measure startup time), `heartbeat()` sets `last_seen_at`, `close()` sets `ended_at` / `end_reason` (`idle | max_lifetime | spot_interruption | released`). `gpu_worker.sqs` also exposes the message's `ApproximateReceiveCount` to handlers. Local: `DEV_WORKER_IDLE_EXIT_SECONDS`.
 
 ## Data Models
 
@@ -128,11 +130,11 @@ Models are duplicated from `chat-api` intentionally — this worker is deployed 
 
 ## Deployment
 
-- **CI/CD:** Push to `main` (any change under `transcription-worker/`) triggers root `.github/workflows/worker.yml` — it only registers a new ECS task-definition revision; there is no service to roll, since the API launches the worker per job with `RunTask`
+- **CI/CD:** Push to `main` (any change under `transcription-worker/` or `gpu-worker/`) runs root `.github/workflows/worker.yml` via `deploy.yml` (after the API deploy, so schema changes land first) — it builds/pushes the image and registers a new ECS task-definition revision; there is no service to roll, since the API launches the worker per job with `RunTask`. The next launch uses the new revision, but cold starts pull the image (~5 min) until the GPU AMI is re-baked (`scripts/deploy/build-gpu-ami.sh`, see `docs/runbooks/deploy.md`)
 - **Auth:** GitHub Actions OIDC → IAM role `transcription-prod-worker-github-actions`
 - **Registry:** ECR repo `transcription-worker-prod` (account `123456789012`, region `us-east-1`); keeps 2 images
-- **Runtime:** ECS, EC2 launch type (GPU=1, bridge networking), cluster `chat-api-prod`, on the shared `gpu-<env>` spot capacity provider (`g4dn.xlarge`, min 0 max 2) — not a standing service. Root volume 80 GB. The worker image is also baked into the GPU AMI (`scripts/deploy/build-gpu-ami.sh`) so a cold start after idle doesn't also pull a multi-GB image; rebuild only when the base image or model layers change.
-- **Base image:** `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04` (Python 3.12); requires `>=3.12`
+- **Runtime:** ECS, EC2 launch type (GPU=1, bridge networking), cluster `chat-api-prod`, on the shared `gpu-<env>` spot capacity provider (`g4dn.xlarge`, min 0 max 2) — not a standing service. Root volume 80 GB; instance types `g4dn.xlarge`/`g4dn.2xlarge`/`g5.xlarge`/`g6.xlarge`, on-demand share configurable. The worker image is also baked into the GPU AMI (`scripts/deploy/build-gpu-ami.sh`) so a cold start after idle doesn't also pull a multi-GB image; rebuild only when the base image or model layers change.
+- **Base image:** `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04` (Python 3.12); requires `>=3.12`. `speechbrain==1.1.1` is pinned (a newer release broke the snapshot load on 2026-08-28); the other Python deps in the Dockerfile are still unpinned — `docs/TODO.md`
 - **Model pre-download:** Both SpeechBrain (ECAPA-TDNN) and pyannote (`pyannote/speaker-diarization-community-1`) are downloaded into the Docker image at build time via `HUGGINGFACE_TOKEN` build arg — no model download at runtime
 - **HuggingFace token:** passed as a GitHub Actions secret (`HF_TOKEN`) → Docker `--build-arg`; in ECS the token is injected via Secrets Manager (`huggingface_token_secret_arn`)
 

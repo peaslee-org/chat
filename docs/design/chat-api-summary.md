@@ -1,5 +1,7 @@
 ### `chat-api`
 
+> **Status (2026-08-29).** Historical summary. Current state: `chat-api/CLAUDE.md`. Divergences: EC2-hosted PostgreSQL (not RDS); the transcription worker is a run-to-completion ECS EC2 task launched per job (not a service); GitHub Actions deploys.
+
 Implements the backend for audio transcription and speaker diarization.
 
 #### Database

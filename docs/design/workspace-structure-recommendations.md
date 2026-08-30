@@ -1,6 +1,6 @@
 # Workspace Structure Recommendations
 
-*Updated 2026-03-12. Applies to `/var/www/chat` monorepo.*
+*Updated 2026-03-12; status refreshed 2026-08-29. Applies to the `chat` monorepo.*
 
 ---
 
@@ -45,24 +45,32 @@ scripts/
 │   ├── setup.sh          — first-time setup: install deps, copy .env files
 │   ├── seed-db.sh         — seed local Postgres with test conversations and speakers
 │   └── gpu-dev.sh         — start/stop/ssh to the EC2 g4dn.xlarge GPU dev box
+├── dev/
+│   └── make-photogrammetry-sample.py — build the bundled sample photo set
 ├── deploy/
-│   ├── migrate.sh         — run Alembic upgrade head via ECS exec (prod)
+│   ├── migrate.sh         — manual Alembic re-run; migrations normally run in the API
+│   │                         container entrypoint at every deploy (script needs the venv
+│   │                         python, see docs/TODO.md)
 │   ├── build-api.sh       — build + push chat-api Docker image to ECR
 │   ├── build-worker.sh    — build + push transcription-worker image to ECR
-│   ├── build-gpu-ami.sh   — bake the worker image into the ECS GPU AMI (rebuild only when
-│   │                         base/model layers change; see ADR 004)
-│   └── gpu-status.sh      — show worker_state (off/starting/running) for the GPU capacity provider
+│   ├── build-gpu-ami.sh   — bake both worker images into the ECS GPU AMI (rebuild when
+│   │                         base/model layers change; see ADR 004 and the deploy runbook)
+│   └── gpu-status.sh      — ASG, worker tasks, queue depth on one screen
 └── ci/
     └── validate-tf.sh     — terraform fmt check + validate across all environments
 ```
 
 ---
 
-## Open Questions / Future Work
+## Open Questions / Future Work (status 2026-08-29)
 
-These items are not immediate concerns but are worth revisiting as the project scales:
-
-- **No CloudWatch alarms yet** — `infra/modules/monitoring/` is a placeholder. First candidates: 5xx error rate on the ALB, ECS task restart count, RDS free storage below threshold, DLQ depth.
-- **No staging deployment pipeline** — `infra/environments/staging/` exists in Terraform but there are no GitHub Actions workflows targeting staging. Useful before adding the admin/profile features.
-- **Integration tests are stubs** — `chat-api/tests/integration/` exists but contains no tests. Worth adding at least a happy-path test for the transcription job flow once a test environment is stable.
-- **Admin/profile backend** — endpoints scaffolded but not yet fully implemented. Check `chat-api/app/api/v1/admin/` and `chat-api/app/api/v1/profile/` for current coverage.
+- **CloudWatch alarms** — `infra/modules/monitoring/` is still empty, but the feature modules
+  carry their own: DLQ depth (both queues), a GPU instance running > 4 h, and a monthly GPU
+  budget. Still missing: ALB 5xx rate and ECS task restart count.
+- **No staging environment** — `dev`/`staging` Terraform environments were removed; only
+  `prod` and `transcription-prod` exist. Local dev runs fully mocked instead (`docs/mock-api.md`).
+- **Integration tests are stubs** — `chat-api/tests/integration/` is still empty; unit suites
+  are substantial (chat-api 259, photogrammetry-worker 106, gpu-worker 43, chat-vue 47 as of
+  2026-08-29).
+- **Admin/profile backend** — check `chat-api/app/api/v1/admin/` and `profile/` for coverage.
+- **Backlog** — `docs/TODO.md`, grouped by deploy surface.

@@ -1,5 +1,7 @@
 # Photogrammetry worker — design spec
 
+> **Status (2026-08-29).** Live. Implemented since this spec: robustness batch (`docs/superpowers/specs/2026-08-28-photogrammetry-robustness-design.md`) — per-stage checkpoints on a host-path scratch volume with resume, no-cycling rule (a crashed stage or the 5th receive fails the row), mesh budget (refine only ≤ 100 images and ≤ 400 k faces; decimate to 500 k before texturing, with a user-visible warning), EXIF orientation normalisation and skipped-photo warnings, y-up GLB export per material, seam leveling disabled, per-photo `photo_status` after SfM (which photos matched, shown in the scan's Photos pane), thumbnails made by the API. Still open (`docs/TODO.md`): OpenMVS seam-leveling root cause, gravity alignment, headless mesh-render preview (decision 4 here), mixed cameras via per-folder single-camera, GLB size (uncropped atlases). Current reference: `photogrammetry-worker/CLAUDE.md`.
+
 **Date:** 2026-08-27 · **Status:** live in prod 2026-08-28 (go-live runbook executed; acceptance §5 all passed; two pipeline fixes found by the CPU smoke and one by acceptance — see the cm/aws runbook)
 docs/superpowers/plans/2026-08-27-photogrammetry-worker.md); cutover per §4 pending · **Implements:**
 the contract in `photogrammetry-ui-spec.md` §1 and the constraints in its §7

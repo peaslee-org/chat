@@ -218,7 +218,9 @@ When no fixtures are present, `dev_worker.py` generates data from these env vars
   /jobs/{id}/photos` lists a job's uploaded photos the same way.
 - **Sample** in the sidebar (`POST /jobs/sample`) copies the bundled photo set into the sink and runs
   the same walk, so the page works with nothing uploaded.
-- Every status response carries `mock: true`; the viewer labels the mesh as a placeholder.
+- Every status response carries `mock: true`; the viewer labels the mesh as a placeholder. The mock
+  walk writes neither `warnings` nor `photo_status`, so the Photos pane shows no "matched" marks and
+  no warning banner locally — those come from the real worker's SfM pass.
 - `<model-viewer>` and the preview `<img>` fetch from `MOCK_UPLOAD_BASE_URL` (default
   `http://localhost:8000`) cross-origin from the Vite dev server, so `CORS_ORIGINS` in
   `chat-api/.env` must include `http://localhost:5173` — or set

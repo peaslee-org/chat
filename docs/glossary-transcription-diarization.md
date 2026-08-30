@@ -212,3 +212,22 @@ Speaker profile and sample details returned by the speaker management endpoints,
 | Embedding dimension | 192 | Actual output of checkpoint `3c54e95` (see `speaker_samples.embedding`) |
 | Cosine distance threshold | 0.25 | ~EER operating point; biased toward avoiding false speaker assignments |
 | Alignment algorithm | Bisect midpoint → nearest gap fallback | Deterministic; handles silences without dropping words |
+
+## Photogrammetry (Scan)
+
+| Term | Meaning |
+|---|---|
+| **SfM / sparse model** | Structure-from-Motion: COLMAP extracts SIFT features, matches photos exhaustively and solves camera poses + a sparse point cloud (`colmap mapper`). The model with the most registered images wins. |
+| **Registered image** | A photo whose camera pose the mapper could solve. The job fails when fewer than 60 % of usable photos register ("Only N of M photos could be matched"). The worker records each photo as `registered` / `unregistered` / `skipped:<reason>` in `photo_status`; the scan page marks the tiles. |
+| **Dense cloud** | OpenMVS `DensifyPointCloud` (resolution level 2 for the 16 GB T4) after `colmap image_undistorter`. |
+| **Reconstruct / Delaunay** | `ReconstructMesh`: Delaunay tetrahedralisation + graph cut → the first mesh (≈680 k faces on a 51-photo set). |
+| **Refine** | `RefineMesh`: photo-consistent subdivision — roughly doubles faces at a ~16 GB virtual peak. Run only when ≤ 100 images **and** ≤ 400 k faces. |
+| **Decimate / face budget** | `TextureMesh --decimate r` simplifies to about 500 k faces (`FACE_BUDGET`) before texturing; the job carries the warning "Mesh simplified from N to about 500,000 faces to fit the viewer". |
+| **Texture atlas** | The 8192² image(s) TextureMesh packs per-face patches into; seam leveling is disabled in our build (it blackened faces). Exported per material without re-packing — hence large GLBs (`docs/TODO.md`). |
+| **GLB** | Binary glTF loaded by `<model-viewer>`; rotated into glTF's y-up frame from COLMAP's. `mesh.glb` + `preview.png` under `output/`. |
+| **Checkpoint / resume** | `<stage>.done` markers in the job's scratch dir (host-path volume `/var/lib/photogrammetry` → `/tmp/pg`); a redelivered job resumes at the first incomplete stage; a stage that crashed mid-run fails the job instead of cycling. Attempt 5 (the queue's `maxReceiveCount`) fails the row. |
+| **Thumbnail** | 256 px JPEG made by the API on first request and cached beside the inputs (`…/thumbs/`), so the Photos pane never loads originals until one is clicked. |
+| **Cold start** | The GPU pool was at zero: RunTask → capacity provider → EC2 launch → boot → image pull → container → worker's first claim. 6–7 min measured; the estimate is the median of recent cold starts. |
+| **Warm start** | A worker exited (idle) but its instance is still up — ECS scales in ~15 min later — so a new task only needs the container start (~1 min). Quoted when the last session ended within `GPU_SCALE_IN_SECONDS`. |
+| **Startup stages** | Per launch in the usage panel: **capacity** (RunTask → instance boot), **boot** (→ image pull starts), **pull**, **container** (→ task running), **init** (→ first job claimed). Cold/warm is decided by whether the instance booted after the launch. |
+

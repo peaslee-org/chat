@@ -1,5 +1,20 @@
 # Photogrammetry UI — design spec
 
+> **Status (2026-08-29).** Implemented 2026-08-26 and extended since. Shipped after this spec:
+> Download GLB / preview buttons (2026-08-28); job `warnings` on the scan page, ⚠ on the card and as
+> toasts; **Sample** opens New Scan preloaded with the bundled set (read-only thumbnails, server-side
+> submit); a **3D | Photos** toggle with a dense thumbnail grid (API-made, cached thumbnails), per-tile
+> loading state, full-size overlay with ‹ › / arrow keys; a "Loading mesh… NN%" pill on the viewer;
+> toasts top-right of the body pane; **✕ / Esc** to close a scan; the Photos view marks which shots
+> **matched** (`28 photos · 6 matched`) after SfM; the GPU bar quotes measured cold/warm startup
+> estimates with an elapsed clock and a collapsed Startups table in the Usage panel (all 2026-08-29).
+> Still open (docs/TODO.md, Vue section): no polling cutoff for a job stuck in `pending`; sibling
+> uploads not cancelled when one fails; dropzone keyboard focus / dragover flicker; delete ✕ not
+> keyboard-operable; `npm run type-check` checks nothing. The mock section below still describes the
+> local mock accurately except that it now also seeds the sample photos and runs the real thumbnail
+> path (see docs/mock-api.md).
+
+
 **Date:** 2026-08-26 · **Status:** implemented 2026-08-26 (plan docs/superpowers/plans/2026-08-26-photogrammetry-ui.md); worker spec: `photogrammetry-worker-spec.md` (2026-08-27)
 
 ## Goal
