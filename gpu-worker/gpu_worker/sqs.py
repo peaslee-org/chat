@@ -24,7 +24,8 @@ Handler = Callable[[dict, dict], None]
 
 
 class Interrupted(Exception):
-    """Raised by a handler that stopped because a spot interruption notice arrived."""
+    """Raised by a handler that stopped early — a spot interruption notice, or an admin *immediate*
+    release (`ReleaseWatcher.abort`). The message is left for redelivery, not acked."""
 
 
 def receive_count(message: dict) -> int:

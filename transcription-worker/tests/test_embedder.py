@@ -4,33 +4,12 @@ _l2_normalize tests run anywhere (only stdlib math needed).
 encode_tensor tests require torch and are skipped when it is absent —
 they run inside the Docker worker image where torch/torchaudio are installed.
 """
-import importlib.util
 import math
-import os
-import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-# Pre-compute which root packages are missing before any stubbing touches sys.modules.
-# encode_tensor tests need both torch and torchaudio.
-_HAS_TORCH = importlib.util.find_spec("torch") is not None
-_HAS_FULL_STACK = _HAS_TORCH and importlib.util.find_spec("torchaudio") is not None
-
-# Stub missing ML deps so services/embedder.py can be imported on the host.
-# _l2_normalize only uses `math`, so it works fine through the stubs.
-_MISSING_ROOTS = {
-    pkg for pkg in ["torch", "torchaudio", "speechbrain", "config"]
-    if importlib.util.find_spec(pkg) is None
-}
-for _stub in [
-    "torch", "torchaudio", "torchaudio.transforms",
-    "speechbrain", "speechbrain.pretrained", "config",
-]:
-    if _stub.split(".")[0] in _MISSING_ROOTS:
-        sys.modules.setdefault(_stub, MagicMock())
+from tests.conftest import HAS_FULL_STACK as _HAS_FULL_STACK, HAS_TORCH as _HAS_TORCH   # stubs live there
 
 if _HAS_TORCH:
     import torch

@@ -6,7 +6,8 @@ and never finished means the previous attempt died inside it (OOM, kill) — the
 rather than running the same stage into the same wall (spec §2). Failure mapping otherwise as
 before: StageError/JobTimeout/any Exception → row `failed`, return normally (the SQS shell acks).
 Interrupted → row back to `queued`, re-raise (not acked; the SpotWatcher already released the
-message). Transient S3 → row left `processing`, re-raise (redelivery re-runs fetch).
+message). Transient S3 (TRANSIENT_S3_CODES, connection errors) → row left `processing`, re-raise
+(redelivery re-runs fetch); permanent S3 (AccessDenied, NoSuchKey) → row `failed` like any other error.
 """
 import logging
 import math
@@ -24,7 +25,7 @@ from gpu_worker.sqs import Interrupted
 from models import PhotogrammetryJob
 from pipeline.checkpoints import Checkpoints
 from pipeline.colmap import SparseModel
-from pipeline.export import make_preview, obj_to_glb
+from pipeline.export import DEFAULT_MAX_TEXTURE_SIZE, make_preview, obj_to_glb
 from pipeline.photos import normalise
 from pipeline.runner import StageError
 
@@ -39,6 +40,13 @@ MAX_ATTEMPTS = 5              # SQS receives; equals the queue's maxReceiveCount
 MIN_IMAGES = 5
 ERROR_MAX_CHARS = 1000
 _STAGE_NAMES = {"publish": "export"}
+# S3 error codes worth a redelivery. Anything else a ClientError carries (AccessDenied, NoSuchKey,
+# NoSuchBucket, InvalidObjectState, …) is permanent: retrying it only spins the message to the DLQ
+# and leaves the row `processing` forever.
+TRANSIENT_S3_CODES = frozenset({
+    "SlowDown", "Throttling", "ThrottlingException", "RequestLimitExceeded",
+    "RequestTimeout", "RequestTimeTooSkewed", "InternalError", "ServiceUnavailable", "503",
+})
 
 
 @dataclass
@@ -50,6 +58,7 @@ class Deps:
     use_gpu: bool
     job_timeout_seconds: int
     clock: Callable[[], float] = field(default=time.monotonic)
+    max_texture_size: int = DEFAULT_MAX_TEXTURE_SIZE
 
 
 def _update(deps: Deps, job_id: uuid.UUID, **values) -> None:
@@ -198,7 +207,7 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
 
         # ── publish (export + upload + complete) ──────────────────────────
         ck.started("publish")
-        glb = obj_to_glb(obj, work / "mesh.glb")
+        glb = obj_to_glb(obj, work / "mesh.glb", max_texture_size=deps.max_texture_size)
         first_image = sorted(images.iterdir())[0]
         preview = make_preview(first_image, work / "preview.png")
         mesh_key, preview_key = output_prefix + "mesh.glb", output_prefix + "preview.png"
@@ -213,14 +222,27 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
         ck.clear_started()                       # stopped, not crashed: the next worker resumes
         _update(deps, job_id, status="queued", stage=None)
         raise
-    except (ClientError, BotoCoreError):
-        # Transient S3 (e.g. SlowDown) — leave the row `processing` and re-raise so the SQS
-        # shell doesn't ack; redelivery re-runs fetch and resumes from the markers.
+    except (ClientError, BotoCoreError) as e:
+        if not _is_transient_s3(e):
+            _fail(deps, job_id, work, e)
+            return
+        # Transient S3 (SlowDown, a dropped connection) — leave the row `processing` and re-raise
+        # so the SQS shell doesn't ack; redelivery re-runs fetch and resumes from the markers.
         logger.warning("Job %s hit a transient S3 error — leaving for redelivery", job_id, exc_info=True)
         ck.clear_started()
         raise
     except Exception as e:   # StageError, JobTimeout, anything else deterministic
-        message = str(e)[:ERROR_MAX_CHARS] or e.__class__.__name__
-        logger.error("Job %s failed: %s", job_id, message, exc_info=not isinstance(e, StageError))
-        _update(deps, job_id, status="failed", stage=None, error_message=message)
-        shutil.rmtree(work, ignore_errors=True)
+        _fail(deps, job_id, work, e)
+
+
+def _is_transient_s3(e: Exception) -> bool:
+    if isinstance(e, ClientError):
+        return e.response.get("Error", {}).get("Code") in TRANSIENT_S3_CODES
+    return True     # BotoCoreError: no response at all (connection reset, endpoint unreachable)
+
+
+def _fail(deps: Deps, job_id: uuid.UUID, work: Path, e: Exception) -> None:
+    message = str(e)[:ERROR_MAX_CHARS] or e.__class__.__name__
+    logger.error("Job %s failed: %s", job_id, message, exc_info=not isinstance(e, StageError))
+    _update(deps, job_id, status="failed", stage=None, error_message=message)
+    shutil.rmtree(work, ignore_errors=True)

@@ -8,16 +8,9 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
-- [ ] **Exported GLB is too large** — the 51-photo set produced a **45 MB** `mesh.glb` (500 k faces
-  + two 8192² atlases embedded uncropped since `cfd539c` stopped re-packing; the sample went
-  889 KB → 3.3 MB for the same reason). Crop each atlas to its used patches (or `--max-texture-size`
-  in TextureMesh), and consider Draco / quantised attributes. Viewer loads it, but slowly.
-- [ ] **Transcription job path should honour `ReleaseWatcher.abort`** — graceful release works for
-  both workers; *immediate* only aborts the photogrammetry runner.
-- [ ] **Photogrammetry download block retries every S3 error** (`except (ClientError, BotoCoreError):
-  raise`) — a permanent one (`AccessDenied`, `NoSuchKey`) spins to the DLQ and leaves the row
-  `processing`. Allowlist transient codes (`SlowDown`, `Throttling*`, `RequestTimeout`) for re-raise;
-  fail the row for the rest. Also declare `botocore` in `photogrammetry-worker/pyproject.toml`.
+- [ ] **Immediate release leaves the message invisible for up to `SQS_VISIBILITY_TIMEOUT` (600 s).**
+  Only `SpotWatcher` calls `change_message_visibility(0)`; the shell's `except Interrupted` should
+  do the same when `ReleaseWatcher.abort` is set so the next worker gets the job at once.
 - [ ] **GPU idle-release countdown that survives polling.** Today `warm_until` is only in the
   *Warm* response; the 30 s `/gpu/state` poll returns `null`, so the bar's `idle-out in mm:ss`
   vanishes, and a job-launched worker never has one. Real release time is
@@ -116,7 +109,14 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 - [ ] `chat-api/.env` pins `GPU_WAIT_ESTIMATE_*` to the old 120/180 s; drop them so local dev uses
   the code defaults (420 / 90).
 
-## Recently done (2026-08-28 → 29)
+## Recently done (2026-08-28 → 30)
+
+- 2026-08-30 worker batch (one AMI re-bake): GLB atlases cropped to their used UV box, capped at
+  `TEXTURE_MAX_SIZE` (4096) and embedded as JPEG q85 — measure the 51-photo set after deploy
+  (was 45 MB); Draco / quantised attributes still open if it's not enough. Photogrammetry fails
+  the row on permanent S3 errors (`TRANSIENT_S3_CODES` allowlist) and declares `botocore`.
+  Transcription honours `ReleaseWatcher.abort` (Transcribe wait + per-turn) → row `transcribing`,
+  message redelivered.
 
 - Photogrammetry robustness batch (resumable stages, no-cycling backstop at receive 5, mesh budget,
   photo orientation) — deployed and smoked on the 51-photo set: one attempt, 14 min, no refine above

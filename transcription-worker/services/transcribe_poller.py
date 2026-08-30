@@ -1,8 +1,11 @@
 import json
-import time
 import logging
+import threading
+import time
 
 import boto3
+
+from gpu_worker.sqs import Interrupted
 
 from config import Settings
 
@@ -14,13 +17,17 @@ class TranscribePoller:
     def __init__(self, settings: Settings):
         self.client = boto3.client("transcribe", region_name=settings.AWS_REGION)
 
-    def wait_for_completion(self, aws_job_name: str, poll_interval: int = 30) -> dict:
+    def wait_for_completion(self, aws_job_name: str, poll_interval: int = 30,
+                            abort: "threading.Event | None" = None) -> dict:
         """
         Polls AWS Transcribe until job completes or fails.
         Returns the full TranscriptionJob dict on COMPLETED.
-        Raises RuntimeError on FAILED.
+        Raises RuntimeError on FAILED, Interrupted once `abort` (an immediate GPU release) is set —
+        checked before each request and during the sleep, so a release never waits out an interval.
         """
         while True:
+            if abort is not None and abort.is_set():
+                raise Interrupted("GPU release requested while waiting for AWS Transcribe")
             resp = self.client.get_transcription_job(TranscriptionJobName=aws_job_name)
             job = resp["TranscriptionJob"]
             job_status = job["TranscriptionJobStatus"]
@@ -30,7 +37,10 @@ class TranscribePoller:
                 reason = job.get("FailureReason", "Unknown reason")
                 raise RuntimeError(f"AWS Transcribe job failed: {reason}")
             logger.info("Waiting for transcription job %s, status=%s", aws_job_name, job_status)
-            time.sleep(poll_interval)
+            if abort is None:
+                time.sleep(poll_interval)
+            else:
+                abort.wait(poll_interval)
 
     def parse_diarized_transcript(self, transcript_json: dict) -> list[dict]:
         """

@@ -13,3 +13,4 @@ class Settings(BaseSettings):
     SQS_VISIBILITY_EXTENSION_INTERVAL: int = 300
     WORK_DIR: str = "/tmp/pg"
     COLMAP_USE_GPU: int = 1   # 0 runs SIFT/matching on CPU (fitlet smoke test)
+    TEXTURE_MAX_SIZE: int = 4096   # long edge of each atlas embedded in the GLB (cropped, JPEG)

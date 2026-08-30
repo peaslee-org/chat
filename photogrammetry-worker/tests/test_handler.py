@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from PIL import Image
 
 import handlers.photogrammetry as handler_mod
@@ -67,6 +67,18 @@ class FailingDownloadS3(FakeS3):
     """download() raises a transient S3 ClientError (M15)."""
     def download(self, key, dest):
         raise ClientError({"Error": {"Code": "SlowDown", "Message": "x"}}, "GetObject")
+
+
+class ConnectionFailingS3(FakeS3):
+    """download() raises a connection-level BotoCoreError — no response, so no error code."""
+    def download(self, key, dest):
+        raise EndpointConnectionError(endpoint_url="https://s3.amazonaws.com")
+
+
+class DeniedDownloadS3(FakeS3):
+    """download() raises a permanent S3 ClientError — retrying cannot help."""
+    def download(self, key, dest):
+        raise ClientError({"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "GetObject")
 
 
 def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=None, s3_cls=FakeS3,
@@ -232,6 +244,26 @@ def test_transient_s3_error_during_download_leaves_job_processing_for_redelivery
     assert (tmp_path / "work" / str(job.id)).exists()   # scratch kept for redelivery
 
 
+def test_connection_error_during_download_leaves_job_processing_for_redelivery(tmp_path):
+    job, s3, recons, deps = make(tmp_path, s3_cls=ConnectionFailingS3)
+    with pytest.raises(EndpointConnectionError):
+        process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "processing"
+    assert (tmp_path / "work" / str(job.id)).exists()
+
+
+def test_permanent_s3_error_during_download_fails_the_job(tmp_path):
+    """AccessDenied / NoSuchKey never get better on redelivery: spinning to the DLQ would leave
+    the row `processing` forever. Fail it with the S3 code so the user (and we) can see why."""
+    job, s3, recons, deps = make(tmp_path, s3_cls=DeniedDownloadS3)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)     # swallowed → SQS acks
+    assert job.status == "failed"
+    assert job.stage is None
+    assert "AccessDenied" in job.error_message
+    assert recons == []
+    assert not (tmp_path / "work" / str(job.id)).exists()
+
+
 CRASH = "Reconstruction crashed during the {} stage (probably out of memory) — try fewer photos or one object per scan."
 
 
@@ -345,9 +377,9 @@ def test_resume_into_publish_reports_texture_stage_and_completes(tmp_path, monke
 
     stages_at_export = []
     orig_obj_to_glb = handler_mod.obj_to_glb
-    def wrapper(obj_path, out):
+    def wrapper(obj_path, out, **kw):
         stages_at_export.append(job.stage)
-        return orig_obj_to_glb(obj_path, out)
+        return orig_obj_to_glb(obj_path, out, **kw)
     monkeypatch.setattr("handlers.photogrammetry.obj_to_glb", wrapper)
 
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
