@@ -66,3 +66,8 @@ def test_inline_dockerfile_pins_agree_with_constraints():
     pins = _pins()
     for name, ver in re.findall(r'"([A-Za-z0-9_.\-]+)==([^"]+)"', DOCKERFILE.read_text()):
         assert pins[_norm(name)] == ver, f"{name}: Dockerfile says {ver}, constraints say {pins[_norm(name)]}"
+
+
+def test_botocore_is_declared_not_just_transitive():
+    """handlers/photogrammetry.py imports botocore.exceptions directly."""
+    assert "botocore" in _pyproject_packages()
