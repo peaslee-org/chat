@@ -69,6 +69,8 @@ WORKDIR /app
 RUN python3.12 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 COPY gpu-worker/ /app/gpu-worker/
-RUN pip install --no-cache-dir /app/gpu-worker boto3 pydantic-settings sqlalchemy psycopg2-binary "trimesh>=4.4" pillow numpy
+# constraints.txt pins every package to the acceptance-tested image; see the header there.
+COPY photogrammetry-worker/constraints.txt /app/constraints.txt
+RUN pip install --no-cache-dir -c /app/constraints.txt /app/gpu-worker boto3 pydantic-settings sqlalchemy psycopg2-binary "trimesh>=4.4" pillow numpy
 COPY photogrammetry-worker/ /app/
 CMD ["python", "main.py"]

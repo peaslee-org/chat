@@ -44,6 +44,9 @@ AMI is rebaked.
    replaces the task-def with `photogrammetry_image_tag` / `image_tag` from `terraform.tfvars`, so
    set those to the *currently deployed* SHA first or the new revision points at `latest`.
 4. **Batch worker-image changes** and bake once — a bake is ~20 min of GPU instance time.
+5. **Worker Python deps are pinned** by each worker's `constraints.txt` (a `pip freeze` of the image
+   that passed acceptance). A rebuild reproduces that image; to upgrade a package, edit the pin — and
+   re-freeze from the new image once it has passed a smoke, so the file stays a record of what ran.
 
 One push that touches several directories is fine — `deploy.yml` orders them. Rule 3 is the one
 it can't enforce: apply Terraform before pushing a worker change that needs the new task-def shape.
