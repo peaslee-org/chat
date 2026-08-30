@@ -5,9 +5,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Callable, Optional
+from uuid import UUID
 
 from app.schemas.gpu import (
-    GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState,
+    GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState, GpuSessionJob,
 )
 from app.services.ecs_launcher import GpuLaunchError
 
@@ -191,7 +192,9 @@ class GpuController:
 
     # ── launch ───────────────────────────────────────────────────────────────
 
-    async def ensure_worker(self, reason: str, user_id: str, is_admin: bool = False) -> GpuStateResponse:
+    async def ensure_worker(self, reason: str, user_id: str, is_admin: bool = False,
+                            job_id: Optional[UUID] = None) -> GpuStateResponse:
+        """`job_id`: the job a "job" launch is for — recorded on the ledger row for the usage panel."""
         now = self._now()
         await self._repo.advisory_lock()
         try:
@@ -225,7 +228,8 @@ class GpuController:
             # Record the promise (of the kind quoted): the usage panel compares it with what the
             # start actually took.
             await self._repo.create(task_arn=task_arn, started_by=user_id, reason=reason,
-                                    warm_until=warm_until, estimated_startup_seconds=estimates[kind][0])
+                                    warm_until=warm_until, estimated_startup_seconds=estimates[kind][0],
+                                    job_id=job_id)
             state = "starting"
             starting_since = now
         elif reason == "warm":
@@ -271,6 +275,10 @@ class GpuController:
         estimates = await self._startup_estimates()
         cold_seconds, _, cold_samples = estimates["cold"]
         warm_seconds, _, warm_samples = estimates["warm"]
+        rows = await self._repo.sessions_since(month_start)
+        # The list is everyone's (one pool, one budget) but a job's name is its owner's content and
+        # its link only works for them — so only the caller's own launches carry a job.
+        jobs = await self._repo.job_labels([s for s in rows if s.started_by == user_id])
         sessions = [
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
@@ -282,6 +290,11 @@ class GpuController:
                 ),
                 kind=startup_kind(s),
                 stages=startup_stages(s),
+                job=(
+                    GpuSessionJob(id=s.job_id, name=label.name, created_at=label.created_at)
+                    if s.job_id is not None and s.started_by == user_id and (label := jobs.get(s.job_id)) is not None
+                    else None
+                ),
                 # Matches hours_between's phantom-hours rule: a row that never got an instance
                 # cost nothing, and the clock starts when the worker claimed it, not on enqueue.
                 hours=(
@@ -289,7 +302,7 @@ class GpuController:
                     else round(((s.ended_at or now) - (s.started_processing_at or s.started_at)).total_seconds() / 3600.0, 2)
                 ),
             )
-            for s in await self._repo.sessions_since(month_start)
+            for s in rows
         ]
         return GpuUsageResponse(
             today_hours=today, month_hours=month,

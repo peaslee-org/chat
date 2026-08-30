@@ -397,7 +397,7 @@ class TestGpuIntegration:
 
         await service.confirm_job_upload("user1", job_id)
 
-        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1", job_id=job_id)
         repo.append_event.assert_any_await(
             job_id,
             "api",

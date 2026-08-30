@@ -1,12 +1,20 @@
 """gpu_sessions / gpu_cost_snapshots access. Hours = closed sessions + open sessions to `until`."""
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, NamedTuple, Optional
+from uuid import UUID
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gpu import GpuCostSnapshot, GpuSession
+from app.models.photogrammetry import PhotogrammetryJob
+from app.models.transcription import TranscriptionJob
+
+
+class JobLabel(NamedTuple):
+    name: Optional[str]      # scans have one; transcripts don't
+    created_at: datetime
 
 
 class GpuSessionRepository:
@@ -70,11 +78,12 @@ class GpuSessionRepository:
 
     async def create(self, *, task_arn: str, started_by: str, reason: str,
                      warm_until: Optional[datetime],
-                     estimated_startup_seconds: Optional[int] = None) -> GpuSession:
+                     estimated_startup_seconds: Optional[int] = None,
+                     job_id: Optional[UUID] = None) -> GpuSession:
         row = GpuSession(
             task_arn=task_arn, started_by=started_by, reason=reason,
             warm_until=warm_until, family=self.family,
-            estimated_startup_seconds=estimated_startup_seconds,
+            estimated_startup_seconds=estimated_startup_seconds, job_id=job_id,
         )
         self.db.add(row)
         await self.db.flush()
@@ -153,6 +162,25 @@ class GpuSessionRepository:
     async def sessions_since(self, since: datetime) -> list[GpuSession]:
         stmt = select(GpuSession).where(GpuSession.started_at >= since).order_by(GpuSession.started_at.desc())
         return list((await self.db.execute(stmt)).scalars().all())
+
+    async def job_labels(self, sessions: Iterable[GpuSession]) -> dict[UUID, JobLabel]:
+        """The job each session was launched for, looked up in the table its `family` names. A
+        job deleted since simply has no entry. Not scoped to self.family: sessions_since isn't."""
+        by_family: dict[str, set[UUID]] = {}
+        for s in sessions:
+            if s.job_id is not None:
+                by_family.setdefault(s.family, set()).add(s.job_id)
+        labels: dict[UUID, JobLabel] = {}
+        if ids := by_family.get("photogrammetry"):
+            stmt = select(PhotogrammetryJob.id, PhotogrammetryJob.name, PhotogrammetryJob.created_at).where(
+                PhotogrammetryJob.id.in_(ids))
+            for jid, name, created in (await self.db.execute(stmt)).all():
+                labels[jid] = JobLabel(name, created)
+        if ids := by_family.get("transcription"):
+            stmt = select(TranscriptionJob.id, TranscriptionJob.created_at).where(TranscriptionJob.id.in_(ids))
+            for jid, created in (await self.db.execute(stmt)).all():
+                labels[jid] = JobLabel(None, created)
+        return labels
 
     async def latest_cost_snapshot(self, month: str) -> Optional[GpuCostSnapshot]:
         stmt = (select(GpuCostSnapshot).where(GpuCostSnapshot.month == month)

@@ -114,7 +114,7 @@ class PhotogrammetryService:
         if self._sqs is not None:
             self._sqs.publish_photogrammetry_job(job_id)  # after the commit so the worker finds the row
         try:
-            await self._gpu.ensure_worker("job", user_id)
+            await self._gpu.ensure_worker("job", user_id, job_id=job_id)
         except GpuCapExceeded:
             pass  # stays queued; the status poll retries via ensure_worker("resume")
         await self._repo.db.commit()

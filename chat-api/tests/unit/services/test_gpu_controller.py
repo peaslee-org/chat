@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -5,6 +6,7 @@ import pytest
 
 from app.services import gpu_controller as gc
 from app.services.ecs_launcher import GpuLaunchError
+from app.repositories.gpu import JobLabel
 from app.services.gpu_controller import GpuCapExceeded, GpuController
 
 NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
@@ -22,6 +24,7 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
     repo.create = AsyncMock()
     repo.extend_warm = AsyncMock()
     repo.sessions_since = AsyncMock(return_value=[])
+    repo.job_labels = AsyncMock(return_value={})
     repo.recent_startups = AsyncMock(return_value=list(startups or []))
     repo.open_session = AsyncMock(return_value=open_session)
     repo.last_ended_session = AsyncMock(return_value=last_ended)
@@ -533,3 +536,67 @@ async def test_usage_warm_median_is_none_below_three_samples():
     ctl, repo, _ = make(startups=[startup(400, booted_after=30)] * 3 + [startup(70, booted_after=-3600)])
     u = await ctl.usage("u1")
     assert u.warm_median_seconds is None and u.warm_samples == 1
+
+
+async def test_ensure_worker_stamps_the_job_it_launched_for():
+    """The usage panel links each startup to the scan/transcript that triggered it."""
+    ctl, repo, _ = make()
+    jid = uuid.uuid4()
+    await ctl.ensure_worker("job", "u1", job_id=jid)
+    assert repo.create.await_args.kwargs["job_id"] == jid
+
+
+async def test_ensure_worker_without_a_job_stamps_none():
+    ctl, repo, _ = make()
+    await ctl.ensure_worker("warm", "u1")
+    assert repo.create.await_args.kwargs["job_id"] is None
+
+
+async def test_usage_attaches_the_launching_job_to_each_session():
+    ctl, repo, _ = make(family="photogrammetry")
+    jid = uuid.uuid4()
+    s = MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None,
+                  family="photogrammetry", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None,
+                  container_started_at=None, instance_id="i-1", started_processing_at=None,
+                  estimated_startup_seconds=None, job_id=jid)
+    repo.sessions_since = AsyncMock(return_value=[s])
+    repo.job_labels = AsyncMock(return_value={jid: JobLabel("Sample scan", NOW)})
+    usage = await ctl.usage("u")
+    repo.job_labels.assert_awaited_once_with([s])
+    assert usage.sessions[0].job.id == jid
+    assert usage.sessions[0].job.name == "Sample scan"
+
+
+async def test_usage_session_without_a_job_or_with_a_deleted_job_has_job_none():
+    ctl, repo, _ = make()
+    gone = uuid.uuid4()
+    rows = [
+        MagicMock(started_at=NOW, ended_at=None, reason="warm", started_by="u", end_reason=None, family="transcription",
+                  instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None,
+                  instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None, job_id=None),
+        MagicMock(started_at=NOW, ended_at=None, reason="job", started_by="u", end_reason=None, family="transcription",
+                  instance_booted_at=None, pull_started_at=None, pull_stopped_at=None, container_started_at=None,
+                  instance_id="i-1", started_processing_at=None, estimated_startup_seconds=None, job_id=gone),
+    ]
+    repo.sessions_since = AsyncMock(return_value=rows)
+    usage = await ctl.usage("u")
+    assert [x.job for x in usage.sessions] == [None, None]
+
+
+async def test_usage_attaches_a_job_only_to_the_callers_own_sessions():
+    """/gpu/usage is visible to every user (one pool, one budget), but a scan's name is another
+    user's content and its link would dead-end (jobs are user-scoped) — so only your own launches
+    carry a job."""
+    ctl, repo, _ = make(family="photogrammetry")
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    def row(uid, jid):
+        return MagicMock(started_at=NOW, ended_at=None, reason="job", started_by=uid, end_reason=None,
+                         family="photogrammetry", instance_booted_at=None, pull_started_at=None, pull_stopped_at=None,
+                         container_started_at=None, instance_id="i-1", started_processing_at=None,
+                         estimated_startup_seconds=None, job_id=jid)
+    repo.sessions_since = AsyncMock(return_value=[row("me", mine), row("someone-else", theirs)])
+    repo.job_labels = AsyncMock(return_value={mine: JobLabel("Mine", NOW), theirs: JobLabel("Theirs", NOW)})
+    usage = await ctl.usage("me")
+    assert usage.sessions[0].job.name == "Mine"
+    assert usage.sessions[1].job is None
+    assert [s.job_id for s in repo.job_labels.await_args.args[0]] == [mine]    # not even looked up

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue"
+import { useJobDeepLink } from "@/lib/jobQuery"
 import ScanSidebar from "@/components/photogrammetry/ScanSidebar.vue"
 import ScanDetailView from "@/components/photogrammetry/ScanDetailView.vue"
 import GpuStatusBar from "@/components/transcribe/GpuStatusBar.vue"
@@ -7,6 +8,8 @@ import type { NewScanMode } from "@/components/photogrammetry/newScanMode"
 import { usePhotogrammetryStore } from "@/stores/photogrammetry"
 
 const store = usePhotogrammetryStore()
+// Only a scan in the loaded list can be opened (jobs are user-scoped; one may have been deleted).
+const openLinkedJob = useJobDeepLink(id => { if (store.jobs.some(j => j.job_id === id)) store.selectJob(id) })
 const formMode = ref<NewScanMode>("closed")
 
 function toggleNew() {
@@ -41,6 +44,7 @@ function startDrag() {
 onUnmounted(stopDrag)
 onMounted(async () => {
   await store.loadJobs(true)
+  openLinkedJob()   // ?job=<id> from the usage panel's Startups links (cold load; the watch handles clicks)
   store.resumePollingForActiveJobs()
 })
 </script>

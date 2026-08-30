@@ -120,6 +120,8 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   the row on permanent S3 errors (`TRANSIENT_S3_CODES` allowlist) and declares `botocore`.
   Transcription honours `ReleaseWatcher.abort` (Transcribe wait + per-turn) → row `transcribing`,
   message redelivered.
+- 2026-08-30 Usage panel Startups: 5 rows, this family only (usage now takes `family`), Job column
+  linking to the scan/transcript that launched the worker (`gpu_sessions.job_id`, `?job=` deep link).
 
 - Photogrammetry robustness batch (resumable stages, no-cycling backstop at receive 5, mesh budget,
   photo orientation) — deployed and smoked on the 51-photo set: one attempt, 14 min, no refine above

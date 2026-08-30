@@ -1,9 +1,11 @@
 """GPU ledger: one gpu_sessions row per worker task launch; daily Cost Explorer snapshots."""
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import DateTime, Integer, Numeric, String, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -18,6 +20,9 @@ class GpuSession(Base):
     started_by: Mapped[str] = mapped_column(String(255), nullable=False)   # cognito sub | "system"
     reason: Mapped[str] = mapped_column(String(20), nullable=False)        # job | warm | resume
     family: Mapped[str] = mapped_column(String(32), nullable=False, server_default="transcription")  # transcription | photogrammetry
+    # The job this launch was for (reason == "job"); no FK — the job may be deleted while the
+    # ledger row stays. Which table it points into follows `family`.
+    job_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

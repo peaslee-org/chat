@@ -105,7 +105,10 @@ src/
     axios.ts           Axios instance with auth interceptor and 401 handler
     transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
     photogrammetryApi.ts   Photogrammetry API calls (jobs, uploads, mesh URLs, job photos, sample photos)
-    gpuApi.ts          GET /gpu/state, POST /gpu/warm, GET /gpu/usage
+    gpuApi.ts          GET /gpu/state, POST /gpu/warm, GET /gpu/usage (all take `family`)
+    jobQuery.ts        useJobDeepLink(open): `?job=<id>` deep link for both views — a watch (the Startups
+                       links are same-route navigations, so onMounted never sees them) plus a check()
+                       for the cold load; the param is stripped once consumed
     workerState.ts     workerStateLabel() ("GPU ready" / "GPU starting · ~N min left" / "GPU off — starts
                        on your next job"), elapsedLabel() m:ss, durationLabel() "6m20s"
     trafficRecorder.ts Axios interceptor for recording/replaying API traffic (mock dev)
@@ -146,9 +149,11 @@ src/
                                while starting (title says cold/warm start and the estimate basis),
                                idle-out countdown, Warm button (transcription family only), Usage
                                panel: hours vs caps, cost, warm-ups, and a collapsed **Startups**
-                               section (cold/warm medians; expand for per-launch capacity · boot ·
-                               pull · container · init · total · promised · Δ; choice in
-                               localStorage "gpuStartupsOpen")
+                               section (the family's cold/warm medians; expand for the last 5 of
+                               this family's launches: job (RouterLink to `/photogrammetry?job=` or
+                               `/transcribe?job=` — a scan by name, a transcript by its time) ·
+                               when · kind · capacity · boot · pull · container · init · total ·
+                               promised · Δ; choice in localStorage "gpuStartupsOpen")
       RunSidebar.vue           Left panel: job list + new job form toggle
       RunDetailView.vue        Right panel: job detail, transcript, speaker panel
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)

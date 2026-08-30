@@ -251,7 +251,7 @@ class TranscriptionService:
         await self._repo.db.commit()
         if self._gpu is not None:
             try:
-                await self._gpu.ensure_worker("job", user_id)
+                await self._gpu.ensure_worker("job", user_id, job_id=job_id)
                 await self._repo.append_event(job_id, "api", "gpu.ensured")
             except GpuCapExceeded as e:
                 await self._repo.append_event(job_id, "api", "gpu.capped", {"reason": e.reason})

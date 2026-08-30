@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel
@@ -30,6 +31,13 @@ class StartupStages(BaseModel):
     init: Optional[int] = None        # container running → worker's first claim
 
 
+class GpuSessionJob(BaseModel):
+    """The job a worker was launched for: a scan has a name, a transcript only its created_at."""
+    id: UUID
+    name: Optional[str] = None
+    created_at: datetime
+
+
 class GpuSessionSummary(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime]
@@ -42,6 +50,7 @@ class GpuSessionSummary(BaseModel):
     actual_startup_seconds: Optional[int] = None      # started_processing_at − started_at
     kind: Optional[StartupKind] = None                # None until the worker reported the boot time
     stages: Optional[StartupStages] = None
+    job: Optional[GpuSessionJob] = None               # None for warm-ups, or a job since deleted
 
     model_config = {"from_attributes": True}
 
