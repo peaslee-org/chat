@@ -171,3 +171,61 @@ def test_uvs_pinned_to_the_far_corner_still_export_a_one_texel_atlas(tmp_path):
         "mtllib c.mtl\nv 0 0 0\nv 1 0 0\nv 1 1 0\nvt 1 0\nusemtl m\nf 1/1 2/1 3/1\n")
     mesh = trimesh.load(obj_to_glb(tmp_path / "c.obj", tmp_path / "mesh.glb"), force="mesh")
     assert mesh.visual.material.baseColorTexture.size == (1, 1)
+
+
+# ── vertex welding ───────────────────────────────────────────────────────────
+# OpenMVS's OBJ indexes positions and UVs separately; loaded with process=False every face corner
+# becomes its own vertex (3 per face — 86 k vertices for the 29 k-face sample, 2 MB of a 2.2 MB
+# GLB; ~36 MB at 500 k faces). Weld corners that share position *and* UV; seams stay split.
+
+def write_quad_with_per_corner_uvs(d: Path) -> Path:
+    """OpenMVS layout: one `vt` line per face corner, so corners that share a position and the
+    same UV *values* still have distinct vt indices — trimesh's index-pair dedup can't weld them."""
+    Image.new("RGB", (2, 2), (255, 0, 0)).save(d / "tex.png")
+    (d / "pc.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
+    (d / "pc.obj").write_text(
+        "mtllib pc.mtl\n"
+        "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\n"
+        "vt 0 0\nvt 1 0\nvt 1 1\n"              # corners of face 1
+        "vt 0 0\nvt 1 1\nvt 0 1\n"              # corners of face 2 (vt 4 == vt 1, vt 5 == vt 3)
+        "usemtl m\nf 1/1 2/2 3/3\nf 1/4 3/5 4/6\n"
+    )
+    return d / "pc.obj"
+
+
+def test_corners_sharing_position_and_uv_values_are_welded(tmp_path):
+    obj = write_quad_with_per_corner_uvs(tmp_path)
+    mesh = trimesh.load(obj_to_glb(obj, tmp_path / "mesh.glb"), force="mesh", process=False)
+    assert len(mesh.faces) == 2
+    assert len(mesh.vertices) == 4               # not 6
+    assert mesh.visual.uv.shape == (4, 2)
+
+
+def test_uv_seams_keep_their_own_vertices(tmp_path):
+    """Two triangles share an edge in space but map it to different atlas patches — the shared
+    positions must stay as separate vertices or one side's texture would be wrong."""
+    Image.new("RGB", (4, 4), (255, 0, 0)).save(tmp_path / "tex.png")
+    (tmp_path / "s.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
+    (tmp_path / "s.obj").write_text(
+        "mtllib s.mtl\n"
+        "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\n"
+        "vt 0 0\nvt 0.5 0\nvt 0.5 0.5\n"          # patch A for the first triangle
+        "vt 0.5 0.5\nvt 1 1\nvt 0.5 1\n"          # patch B for the second: v1 and v3 get new UVs
+        "usemtl m\nf 1/1 2/2 3/3\nf 1/4 3/5 4/6\n"
+    )
+    mesh = trimesh.load(obj_to_glb(tmp_path / "s.obj", tmp_path / "mesh.glb"), force="mesh", process=False)
+    assert len(mesh.faces) == 2
+    assert len(mesh.vertices) == 6               # 4 positions, but v1/v3 differ in UV per side
+
+
+def test_texture_cap_is_by_area_so_a_thin_strip_keeps_its_resolution(tmp_path):
+    """OpenMVS packs a small scan into a strip along the top of a square atlas (8192×250 on the
+    sample). Capping the long edge halved its texel density for no byte reason; the budget is
+    max_texture_size² pixels, so the strip fits untouched while a full 16×16 still becomes 8×8."""
+    Image.new("RGB", (32, 2), (255, 0, 0)).save(tmp_path / "tex.png")
+    (tmp_path / "strip.mtl").write_text("newmtl m\nmap_Kd tex.png\n")
+    (tmp_path / "strip.obj").write_text(
+        "mtllib strip.mtl\nv 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\n"
+        "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nusemtl m\nf 1/1 2/2 3/3\nf 1/1 3/3 4/4\n")
+    mesh = trimesh.load(obj_to_glb(tmp_path / "strip.obj", tmp_path / "mesh.glb", max_texture_size=8), force="mesh")
+    assert mesh.visual.material.baseColorTexture.size == (32, 2)     # 64 px ≤ 8² budget
