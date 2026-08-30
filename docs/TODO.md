@@ -8,9 +8,6 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 
 ## Worker image (batch these — rebake the GPU AMI once)
 
-- [ ] **Bake the GPU AMI** — the current AMI (`gpu-prod-20260828-8f81e78`, LT v5) predates the
-  robustness batch, so every cold start pulls the image (~5 min). Both images were rebuilt by the PR #13 merge (2026-08-29 23:23 Z, same sha), so one bake
-  covers both; command in the runbook.
 - [ ] **Exported GLB is too large** — the 51-photo set produced a **45 MB** `mesh.glb` (500 k faces
   + two 8192² atlases embedded uncropped since `cfd539c` stopped re-packing; the sample went
   889 KB → 3.3 MB for the same reason). Crop each atlas to its used patches (or `--max-texture-size`

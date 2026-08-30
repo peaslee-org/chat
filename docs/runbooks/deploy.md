@@ -30,8 +30,10 @@ the previous task set serving while a new revision crash-loops, so a failed API 
 "stuck", not "down"; the API log (`/ecs/chat-api-prod`) has the traceback.
 
 Worker images are also baked into the GPU AMI so cold starts don't pull ~7 GB. A new worker image
-is *usable* as soon as CI registers the revision, but each cold start pays a ~5 min pull until the
-AMI is rebaked.
+is *usable* as soon as CI registers the revision. Docker pulls by layer, so a cold start only fetches
+the layers that differ from the baked image: a code/docs-only rebuild pulled in 5 s (2026-08-30),
+while a change to the base image, the OpenMVS build or the model-download layers costs ~5 min per
+cold start until the AMI is rebaked.
 
 ## Ordering rules
 
