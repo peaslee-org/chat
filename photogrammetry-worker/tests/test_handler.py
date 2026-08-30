@@ -377,9 +377,9 @@ def test_resume_into_publish_reports_texture_stage_and_completes(tmp_path, monke
 
     stages_at_export = []
     orig_obj_to_glb = handler_mod.obj_to_glb
-    def wrapper(obj_path, out):
+    def wrapper(obj_path, out, **kw):
         stages_at_export.append(job.stage)
-        return orig_obj_to_glb(obj_path, out)
+        return orig_obj_to_glb(obj_path, out, **kw)
     monkeypatch.setattr("handlers.photogrammetry.obj_to_glb", wrapper)
 
     process_photogrammetry_job({"job_id": str(job.id)}, deps)

@@ -64,6 +64,7 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 | `SQS_VISIBILITY_TIMEOUT` | `600` | no — extended every `SQS_VISIBILITY_EXTENSION_INTERVAL` (300) while a job runs |
 | `WORK_DIR` | `/tmp/pg` | no — in prod a host-path volume (`/var/lib/photogrammetry`) so scratch survives a container restart |
 | `COLMAP_USE_GPU` | `1` | no — `0` runs COLMAP SIFT/matching and OpenMVS (`--cuda-device -2`) on CPU. Off a GPU host also set `LD_LIBRARY_PATH=/opt/cuda-stubs`: OpenMVS binaries need `libcuda.so.1` just to load |
+| `TEXTURE_MAX_SIZE` | `4096` | no — long edge of each atlas embedded in the GLB after cropping to its used UV box (JPEG q85) |
 
 ## Pipeline (as built)
 
@@ -71,13 +72,13 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 |---|---|---|---|
 | load | — | `get` the row; if status ∉ {`queued`, `processing`} → ack and return, remove any scratch | idempotent on redelivery |
 | attempts | — | `ApproximateReceiveCount` ≥ `MAX_ATTEMPTS` (5 = the queue's `maxReceiveCount`), or a `stage.started` marker without its `.done` (the previous attempt died mid-stage) → row `failed` ("did not finish after 5 attempts…") | **no OOM cycling**: a stage that crashed is never retried |
-| fetch | `sfm` (status → `processing`) | list `input_prefix` (direct children only), download; fail if fewer than `image_count` objects | transient S3 errors leave the row `processing` and re-raise (redelivery resumes) |
+| fetch | `sfm` (status → `processing`) | list `input_prefix` (direct children only), download; fail if fewer than `image_count` objects | transient S3 errors (`TRANSIENT_S3_CODES`, connection errors) leave the row `processing` and re-raise (redelivery resumes); permanent ones (`AccessDenied`, `NoSuchKey`) fail the row |
 | photos | `sfm` | `pipeline/photos.py`: EXIF orientation applied and stripped (so COLMAP sees upright pixels), unreadable files skipped with a warning, photos whose pixel size differs from the majority skipped (`CAMERA_SINGLE_DIM_ERROR` otherwise); fail if fewer than `MIN_IMAGES` (5) usable | warnings → `job.warnings` |
 | SfM | `sfm` | `colmap feature_extractor` → `exhaustive_matcher` → `mapper`; the sub-model with the most registered images wins; `photo_status` written per input (`registered` / `unregistered` / `skipped:<why>`, names read from `images.bin`) **before** the gate | **fail if registered < 60 % of usable** ("Only N of M photos could be matched — add overlap and try again") |
 | dense | `dense` | `image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | fixed for the 16 GB T4 |
 | mesh | `mesh` | `ReconstructMesh`; then `RefineMesh` **only if** images ≤ `REFINE_MAX_IMAGES` (100) **and** faces ≤ `REFINE_MAX_FACES` (400 k) | refine roughly doubles faces at ~16 GB virtual on 675 k — that OOM-cycled on 2026-08-28 |
 | texture | `texture` | `TextureMesh --decimate FACE_BUDGET/faces` when faces > `FACE_BUDGET` (500 k), warning "Mesh simplified from N to about 500,000 faces to fit the viewer"; `--global-seam-leveling 0 --local-seam-leveling 0` (leveling blackens faces in this build — root cause open in `docs/TODO.md`) | |
-| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct; atlases are embedded as written, which makes GLBs large — 45 MB for 500 k faces + two 8192² atlases, open item), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
+| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct); each atlas is cropped to the box its UVs use, capped at `TEXTURE_MAX_SIZE` on the long edge and embedded as JPEG q85 (`pipeline/export.py::shrink_atlas` — uncropped 8192² PNGs made the 51-photo GLB 45 MB), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
 
 Each stage writes `<stage>.done` (atomic, JSON payload — e.g. the sfm marker carries `sparse`,
 `registered_images`, `registered_names`) under `WORK_DIR/<job_id>/`; a redelivered job resumes at
@@ -91,7 +92,8 @@ on success and on deterministic failure; kept on transient failure/interruption 
 | `StageError`, `JobTimeout`, any other exception in a stage | `failed`, `error_message` = the rule's text or the tool's first stderr line (≤ 1000 chars); `photo_status` and `warnings` kept | acked — a deterministic failure must not retry on a GPU box |
 | 5th receive, or a `stage.started` marker with no `.done` | `failed` ("did not finish after 5 attempts (interrupted or out of memory)…") | acked |
 | Spot interruption (`gpu_worker.sqs.Interrupted`) | back to `queued`, `stage = NULL` | released with `VisibilityTimeout=0` by `SpotWatcher`; next worker resumes from the markers |
-| Transient S3 (`ClientError`/`BotoCoreError`) | stays `processing` | not acked; redelivered after the visibility timeout (all S3 errors today — allowlisting only transient codes is a `docs/TODO.md` item) |
+| Transient S3 (`ClientError` with a code in `TRANSIENT_S3_CODES` — SlowDown, Throttling*, RequestTimeout, InternalError, ServiceUnavailable — or any `BotoCoreError`) | stays `processing` | not acked; redelivered after the visibility timeout |
+| Permanent S3 (`AccessDenied`, `NoSuchKey`, `NoSuchBucket`, …) | `failed`, `error_message` = the boto message with the code | acked — retrying would only spin to the DLQ with the row stuck `processing` |
 | Worker dies mid-job (OOM, crash) | stays `processing` | redelivered; the next attempt sees the `stage.started` marker and fails the row |
 | Admin `immediate` release | `queued` | released; the runner aborts the tool process |
 

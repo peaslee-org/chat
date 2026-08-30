@@ -25,7 +25,7 @@ from gpu_worker.sqs import Interrupted
 from models import PhotogrammetryJob
 from pipeline.checkpoints import Checkpoints
 from pipeline.colmap import SparseModel
-from pipeline.export import make_preview, obj_to_glb
+from pipeline.export import DEFAULT_MAX_TEXTURE_SIZE, make_preview, obj_to_glb
 from pipeline.photos import normalise
 from pipeline.runner import StageError
 
@@ -58,6 +58,7 @@ class Deps:
     use_gpu: bool
     job_timeout_seconds: int
     clock: Callable[[], float] = field(default=time.monotonic)
+    max_texture_size: int = DEFAULT_MAX_TEXTURE_SIZE
 
 
 def _update(deps: Deps, job_id: uuid.UUID, **values) -> None:
@@ -206,7 +207,7 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
 
         # ── publish (export + upload + complete) ──────────────────────────
         ck.started("publish")
-        glb = obj_to_glb(obj, work / "mesh.glb")
+        glb = obj_to_glb(obj, work / "mesh.glb", max_texture_size=deps.max_texture_size)
         first_image = sorted(images.iterdir())[0]
         preview = make_preview(first_image, work / "preview.png")
         mesh_key, preview_key = output_prefix + "mesh.glb", output_prefix + "preview.png"

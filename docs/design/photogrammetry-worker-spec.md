@@ -70,7 +70,7 @@ Runs in a scratch directory `/tmp/pg/<job_id>` on the instance's 80 GB root, rem
 | SfM | `sfm` | `colmap feature_extractor` (SIFT, GPU) → `colmap exhaustive_matcher` → `colmap mapper` | take the model with the most registered images; **fail if registered < 60 % of `image_count`** ("Only N of M photos could be matched — add overlap and try again") |
 | dense | `dense` | `colmap image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | resolution level fixed for the 16 GB T4 |
 | mesh | `mesh` | `ReconstructMesh` → `RefineMesh` | **`RefineMesh` skipped when `image_count` > 100** (time cap) |
-| texture | `texture` | `TextureMesh` → `mesh_textured.obj` + atlas PNG → `trimesh.load(...).export("mesh.glb")` | GLB via trimesh (pure Python, no EGL); `preview.png` = `input/0001.*` resized to 640 px on the long edge |
+| texture | `texture` | `TextureMesh` → `mesh_textured.obj` + atlas PNG → per-material atlas crop/cap/JPEG (`shrink_atlas`, `TEXTURE_MAX_SIZE` 4096) → `trimesh` scene `.export("mesh.glb")` | GLB via trimesh (pure Python, no EGL); `preview.png` = `input/0001.*` resized to 640 px on the long edge |
 | publish | — | upload `output/mesh.glb`, `output/preview.png`; row → `complete`, `mesh_s3_key`, `preview_s3_key`, `completed_at`; ack | |
 
 Each stage is a subprocess with stdout/stderr captured to the task log. `stage` is written to the
@@ -112,7 +112,7 @@ images with `pip install ./gpu-worker`.
 | File | Content |
 |---|---|
 | `main.py` | ≈ 15 lines: settings, `HANDLERS`, `run_sqs_worker` |
-| `config.py` | `Settings`: `DATABASE_URL`, `AUDIO_BUCKET_NAME`, `PHOTOGRAMMETRY_SQS_QUEUE_URL`, `AWS_REGION` (`us-east-1`), `IDLE_EXIT_SECONDS` (900), `MAX_LIFETIME_SECONDS` (10 800), `PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS` (3 600), `SQS_VISIBILITY_TIMEOUT` (600), `SQS_VISIBILITY_EXTENSION_INTERVAL` (300), `WORK_DIR` (`/tmp/pg`), `COLMAP_USE_GPU` (`1`) |
+| `config.py` | `Settings`: `DATABASE_URL`, `AUDIO_BUCKET_NAME`, `PHOTOGRAMMETRY_SQS_QUEUE_URL`, `AWS_REGION` (`us-east-1`), `IDLE_EXIT_SECONDS` (900), `MAX_LIFETIME_SECONDS` (10 800), `PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS` (3 600), `SQS_VISIBILITY_TIMEOUT` (600), `SQS_VISIBILITY_EXTENSION_INTERVAL` (300), `WORK_DIR` (`/tmp/pg`), `COLMAP_USE_GPU` (`1`), `TEXTURE_MAX_SIZE` (4 096) |
 | `models.py` | `PhotogrammetryJob` only (mirrors the API model) |
 | `handlers/photogrammetry.py` | the stage table above; reads as a sequence of `pipeline.*` calls |
 | `pipeline/colmap.py`, `pipeline/openmvs.py`, `pipeline/export.py` | thin subprocess wrappers returning paths; `export.py` = trimesh GLB + Pillow preview |

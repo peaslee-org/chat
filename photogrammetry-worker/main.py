@@ -30,6 +30,7 @@ def build_deps(s: Settings) -> Deps:
         work_root=Path(s.WORK_DIR),
         use_gpu=bool(s.COLMAP_USE_GPU),
         job_timeout_seconds=s.PHOTOGRAMMETRY_JOB_TIMEOUT_SECONDS,
+        max_texture_size=s.TEXTURE_MAX_SIZE,
     )
 
 
