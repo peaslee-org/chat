@@ -35,9 +35,15 @@ from app.schemas.photogrammetry import (
     extension_of,
 )
 from app.services.gpu_controller import GpuCapExceeded
-from app.services.thumbnails import ensure_thumbnails
+from app.services.thumbnails import ensure_thumbnails, thumb_key_for
 
 logger = logging.getLogger(__name__)
+
+# Thumbnail generation runs as fire-and-forget tasks so /photos and /confirm answer inside
+# CloudFront's 30 s origin timeout (147 photos took 2m28s synchronously, 504 on 2026-08-31).
+# One task per thumbs prefix at a time; tasks hold their own strong reference here.
+_THUMBS_IN_FLIGHT: set[str] = set()
+_THUMB_TASKS: set[asyncio.Task] = set()
 
 DOWNLOAD_TTL_SECONDS = 900
 ACTIVE_FOR_GPU = ("queued", "processing")
@@ -107,6 +113,10 @@ class PhotogrammetryService:
         if len(uploaded) < job.image_count:
             raise UploadIncomplete(f"{len(uploaded)} of {job.image_count} images uploaded")
         await self._queue(job.id, user_id)
+        # Start thumbnails now so they're ready before the Photos pane is first opened
+        # (filtered like _input_keys; reuses the listing done for the count check above).
+        keys = sorted(k for k in uploaded if "/" not in k[len(job.input_prefix):])
+        self._kick_thumbnails(keys, self._thumbs_prefix_for(job.input_prefix))
 
     async def _queue(self, job_id: UUID, user_id: str) -> None:
         await self._repo.update_job_status(job_id, "queued")
@@ -197,23 +207,49 @@ class PhotogrammetryService:
             if "/" not in k[len(prefix):]
         )
 
+    def _kick_thumbnails(self, keys: list[str], thumbs_prefix: str) -> None:
+        """Generate missing thumbnails in the background — at most one task per prefix.
+        ensure_thumbnails skips thumbs that already exist, so re-kicks are cheap and a photo
+        whose thumbnail keeps failing is simply retried on the next listing."""
+        if not keys or thumbs_prefix in _THUMBS_IN_FLIGHT:
+            return
+        _THUMBS_IN_FLIGHT.add(thumbs_prefix)
+
+        async def run() -> None:
+            try:
+                await asyncio.to_thread(ensure_thumbnails, self._storage, keys, thumbs_prefix)
+            except Exception:  # noqa: BLE001 — thumbnails are best-effort, never fail a request
+                logger.warning("background thumbnail generation failed for %s", thumbs_prefix,
+                               exc_info=True)
+            finally:
+                _THUMBS_IN_FLIGHT.discard(thumbs_prefix)
+
+        task = asyncio.get_running_loop().create_task(run())
+        _THUMB_TASKS.add(task)
+        task.add_done_callback(_THUMB_TASKS.discard)
+
     async def _photos(self, images_prefix: str, status: Optional[dict] = None) -> list[PhotoItem]:
-        """Presigned originals + thumbnails (made on first request, cached beside them)."""
+        """Presigned originals + thumbnails. A missing thumbnail is null — generation is kicked
+        in the background (normally already done at confirm time) and the client refetches;
+        blocking here put the first listing of a 150-photo scan past CloudFront's 30 s origin
+        timeout (2026-08-31)."""
         status = status or {}
         keys = self._input_keys(images_prefix)
         thumbs_prefix = self._thumbs_prefix_for(images_prefix)
-        thumbs = await asyncio.to_thread(ensure_thumbnails, self._storage, keys, thumbs_prefix)
+        existing = set(self._storage.list_keys_with_prefix(thumbs_prefix))
+        wanted = {key: thumb_key_for(key, thumbs_prefix) for key in keys}
+        if any(tk not in existing for tk in wanted.values()):
+            self._kick_thumbnails(keys, thumbs_prefix)
         presign = self._storage.generate_presigned_download_url
         items = []
         for key in keys:
-            url = presign(key, ttl_seconds=DOWNLOAD_TTL_SECONDS)
-            thumb_key = thumbs.get(key)
             name = Path(key).name
             items.append(PhotoItem(
                 filename=name,
-                url=url,
+                url=presign(key, ttl_seconds=DOWNLOAD_TTL_SECONDS),
                 thumb_url=(
-                    presign(thumb_key, ttl_seconds=DOWNLOAD_TTL_SECONDS) if thumb_key else url
+                    presign(wanted[key], ttl_seconds=DOWNLOAD_TTL_SECONDS)
+                    if wanted[key] in existing else None
                 ),
                 status=status.get(name),
             ))

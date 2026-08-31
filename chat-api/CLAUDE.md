@@ -145,14 +145,20 @@ All under `/api/v1`; every route except `health` requires a Cognito bearer token
 6. Objects under `photogrammetry/` expire after 30 days (bucket lifecycle) — rows outlive them today (`docs/TODO.md`)
 
 **Photos and thumbnails.** `GET /jobs/{id}/photos` and `GET /samples` list the inputs
-(`_input_keys`: only direct children of the prefix — nothing nested counts as a photo) and call
-`thumbnails.ensure_thumbnails()`, which lists the thumbs prefix once, generates only the missing
-256 px JPEGs (Pillow `draft` decode at reduced size, EXIF-upright, q80) in a bounded thread pool,
-and writes them to S3. The thumbs prefix is the **sibling** of the inputs' own directory
+(`_input_keys`: only direct children of the prefix — nothing nested counts as a photo) and return
+presigned GETs. Thumbnails are generated **in the background** (`_kick_thumbnails`: one
+fire-and-forget task per thumbs prefix, kicked at `confirm` and by any listing that finds thumbs
+missing) via `thumbnails.ensure_thumbnails()`, which lists the thumbs prefix once, generates only
+the missing 256 px JPEGs (Pillow `draft` decode at reduced size, EXIF-upright, q80) in a bounded
+thread pool, and writes them to S3. A listing never blocks on generation — a 147-photo set takes
+~2.5 min, and CloudFront's `/api/*` origin timeout is 30 s (504 on 2026-08-31) — so a photo whose
+thumbnail isn't stored yet has `thumb_url: null` and clients refetch (ScanDetailView polls every
+5 s while nulls remain). The thumbs prefix is the **sibling** of the inputs' own directory
 (`…/<job>/input/` → `…/<job>/thumbs/`, `samples/photogrammetry/images/` →
 `samples/photogrammetry/thumbs/`) — never inside the inputs, where the worker and the next listing
-would take them for photos (that happened once, 2026-08-29). A photo that can't be decoded gets
-`thumb_url = url`. Both URLs are presigned GETs; the task role's S3 policy covers the writes.
+would take them for photos (that happened once, 2026-08-29). A photo that can't be decoded keeps
+`thumb_url: null` (re-attempted on later listings; the client's poll is capped). The task role's
+S3 policy covers the writes.
 
 **GPU controller.** Both GPU workers are run-to-completion ECS tasks (EC2 launch type, shared
 `gpu-<env>` capacity provider) launched on demand by `GpuController` via `RunTask` — one

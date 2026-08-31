@@ -20,17 +20,20 @@ const emit = defineEmits<{ open: [photo: PhotoItem] }>()
 
 const SKELETON_COUNT = 24
 
-// ── per-tile load state ──
+// ── per-tile load state (keyed by filename: thumb_url is null while the API is still
+// generating the thumbnail — such a tile stays pending, without an <img>) ──
 type TileState = "pending" | "loaded" | "failed"
 const tiles = ref<Record<string, TileState>>({})
 watch(() => props.photos, (list) => {
   const next: Record<string, TileState> = {}
-  for (const p of list) next[p.thumb_url] = tiles.value[p.thumb_url] ?? "pending"
+  for (const p of list) next[p.filename] = tiles.value[p.filename] ?? "pending"
   tiles.value = next
 }, { immediate: true })
-function tileState(photo: PhotoItem): TileState { return tiles.value[photo.thumb_url] ?? "pending" }
-function onThumbLoad(photo: PhotoItem) { tiles.value[photo.thumb_url] = "loaded" }
-function onThumbError(photo: PhotoItem) { tiles.value[photo.thumb_url] = "failed" }
+function tileState(photo: PhotoItem): TileState {
+  return photo.thumb_url ? (tiles.value[photo.filename] ?? "pending") : "pending"
+}
+function onThumbLoad(photo: PhotoItem) { tiles.value[photo.filename] = "loaded" }
+function onThumbError(photo: PhotoItem) { tiles.value[photo.filename] = "failed" }
 
 const doneCount = computed(() => props.photos.filter(p => tileState(p) !== "pending").length)
 const status = computed(() => {
@@ -123,6 +126,7 @@ const chevron = "absolute top-1/2 -translate-y-1/2 select-none px-3 text-5xl lea
           @click="show(i)"
         >
           <img
+            v-if="photo.thumb_url"
             :src="photo.thumb_url"
             :alt="photo.filename"
             :title="photo.filename"

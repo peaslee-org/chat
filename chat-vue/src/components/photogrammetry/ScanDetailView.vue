@@ -43,6 +43,21 @@ const photosLoading = ref(false)
 const photosError = ref<string | null>(null)
 const TERMINAL = new Set(["complete", "failed"])
 
+// The API generates thumbnails in the background (kicked at confirm); a photo whose thumbnail
+// isn't ready yet comes back with thumb_url null. Poll with force until they've all arrived,
+// bounded so a permanently undecodable photo doesn't poll forever (cap ≈ 5 min, comfortably
+// past the ~2.5 min a 150-photo set takes to thumbnail).
+const THUMB_POLL_MS = 5000
+const MAX_THUMB_POLLS = 60
+let thumbTimer: number | null = null
+let thumbPolls = 0
+
+function cancelThumbPoll() {
+  if (thumbTimer !== null) window.clearTimeout(thumbTimer)
+  thumbTimer = null
+  thumbPolls = 0
+}
+
 async function loadPhotos(jobId: string, force = false): Promise<void> {
   photosError.value = null
   photosLoading.value = photos.value.length === 0
@@ -51,6 +66,13 @@ async function loadPhotos(jobId: string, force = false): Promise<void> {
     if (job.value?.job_id !== jobId) return
     photos.value = res.photos
     photosMatched.value = res.matched
+    if (res.photos.some(p => !p.thumb_url) && pane.value === "photos" && thumbPolls < MAX_THUMB_POLLS) {
+      thumbTimer = window.setTimeout(() => {
+        thumbTimer = null
+        thumbPolls += 1
+        void loadPhotos(jobId, true)
+      }, THUMB_POLL_MS)
+    }
   } catch {
     if (job.value?.job_id !== jobId) return
     photosError.value = "Could not load the photos"
@@ -60,12 +82,15 @@ async function loadPhotos(jobId: string, force = false): Promise<void> {
 }
 
 watch([() => job.value?.job_id, pane], ([jobId, p]) => {
+  cancelThumbPoll()
   photos.value = []
   photosMatched.value = null
   photosError.value = null
   if (!jobId || p !== "photos") return
   void loadPhotos(jobId)
 }, { immediate: true })
+
+onUnmounted(cancelThumbPoll)
 
 // Per-photo status (which photos SfM matched) lands on the row when the job ends — refetch then.
 watch(() => job.value?.status, (status, prev) => {

@@ -275,7 +275,8 @@ export interface MeshUrlResponse {
 export interface PhotoItem {
   filename: string
   url: string
-  thumb_url: string
+  /** Presigned thumbnail URL; null while the API is still generating it in the background. */
+  thumb_url: string | null
   /** "registered" | "unregistered" | "skipped:<reason>" once SfM has run; null before (and for the sample set). */
   status?: string | null
 }

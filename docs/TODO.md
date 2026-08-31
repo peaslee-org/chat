@@ -46,8 +46,6 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   `photo_status`, so the matched/not-matched tiles can't be seen locally.
 - [ ] Photogrammetry rows outlive their S3 objects (30-day lifecycle on `photogrammetry/`): mark
   rows `expired` (or split the output prefix — a contract change) so the viewer doesn't get a 404.
-- [ ] Thumbnails for a 150-photo scan are generated on the first `/photos` call (≈3–5 s in one
-  request). Fine for now; if it bites, kick generation off at `confirm` time instead.
 
 ## Vue (chat-vue)
 
@@ -100,6 +98,19 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   the code defaults (420 / 90).
 
 ## Recently done (2026-08-28 → 31)
+
+- 2026-08-31 **Thumbnails made asynchronous** (API + Vue) after the predicted "if it bites" bit:
+  the first `/photos` for a 147-photo scan generated thumbnails synchronously for 2 m 28 s —
+  CloudFront's `/api/*` origin timeout is 30 s (default, unconfigured) → 504 → "Could not load
+  the photos", while uvicorn logged nothing (client-disconnect cancels the handler's log line;
+  the orphaned thread finished the thumbs anyway). Now: generation is kicked in the background at
+  `confirm` and by any listing that finds thumbs missing (one task per prefix,
+  `ensure_thumbnails` skips existing so re-kicks are cheap); `/photos` answers immediately with
+  `thumb_url: null` for not-yet-generated thumbs; PhotoGrid keeps those tiles as spinners (keyed
+  by filename now) and ScanDetailView force-refetches every 5 s (capped ≈5 min) until they
+  arrive. Also fixed on the way: the Photos pane's fetch fired 0.5 s after job creation (before
+  any presigned PUT landed) and **cached the near-empty list for the session** — the store no
+  longer caches a listing smaller than the job's `image_count`.
 
 - 2026-08-31 **GLB meshopt compression, FACE_BUDGET 500 k → 1 M** (worker image + Vue). The
   published GLB is packed with `gltfpack -cc` (pinned meshoptimizer v1.2, built in the Dockerfile's

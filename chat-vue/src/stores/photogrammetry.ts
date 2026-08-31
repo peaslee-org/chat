@@ -141,7 +141,10 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     const cached = photosByJob.get(jobId)
     if (cached && !opts.force) return cached
     const res = await api.fetchJobPhotos(jobId)
-    photosByJob.set(jobId, res)
+    // A listing taken while the presigned PUTs are still landing is missing photos — serving it
+    // from cache would freeze the Photos pane on a near-empty grid for the session (2026-08-31).
+    const expected = jobs.value.find(j => j.job_id === jobId)?.image_count
+    if (expected === undefined || res.photos.length >= expected) photosByJob.set(jobId, res)
     return res
   }
 
