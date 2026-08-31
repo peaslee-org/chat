@@ -1,5 +1,6 @@
 """Final outputs: GLB from the textured OBJ (trimesh, no GPU/EGL) and a PNG preview from a photo."""
 import math
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,17 @@ def shrink_atlas(geometry: trimesh.Trimesh, max_texture_size: int) -> None:
     cropped.format = "JPEG"
     cropped.encoderinfo = {"quality": JPEG_QUALITY}
     material.image = cropped
+
+
+def pack_glb(glb: Path, out: Path, timeout: int = 120) -> Path:
+    """Compress the GLB with gltfpack: quantized attributes (KHR_mesh_quantization) plus
+    meshopt-compressed geometry and indices (EXT_meshopt_compression, `-cc`) — ~6-10× smaller
+    geometry, decoded in the viewer by model-viewer's meshopt decoder. Textures pass through
+    untouched (already cropped JPEG q85). Raises on failure; the caller ships the uncompressed
+    GLB instead — compression is an optimization, never a reason to fail the job."""
+    subprocess.run(["gltfpack", "-i", str(glb), "-o", str(out), "-cc"],
+                   check=True, capture_output=True, timeout=timeout)
+    return out
 
 
 def make_preview(image: Path, out: Path, max_edge: int = 640) -> Path:

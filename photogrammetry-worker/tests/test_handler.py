@@ -1,5 +1,6 @@
 """Handler walks the stages, writes outputs under the job's own prefix, and maps failures per spec §1."""
 import math
+import subprocess
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -106,6 +107,53 @@ def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=N
     deps = Deps(session_factory=factory, s3=s3, reconstruction_factory=recon_factory,
                 work_root=tmp_path / "work", use_gpu=False, job_timeout_seconds=3600)
     return job, s3, recons, deps
+
+
+@pytest.fixture(autouse=True)
+def passthrough_pack(monkeypatch):
+    """No gltfpack on the test host: publish gets a copy-through pack by default. The real
+    subprocess wiring is covered in test_export.py; tests below override this to steer it."""
+    def _pack(glb, out, timeout=120):
+        out.write_bytes(Path(glb).read_bytes())
+        return out
+    monkeypatch.setattr(handler_mod, "pack_glb", _pack, raising=False)
+
+
+class MeshBytesS3(FakeS3):
+    """Also captures the bytes uploaded as mesh.glb."""
+    def upload_file(self, path, key, content_type):
+        super().upload_file(path, key, content_type)
+        if key.endswith("mesh.glb"):
+            self.mesh_bytes = Path(path).read_bytes()
+
+
+def test_publish_uploads_the_packed_glb(tmp_path, monkeypatch):
+    """mesh.glb on S3 is gltfpack's output, not the raw trimesh export."""
+    monkeypatch.setattr(handler_mod, "pack_glb",
+                        lambda glb, out, **kw: (out.write_bytes(b"PACKED-GLB"), out)[1], raising=False)
+    job, s3, recons, deps = make(tmp_path, s3_cls=MeshBytesS3)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert s3.mesh_bytes == b"PACKED-GLB"
+
+
+def test_publish_falls_back_to_uncompressed_glb_when_pack_fails(tmp_path, monkeypatch):
+    """Compression is an optimization: a gltfpack failure ships the raw GLB with a warning
+    instead of failing the job."""
+    def _boom(glb, out, **kw):
+        raise subprocess.CalledProcessError(1, "gltfpack")
+    monkeypatch.setattr(handler_mod, "pack_glb", _boom, raising=False)
+    job, s3, recons, deps = make(tmp_path, s3_cls=MeshBytesS3)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.status == "complete"
+    assert s3.mesh_bytes[:4] == b"glTF"
+    assert any("compress" in w.lower() for w in job.warnings)
+
+
+def test_face_budget_is_one_million():
+    """Raised 500 k → 1 M with meshopt compression (2026-08-31): a packed 1 M-face GLB is
+    smaller than the old uncompressed 500 k one was."""
+    assert FACE_BUDGET == 1_000_000
 
 
 def test_happy_path_walks_stages_and_writes_outputs_under_job_prefix(tmp_path):
@@ -288,12 +336,16 @@ def test_over_budget_mesh_is_decimated_with_warning(tmp_path):
     assert job.warnings == [f"Mesh simplified from {faces:,} to about {FACE_BUDGET:,} faces to fit the viewer"]
 
 
-def test_budget_applies_to_refined_face_count(tmp_path):
-    job, _, recons, deps = make(tmp_path, recon_kwargs={"faces": 300_000})   # refine → 600k > budget
+def test_refined_meshes_always_fit_the_budget(tmp_path):
+    """Refine roughly doubles faces and only runs at ≤ REFINE_MAX_FACES, so its output stays
+    within FACE_BUDGET (≥ 2 × REFINE_MAX_FACES since the 1 M budget) — no decimation after
+    refine, even at the gate's edge."""
+    assert FACE_BUDGET >= 2 * REFINE_MAX_FACES
+    job, _, recons, deps = make(tmp_path, recon_kwargs={"faces": REFINE_MAX_FACES})  # refine → 800k
     process_photogrammetry_job({"job_id": str(job.id)}, deps)
     assert "refine" in recons[0].calls
     (_, ratio), = [c for c in recons[0].calls if isinstance(c, tuple) and c[0] == "texture"]
-    assert ratio == pytest.approx(FACE_BUDGET / 600_000)
+    assert ratio is None
 
 
 # ── checkpoints / resume ─────────────────────────────────────────────────────
@@ -533,7 +585,7 @@ def test_fresh_start_clears_old_warnings(tmp_path):
 
 
 def test_warnings_are_written_as_they_arise(tmp_path):
-    faces = 900_000
+    faces = 1_900_000
     job, _, _, deps = make(tmp_path, recon_kwargs={"faces": faces})
     seen = []
     orig = FakeRecon._step

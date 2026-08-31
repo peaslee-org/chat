@@ -76,15 +76,15 @@ def test_texture_exports_obj(tmp_path):
     assert cmd[cmd.index("--export-type") + 1] == "obj"
 
 
-def test_texture_mesh_disables_seam_leveling(tmp_path):
-    """Both seam-leveling passes in our OpenMVS v2.4.0/noble build write ~0 into every face
-    pixel (atlas = black faces, coloured surroundings; found 2026-08-28 on the sample scan).
-    With both off the raw patch copy is correct. Keep them off until the build is fixed."""
+def test_texture_mesh_enables_seam_leveling(tmp_path):
+    """Both passes are on: the v2.4.0 sampler regression that blackened leveled faces is
+    cherry-picked away in the image (openmvs-v2.4.0-seam-leveling.patch, upstream eeedab7).
+    The flags stay explicit so an upstream default change can't flip them silently."""
     r = FakeRunner()
     texture_mesh(r, tmp_path, tmp_path / "scene_dense.mvs", tmp_path / "mesh.ply")
     cmd = r.calls[0][0]
-    assert cmd[cmd.index("--global-seam-leveling") + 1] == "0"
-    assert cmd[cmd.index("--local-seam-leveling") + 1] == "0"
+    assert cmd[cmd.index("--global-seam-leveling") + 1] == "1"
+    assert cmd[cmd.index("--local-seam-leveling") + 1] == "1"
 
 
 def test_mesh_faces_reads_last_saved_line():

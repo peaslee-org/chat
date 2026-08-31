@@ -12,6 +12,7 @@ message). Transient S3 (TRANSIENT_S3_CODES, connection errors) → row left `pro
 import logging
 import math
 import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -25,7 +26,7 @@ from gpu_worker.sqs import Interrupted
 from models import PhotogrammetryJob
 from pipeline.checkpoints import Checkpoints
 from pipeline.colmap import SparseModel
-from pipeline.export import DEFAULT_MAX_TEXTURE_SIZE, make_preview, obj_to_glb
+from pipeline.export import DEFAULT_MAX_TEXTURE_SIZE, make_preview, obj_to_glb, pack_glb
 from pipeline.photos import normalise
 from pipeline.runner import StageError
 
@@ -35,7 +36,7 @@ RESTARTABLE = ("queued", "processing")
 REGISTRATION_MIN_FRACTION = 0.6
 REFINE_MAX_IMAGES = 100
 REFINE_MAX_FACES = 400_000   # RefineMesh roughly doubles faces at a ~16 GB virtual peak on 675 k
-FACE_BUDGET = 500_000        # texture/export never see more than this
+FACE_BUDGET = 1_000_000      # texture/export never see more than this; meshopt keeps the GLB small
 MAX_ATTEMPTS = 5              # SQS receives; equals the queue's maxReceiveCount — fail on the last delivery SQS will make
 MIN_IMAGES = 5
 ERROR_MAX_CHARS = 1000
@@ -205,9 +206,14 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
             ck.done("texture", obj=str(obj)); done = ck.completed("texture")
         obj = Path(done["obj"])
 
-        # ── publish (export + upload + complete) ──────────────────────────
+        # ── publish (export + pack + upload + complete) ───────────────────
         ck.started("publish")
-        glb = obj_to_glb(obj, work / "mesh.glb", max_texture_size=deps.max_texture_size)
+        glb = obj_to_glb(obj, work / "mesh.raw.glb", max_texture_size=deps.max_texture_size)
+        try:
+            glb = pack_glb(glb, work / "mesh.glb")
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning("Job %s: gltfpack failed (%s) — publishing the uncompressed GLB", job_id, e)
+            warnings.add("Mesh compression failed; the model may download slowly")
         first_image = sorted(images.iterdir())[0]
         preview = make_preview(first_image, work / "preview.png")
         mesh_key, preview_key = output_prefix + "mesh.glb", output_prefix + "preview.png"
