@@ -3,13 +3,24 @@ import { mount } from "@vue/test-utils"
 
 // The real module registers a WebGL custom element; jsdom has no WebGL. An unregistered
 // <model-viewer> is a plain HTMLElement, which is all the event plumbing needs.
-vi.mock("@google/model-viewer", () => ({}))
+// ModelViewerElement is stubbed so the module-scope decoder configuration has a target.
+vi.mock("@google/model-viewer", () => ({ ModelViewerElement: class {} }))
 
+import { ModelViewerElement } from "@google/model-viewer"
 import MeshViewer from "../MeshViewer.vue"
 
 function mountViewer(props: Partial<{ src: string; pending: boolean }> = {}) {
   return mount(MeshViewer, { props: { src: "https://s3/mesh.glb", mock: false, ...props } })
 }
+
+describe("MeshViewer meshopt decoder", () => {
+  it("points model-viewer at the bundled meshopt decoder before the first viewer mounts", () => {
+    // Worker GLBs use EXT_meshopt_compression (gltfpack); without a decoder location model-viewer
+    // fails to load them. Importing the component module must configure it (module scope).
+    expect((ModelViewerElement as unknown as { meshoptDecoderLocation?: string }).meshoptDecoderLocation)
+      .toMatch(/meshopt_decoder/)
+  })
+})
 
 describe("MeshViewer loading pill", () => {
   it("shows progress from <model-viewer> progress events", async () => {

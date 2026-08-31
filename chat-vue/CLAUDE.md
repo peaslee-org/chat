@@ -193,7 +193,12 @@ src/
       MeshViewer.vue           <model-viewer> (custom element per vite.config.ts) with a top-left pill:
                                "Loading mesh… NN%" from progress events (also while `pending`, i.e.
                                resolving the presigned URL), hidden on load, "Couldn't load the mesh"
-                               on error; state resets when `src` changes
+                               on error; state resets when `src` changes. A plain <script> block sets
+                               ModelViewerElement.meshoptDecoderLocation to the bundled UMD meshopt
+                               decoder (worker GLBs use EXT_meshopt_compression; the
+                               `meshopt-decoder.cjs` alias in vite.config.ts bypasses meshoptimizer's
+                               require-only export condition — model-viewer loads it as a classic
+                               script and reads the global, so the ESM build won't work)
 ```
 
 All imports use the `@` alias which maps to `src/`.

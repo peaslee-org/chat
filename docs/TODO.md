@@ -17,16 +17,6 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   `max(last_work + IDLE_EXIT_SECONDS, warm_until)`, known only to the worker. Plan: add
   `gpu_sessions.idle_release_at`, written on each heartbeat; `get_state()` returns
   `max(idle_release_at, warm_until)` as `warm_until`; bar keeps the label across polls.
-- [ ] **Root-cause OpenMVS seam leveling in our build.** Both passes rewrite every face's pixels as ~0
-  (black faces, stray saturated texels) in the v2.4.0-on-noble image (OpenCV 4.6, GCC 13); the raw
-  patch copy is right. Excluded on the sample scan: sharpening, OpenMP (`--max-threads 1`), either
-  pass alone. Left: the Eigen sparse solves (global adjustments, local Poisson blend) or the bilinear
-  sampler they share. Reproduces in ~1 min on the fitlet: `docker run --rm -e LD_LIBRARY_PATH=/opt/cuda-stubs
-  -v <smoke>:/tmp/pgsmoke --entrypoint TextureMesh <image> /tmp/pgsmoke/work/dense/scene_dense.mvs -m
-  …/scene_dense_mesh.ply -w …/dense -o …/exp/scene_textured.mvs --export-type obj --cuda-device -2 [flags]`,
-  then sample the atlas at face centroids. Try: upstream's own ubuntu Dockerfile (newer OpenCV), a
-  Debug build with `-ffast-math` off, and `git bisect` between v2.3.0 and v2.4.0. Re-enable leveling
-  when fixed (visible patch seams until then).
 - [ ] **Gravity-align the reconstruction.** After `27a23f1` orientation follows the first photo's roll
   (portrait vs landscape shots come out sideways). Options: COLMAP `model_orientation_aligner`
   (Manhattan-world; may fail on organic subjects), or a rotate control in `MeshViewer.vue`.
@@ -109,7 +99,31 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 - [ ] `chat-api/.env` pins `GPU_WAIT_ESTIMATE_*` to the old 120/180 s; drop them so local dev uses
   the code defaults (420 / 90).
 
-## Recently done (2026-08-28 → 30)
+## Recently done (2026-08-28 → 31)
+
+- 2026-08-31 **GLB meshopt compression, FACE_BUDGET 500 k → 1 M** (worker image + Vue). The
+  published GLB is packed with `gltfpack -cc` (pinned meshoptimizer v1.2, built in the Dockerfile's
+  build stage): KHR_mesh_quantization + EXT_meshopt_compression, textures pass through. Sample
+  GLB 4.70 → 1.20 MB (geometry ~7×); gltfpack failure ships the raw GLB with a warning instead of
+  failing the job. Viewer: `ModelViewerElement.meshoptDecoderLocation` points at the bundled UMD
+  decoder (`meshoptimizer` npm pin; `meshopt-decoder.cjs` alias in vite config — the UMD build is
+  behind a require-only export condition, and it must be the UMD build because model-viewer loads
+  it as a classic script and reads the global). Verified in Chrome against model-viewer 4.3.1:
+  packed sample GLB decodes and renders textured. With the budget at 1 M a refined mesh
+  (≤ 2 × 400 k) never decimates; the 51-photo set (~680 k) now keeps all its faces. Draco was
+  rejected: needs Node/glTF-Transform in the GPU image and decodes slower.
+
+- 2026-08-31 **OpenMVS seam leveling root-caused and fixed** (worker image, needs the next AMI
+  re-bake batch). Not our build environment: stock v2.4.0's sampler refactor passes the float
+  interpolation type as `cv::Mat::at`'s pixel type in `TImage::sample` (`libs/Common/Types.inl`), so
+  both leveling passes read 8-bit source images as raw floats — denormals ≈ 0 with stray
+  huge-exponent texels, i.e. the black faces; the raw patch copy never samples. Upstream fixed it in
+  `eeedab7` (2026-02-27, after v2.4.0; no release has it), now cherry-picked as
+  `photogrammetry-worker/openmvs-v2.4.0-seam-leveling.patch` and leveling re-enabled (`1 1`).
+  Verified on the fitlet, sample scan, atlas sampled at all 173 k face centroids: leveling-on median
+  luminance 0.7 / 97 % near-black unpatched (prod binary and a CPU-only control build agree) →
+  152.3 / 0.1 % patched, matching the leveling-off baseline. The same upstream commit also fixes
+  `MAXF`→`MINF` on the atlas-size growth cap and the seam-vertex row mapping.
 
 - 2026-08-30 worker batch (one AMI re-bake): GLB atlases cropped to their used UV box, capped at
   `TEXTURE_MAX_SIZE`² pixels and embedded as JPEG q85; sample 3.28 → 2.17 MB. Inspection showed

@@ -43,6 +43,15 @@ RUN cmake -S openMVS -B openMVS/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL
  && cmake --install openMVS/build \
  && ls /opt/openmvs/bin/OpenMVS/DensifyPointCloud /opt/openmvs/bin/OpenMVS/TextureMesh \
  && cp /usr/local/cuda/lib64/stubs/libcuda.so /opt/openmvs/libcuda-stub.so
+# gltfpack (from meshoptimizer, pinned): packs the published GLB — quantized attributes
+# (KHR_mesh_quantization) + meshopt-compressed geometry/indices (EXT_meshopt_compression, -cc);
+# ~4× on the sample GLB, decoded by model-viewer's meshopt decoder. ~0.5 MB binary, builds in
+# seconds; no basis/KTX2 — textures pass through as the JPEGs the exporter already wrote.
+ARG MESHOPT_TAG=v1.2
+RUN git clone --depth 1 --branch ${MESHOPT_TAG} https://github.com/zeux/meshoptimizer.git \
+ && cmake -S meshoptimizer -B meshoptimizer/build -DCMAKE_BUILD_TYPE=Release -DMESHOPT_BUILD_GLTFPACK=ON \
+ && cmake --build meshoptimizer/build -j"$(nproc)" --target gltfpack \
+ && cp meshoptimizer/build/gltfpack /opt/gltfpack
 
 # Stage 2: runtime = the official COLMAP image (Ubuntu 24.04, CUDA 12.9.1 runtime) + OpenMVS + Python.
 FROM colmap/colmap:20260729.7651
@@ -54,6 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgmp10 libmpfr6 libgomp1 libglew2.2 libglu1-mesa libpng16-16t64 libjpeg8 libtiff6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/openmvs/bin/OpenMVS/ /usr/local/bin/
+COPY --from=build /opt/gltfpack /usr/local/bin/gltfpack
 # libcuda.so.1 is the NVIDIA *driver* library: the container runtime injects it on a GPU host, and no
 # image carries it at build time. OpenMVS links it directly (CUDA::cuda_driver), so its binaries cannot
 # even load without it (attempt 7). The link-time stub from the devel image is kept OFF the loader path;
@@ -65,7 +75,7 @@ COPY --from=build /opt/openmvs/libcuda-stub.so /opt/cuda-stubs/libcuda.so.1
 # check is: every shared library resolves (ldd), and the binary runs to completion (exit 0 or 1 —
 # not 127 loader failure, not a crash) without a loader error in its output.
 RUN ldconfig && colmap -h >/dev/null && cd /tmp \
- && for b in InterfaceCOLMAP DensifyPointCloud ReconstructMesh RefineMesh TextureMesh; do \
+ && for b in InterfaceCOLMAP DensifyPointCloud ReconstructMesh RefineMesh TextureMesh gltfpack; do \
       if ldd /usr/local/bin/$b | grep 'not found' | grep -v 'libcuda.so.1'; then echo "$b: unresolved libraries"; exit 1; fi; \
       LD_LIBRARY_PATH=/opt/cuda-stubs $b --help >/tmp/help.txt 2>&1; rc=$?; \
       if [ $rc -ne 0 ] && [ $rc -ne 1 ] || grep -q 'error while loading' /tmp/help.txt; then cat /tmp/help.txt; echo "$b: rc=$rc"; exit 1; fi; \

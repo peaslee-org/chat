@@ -24,7 +24,8 @@ docker run --env-file .env photogrammetry-worker:dev
 
 **Production smoke** (after any worker deploy): start the *Sample* scan (22 photos, ≈100 s on an
 A10G/T4 once the worker is up) and re-run the 51-photo set — expect ≈680 k faces → refine skipped
-→ `--decimate 0.73` → 500 k textured, the "Mesh simplified…" warning on the card, zero
+→ **no decimation** (fits the 1 M budget since 2026-08-31; no "Mesh simplified…" warning), a
+meshopt-packed `mesh.glb` (`extensionsRequired` lists `EXT_meshopt_compression`), zero
 `CAMERA_SINGLE_DIM_ERROR` lines, one attempt. Watch with `scripts/deploy/gpu-status.sh` and
 `aws logs tail /ecs/photogrammetry-prod-worker --follow`.
 
@@ -77,8 +78,8 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 | SfM | `sfm` | `colmap feature_extractor` → `exhaustive_matcher` → `mapper`; the sub-model with the most registered images wins; `photo_status` written per input (`registered` / `unregistered` / `skipped:<why>`, names read from `images.bin`) **before** the gate | **fail if registered < 60 % of usable** ("Only N of M photos could be matched — add overlap and try again") |
 | dense | `dense` | `image_undistorter` → `InterfaceCOLMAP` → `DensifyPointCloud --resolution-level 2` | fixed for the 16 GB T4 |
 | mesh | `mesh` | `ReconstructMesh`; then `RefineMesh` **only if** images ≤ `REFINE_MAX_IMAGES` (100) **and** faces ≤ `REFINE_MAX_FACES` (400 k) | refine roughly doubles faces at ~16 GB virtual on 675 k — that OOM-cycled on 2026-08-28 |
-| texture | `texture` | `TextureMesh --decimate FACE_BUDGET/faces` when faces > `FACE_BUDGET` (500 k), warning "Mesh simplified from N to about 500,000 faces to fit the viewer"; `--global-seam-leveling 0 --local-seam-leveling 0` (leveling blackens faces in this build — root cause open in `docs/TODO.md`) | |
-| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct); each atlas is cropped to the box its UVs use, capped at `TEXTURE_MAX_SIZE`² pixels and embedded as JPEG q85 (`pipeline/export.py::shrink_atlas`); corners sharing position + UV are welded (`merge_vertices`, OpenMVS writes one `vt` per corner — unwelded geometry, not the atlases, was the bulk of the 51-photo 45 MB GLB), rotated into glTF's y-up; `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
+| texture | `texture` | `TextureMesh --decimate FACE_BUDGET/faces` when faces > `FACE_BUDGET` (1 M since 2026-08-31 — meshopt keeps the GLB small), warning "Mesh simplified from N to about 1,000,000 faces to fit the viewer"; `--global-seam-leveling 1 --local-seam-leveling 1` (v2.4.0's sampler regression that blackened leveled faces is patched in the image — `openmvs-v2.4.0-seam-leveling.patch`, upstream `eeedab7`) | |
+| export/publish | `publish` | OBJ → GLB **per material** via trimesh (no atlas re-pack, so multi-material meshes are correct); each atlas is cropped to the box its UVs use, capped at `TEXTURE_MAX_SIZE`² pixels and embedded as JPEG q85 (`pipeline/export.py::shrink_atlas`); corners sharing position + UV are welded (`merge_vertices`, OpenMVS writes one `vt` per corner — unwelded geometry, not the atlases, was the bulk of the 51-photo 45 MB GLB), rotated into glTF's y-up; the GLB is then packed with `gltfpack -cc` (`pipeline/export.py::pack_glb` — KHR_mesh_quantization + EXT_meshopt_compression, ~4× on the sample, textures pass through; on gltfpack failure the raw GLB ships with a "Mesh compression failed" warning instead of failing the job; decoded in the viewer by model-viewer's meshopt decoder, bundled in chat-vue); `preview.png` = first input photo at 640 px; upload `output/mesh.glb` + `output/preview.png`; row → `complete` with keys and `completed_at` | |
 
 Each stage writes `<stage>.done` (atomic, JSON payload — e.g. the sfm marker carries `sparse`,
 `registered_images`, `registered_names`) under `WORK_DIR/<job_id>/`; a redelivered job resumes at

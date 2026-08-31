@@ -1,5 +1,18 @@
+<script lang="ts">
+import { ModelViewerElement } from "@google/model-viewer"
+// Worker GLBs are gltfpack-compressed (EXT_meshopt_compression + KHR_mesh_quantization); the
+// decoder ships with our build instead of a runtime CDN. model-viewer loads the URL as a classic
+// <script> and reads the global it defines, so this must be the UMD .cjs build (the .mjs exports,
+// defines no global; aliased in vite.config.ts — Vite rejects its require-only export condition).
+// A plain <script> block: this must run once at module import, before the first <model-viewer>
+// mounts (a <script setup> body runs per instance); the decoder itself is fetched only when a
+// mesh actually loads.
+import meshoptDecoderUrl from "meshopt-decoder.cjs?url"
+
+ModelViewerElement.meshoptDecoderLocation = meshoptDecoderUrl
+</script>
+
 <script setup lang="ts">
-import "@google/model-viewer"
 import { ref, watch } from "vue"
 
 const props = withDefaults(defineProps<{

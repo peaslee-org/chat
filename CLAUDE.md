@@ -42,8 +42,9 @@ Browser (chat-vue SPA on S3 + CloudFront)
       → S3 (photo sets under photogrammetry/<user>/<job>/input/, uploaded by the browser with
                   presigned PUTs) → SQS → RunTask launches photogrammetry-worker (same GPU pool)
                   → COLMAP SfM (+ photo_status: which photos registered) → dense cloud
-                  → OpenMVS reconstruct → refine only ≤ 400 k faces → texture, decimated to 500 k
-                  → GLB per material + preview → S3 output/; warnings + photo_status on the job row
+                  → OpenMVS reconstruct → refine only ≤ 400 k faces → texture, decimated to 1 M
+                  → GLB per material, meshopt-compressed (gltfpack) + preview → S3 output/;
+                  warnings + photo_status on the job row
                   → stages checkpointed on a host-path scratch volume so a restart resumes
       → thumbnails for any job's photos are made by the API on first request into …/thumbs/
       → worker exits (idle timeout, max lifetime, or spot notice); ASG scales back to 0.

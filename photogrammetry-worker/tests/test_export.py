@@ -1,11 +1,54 @@
 """GLB export from a textured OBJ; preview downscale keeps aspect."""
+import os
+import subprocess
 from pathlib import Path
 
 import numpy as np
+import pytest
 import trimesh
 from PIL import Image
 
-from pipeline.export import make_preview, obj_to_glb
+from pipeline.export import make_preview, obj_to_glb, pack_glb
+
+
+def fake_gltfpack(tmp_path, monkeypatch, script_body: str) -> Path:
+    """Put a fake `gltfpack` first on PATH; returns the dir the fake can write into."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    exe = bin_dir / "gltfpack"
+    exe.write_text("#!/bin/sh\n" + script_body)
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    return tmp_path
+
+
+def test_pack_glb_compresses_via_gltfpack_meshopt(tmp_path, monkeypatch):
+    """pack_glb shells out to gltfpack with -cc (KHR_mesh_quantization +
+    EXT_meshopt_compression) and returns the packed file."""
+    fake_gltfpack(tmp_path, monkeypatch, (
+        f'echo "$@" > {tmp_path}/args.txt\n'
+        'while [ $# -gt 0 ]; do\n'
+        '  [ "$1" = "-i" ] && inp=$2; [ "$1" = "-o" ] && outp=$2; shift\n'
+        'done\n'
+        'cp "$inp" "$outp"\n'
+    ))
+    src = tmp_path / "mesh.raw.glb"
+    src.write_bytes(b"glTF-raw-bytes")
+    out = pack_glb(src, tmp_path / "mesh.glb")
+    assert out == tmp_path / "mesh.glb" and out.read_bytes() == b"glTF-raw-bytes"
+    args = (tmp_path / "args.txt").read_text().split()
+    assert "-cc" in args
+    assert args[args.index("-i") + 1] == str(src)
+    assert args[args.index("-o") + 1] == str(out)
+
+
+def test_pack_glb_raises_when_gltfpack_fails(tmp_path, monkeypatch):
+    """A gltfpack failure raises so the caller can fall back to the uncompressed GLB."""
+    fake_gltfpack(tmp_path, monkeypatch, "echo boom >&2\nexit 1\n")
+    src = tmp_path / "mesh.raw.glb"
+    src.write_bytes(b"glTF-raw-bytes")
+    with pytest.raises(subprocess.CalledProcessError):
+        pack_glb(src, tmp_path / "mesh.glb")
 
 
 def write_textured_quad(d: Path) -> Path:

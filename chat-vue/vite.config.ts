@@ -36,9 +36,13 @@ export default defineConfig(({ mode }) => ({
     },
   ],
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      // The UMD meshopt decoder (classic script defining the global model-viewer expects) is only
+      // behind a `require` export condition, which Vite rejects on an import — alias to the file.
+      // Regex form: a string alias won't match once the `?url` query is attached (Rollup build).
+      { find: /^meshopt-decoder\.cjs/, replacement: fileURLToPath(new URL('./node_modules/meshoptimizer/meshopt_decoder.cjs', import.meta.url)) },
+    ],
   },
   server: {
     port: 5173,
