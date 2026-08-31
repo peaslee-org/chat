@@ -50,13 +50,13 @@ def refine_mesh(runner, dense: Path, scene_dense: Path, mesh_ply: Path, use_gpu:
 def texture_mesh(runner, dense: Path, scene_dense: Path, mesh_ply: Path, use_gpu: bool = True,
                  decimate: float | None = None) -> Path:
     out = dense / "scene_textured.mvs"
-    # Seam leveling is OFF on purpose: in our OpenMVS v2.4.0 build (Ubuntu noble, OpenCV 4.6) both
-    # the global and the local pass rewrite every face's pixels as ~0 (faces render black with
-    # stray saturated texels), while the raw patch copy is correct. Verified 2026-08-28 by
-    # re-running TextureMesh on the sample scan with each option toggled. Visible patch seams are
-    # the price until the build is root-caused (docs/TODO.md, "Worker image").
+    # Both seam-leveling passes are ON. Stock v2.4.0 blackened every leveled face — its sampler
+    # refactor passed the float interpolation type as cv::Mat::at's pixel type, so leveling read
+    # 8-bit source images as raw floats — and the image cherry-picks upstream's fix
+    # (openmvs-v2.4.0-seam-leveling.patch; root cause + measurements in docs/TODO.md history,
+    # 2026-08-31). The flags are explicit so an upstream default change can't flip them silently.
     cmd = ["TextureMesh", str(scene_dense), "-m", str(mesh_ply), "-w", str(dense), "-o", str(out),
-           "--export-type", "obj", "--global-seam-leveling", "0", "--local-seam-leveling", "0"]
+           "--export-type", "obj", "--global-seam-leveling", "1", "--local-seam-leveling", "1"]
     if decimate is not None:
         decimate = max(decimate, 0.001)   # OpenMVS rejects/ignores a ratio that rounds to 0.000
         cmd += ["--decimate", f"{decimate:.3f}"]   # OpenMVS decimates the input surface before texturing

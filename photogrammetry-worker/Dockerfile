@@ -21,8 +21,15 @@ RUN git clone --depth 1 https://github.com/cdcseacave/VCG.git vcglib \
 # both stages, and upstream's own ubuntu:24.04 Dockerfile has the same break. The patch turns JXL
 # support off (libs/IO/CMakeLists.txt) and guards the one write-path branch (libs/Common/Types.inl).
 # The worker never reads or writes .jxl. Regenerate the patch if OPENMVS_TAG changes.
-COPY photogrammetry-worker/openmvs-v2.4.0-noble.patch /src/
-RUN git -C openMVS apply --verbose /src/openmvs-v2.4.0-noble.patch
+# The seam-leveling patch is upstream commit eeedab7 ("texture: fix corner case in global seam
+# leveling logic", 2026-02-27, first commit after v2.4.0 to touch this code): v2.4.0's sampler
+# refactor made TImage::sample pass the float interpolation type as cv::Mat::at's pixel type, so
+# seam leveling read 8-bit source images as raw floats and wrote ~0 into every face (black faces,
+# stray saturated texels). Verified on the sample scan 2026-08-31; drop the patch when OPENMVS_TAG
+# moves past a release containing eeedab7.
+COPY photogrammetry-worker/openmvs-v2.4.0-noble.patch photogrammetry-worker/openmvs-v2.4.0-seam-leveling.patch /src/
+RUN git -C openMVS apply --verbose /src/openmvs-v2.4.0-noble.patch \
+ && git -C openMVS apply --verbose --whitespace=nowarn /src/openmvs-v2.4.0-seam-leveling.patch
 # USE_PYTHON=OFF: v2.4.0 defaults the Python bindings ON, which makes FIND_PACKAGE(Python3 ... REQUIRED)
 # fail on a builder without python3-dev (first CI build, 2026-08-27). The worker calls the CLI tools
 # only. VIEWER/TESTS off: no GUI in a worker, and both shorten the ~30 min build.
