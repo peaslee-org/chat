@@ -3,7 +3,7 @@ import math
 import subprocess
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -91,7 +91,7 @@ def make(tmp_path, *, status="queued", image_count=10, keys=None, recon_kwargs=N
         keys = [prefix] + keys
     job = MagicMock(id=job_id, user_id=USER, status=status, stage=None, image_count=image_count,
                     input_prefix=prefix, mesh_s3_key=None, preview_s3_key=None, error_message=None, completed_at=None,
-                    warnings=None)
+                    warnings=None, processing_started_at=None)
     session = MagicMock()
     session.get.return_value = job
 
@@ -148,6 +148,23 @@ def test_publish_falls_back_to_uncompressed_glb_when_pack_fails(tmp_path, monkey
     assert job.status == "complete"
     assert s3.mesh_bytes[:4] == b"glTF"
     assert any("compress" in w.lower() for w in job.warnings)
+
+
+def test_claim_stamps_processing_started_at(tmp_path):
+    """The first claim starts the job's billable GPU clock (cost-per-job in the usage panel)."""
+    job, _, _, deps = make(tmp_path)
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert isinstance(job.processing_started_at, datetime)
+
+
+def test_processing_started_at_survives_a_resume(tmp_path):
+    """A resumed job keeps its original claim time: the bill spans all attempts, and the
+    stamp must not move on redelivery."""
+    stamp = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+    job, _, _, deps = make(tmp_path)
+    job.processing_started_at = stamp
+    process_photogrammetry_job({"job_id": str(job.id)}, deps)
+    assert job.processing_started_at == stamp
 
 
 def test_face_budget_is_one_million():

@@ -38,6 +38,17 @@ class GpuSessionJob(BaseModel):
     created_at: datetime
 
 
+class GpuBillableJob(BaseModel):
+    """A job completed inside a session, with its own compute cost (worker claim → complete —
+    startup excluded, the part one would bill for). id/name only for the caller's own jobs."""
+    id: Optional[UUID] = None
+    name: Optional[str] = None
+    image_count: int
+    billable_seconds: int
+    billable_usd: float
+    usd_per_photo: Optional[float] = None
+
+
 class GpuSessionSummary(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime]
@@ -51,6 +62,8 @@ class GpuSessionSummary(BaseModel):
     kind: Optional[StartupKind] = None                # None until the worker reported the boot time
     stages: Optional[StartupStages] = None
     job: Optional[GpuSessionJob] = None               # None for warm-ups, or a job since deleted
+    cost_usd: Optional[float] = None                  # hours × rate — what this session cost you
+    billable_jobs: List[GpuBillableJob] = []          # photogrammetry sessions only
 
     model_config = {"from_attributes": True}
 
@@ -71,5 +84,11 @@ class GpuUsageResponse(BaseModel):
     startup_samples: int = 0                          # == cold_samples
     cold_median_seconds: Optional[int] = None
     cold_samples: int = 0
+    # $/photo of compute over the last N completed scans (photogrammetry family only):
+    # the worst case is the floor for a per-photo price that never loses money.
+    photo_cost_median_usd: Optional[float] = None
+    photo_cost_worst_usd: Optional[float] = None
+    photo_cost_best_usd: Optional[float] = None
+    photo_cost_samples: int = 0
     warm_median_seconds: Optional[int] = None
     warm_samples: int = 0

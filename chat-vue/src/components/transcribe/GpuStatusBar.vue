@@ -78,6 +78,10 @@ function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 /** Scan → its name; transcript → its time (it has no name). The page's ?job= opens it. */
+function cents(usd: number): string {
+  return `${(usd * 100).toFixed(2)}¢`
+}
+
 function jobLabel(job: GpuSessionJob): string {
   return job.name ?? `Transcript ${when(job.created_at)}`
 }
@@ -141,32 +145,53 @@ onUnmounted(() => { gpu.stopPolling(); if (clock) clearInterval(clock) })
             <th class="pr-3 font-normal" title="task running → first job claimed">Init</th>
             <th class="pr-3 font-normal">Total</th>
             <th class="pr-3 font-normal">Promised</th>
-            <th class="font-normal">Δ</th>
+            <th class="pr-3 font-normal">Δ</th>
+            <th class="font-normal" title="session wall clock × rate (startup and idle included)">Cost</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in startups" :key="s.started_at">
-            <td class="max-w-[16rem] truncate pr-3" data-testid="job">
-              <RouterLink v-if="s.job" :to="jobLink(s.family, s.job)" class="text-indigo-300 hover:underline" :title="jobLabel(s.job)">{{ jobLabel(s.job) }}</RouterLink>
-              <span v-else>—</span>
-            </td>
-            <td class="pr-3">{{ when(s.started_at) }}</td>
-            <td class="pr-3" data-testid="kind">
-              <span
-                v-if="s.kind"
-                class="rounded-full px-1.5 text-[10px] uppercase"
-                :class="s.kind === 'warm' ? 'bg-amber-900/60 text-amber-200' : 'bg-sky-900/60 text-sky-200'"
-              >{{ s.kind }}</span>
-              <span v-else>—</span>
-            </td>
-            <td v-for="k in STAGES" :key="k" class="pr-3">{{ stage(s, k) }}</td>
-            <td class="pr-3">{{ durationLabel(s.actual_startup_seconds!) }}</td>
-            <td class="pr-3">{{ s.estimated_startup_seconds === null ? "—" : durationLabel(s.estimated_startup_seconds) }}</td>
-            <td data-testid="delta" :class="delta(s)?.late ? 'text-red-400' : 'text-gray-300'">{{ delta(s)?.text ?? "—" }}</td>
-          </tr>
+          <template v-for="s in startups" :key="s.started_at">
+            <tr>
+              <td class="max-w-[16rem] truncate pr-3" data-testid="job">
+                <RouterLink v-if="s.job" :to="jobLink(s.family, s.job)" class="text-indigo-300 hover:underline" :title="jobLabel(s.job)">{{ jobLabel(s.job) }}</RouterLink>
+                <span v-else>—</span>
+              </td>
+              <td class="pr-3">{{ when(s.started_at) }}</td>
+              <td class="pr-3" data-testid="kind">
+                <span
+                  v-if="s.kind"
+                  class="rounded-full px-1.5 text-[10px] uppercase"
+                  :class="s.kind === 'warm' ? 'bg-amber-900/60 text-amber-200' : 'bg-sky-900/60 text-sky-200'"
+                >{{ s.kind }}</span>
+                <span v-else>—</span>
+              </td>
+              <td v-for="k in STAGES" :key="k" class="pr-3">{{ stage(s, k) }}</td>
+              <td class="pr-3">{{ durationLabel(s.actual_startup_seconds!) }}</td>
+              <td class="pr-3">{{ s.estimated_startup_seconds === null ? "—" : durationLabel(s.estimated_startup_seconds) }}</td>
+              <td class="pr-3" data-testid="delta" :class="delta(s)?.late ? 'text-red-400' : 'text-gray-300'">{{ delta(s)?.text ?? "—" }}</td>
+              <td>{{ s.cost_usd != null ? `$${s.cost_usd.toFixed(2)}` : "—" }}</td>
+            </tr>
+            <tr v-for="(b, i) in s.billable_jobs ?? []" :key="`${s.started_at}-${i}`" data-testid="billable-job" class="text-gray-400">
+              <td :colspan="12" class="pl-4">
+                └ {{ b.name ?? "another user's scan" }} · {{ b.image_count }} photos ·
+                {{ durationLabel(b.billable_seconds) }} compute · ${{ b.billable_usd.toFixed(2) }}<template v-if="b.usd_per_photo != null"> · {{ cents(b.usd_per_photo) }}/photo</template>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
       <p v-else-if="startupsOpen" class="mt-1 text-gray-500">No measured starts to show.</p>
+      <div
+        v-if="props.family === 'photogrammetry' && (gpu.usage?.photo_cost_samples ?? 0) > 0"
+        data-testid="photo-cost-summary"
+        class="mt-1 text-gray-400"
+        title="compute only — worker claim → complete, startup excluded; the worst case is the floor for a per-photo price"
+      >
+        Compute: median {{ cents(gpu.usage!.photo_cost_median_usd!) }}/photo ·
+        worst {{ cents(gpu.usage!.photo_cost_worst_usd!) }}/photo ·
+        best {{ cents(gpu.usage!.photo_cost_best_usd!) }}/photo
+        ({{ gpu.usage!.photo_cost_samples }} scans @ ${{ gpu.usage!.hourly_rate_usd }}/h)
+      </div>
     </div>
   </div>
 </template>

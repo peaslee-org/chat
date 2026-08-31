@@ -155,7 +155,11 @@ src/
                                this family's launches: job (RouterLink to `/photogrammetry?job=` or
                                `/transcribe?job=` — a scan by name, a transcript by its time) ·
                                when · kind · capacity · boot · pull · container · init · total ·
-                               promised · Δ; choice in localStorage "gpuStartupsOpen")
+                               promised · Δ · cost; under a photogrammetry session, indented rows
+                               per completed scan with billable compute ($ and ¢/photo; another
+                               user's scan is anonymous), and a "Compute: median/worst/best ¢/photo"
+                               summary line — the worst case is the per-photo price floor; choice in
+                               localStorage "gpuStartupsOpen")
       RunSidebar.vue           Left panel: job list + new job form toggle
       RunDetailView.vue        Right panel: job detail, transcript, speaker panel
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)

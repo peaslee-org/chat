@@ -99,6 +99,18 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 
 ## Recently done (2026-08-28 → 31)
 
+- 2026-08-31 **Cost per job in the usage panel** (API migration `t0u1v2w3x4y5` + worker + Vue).
+  Two numbers with different jobs: a session's `cost_usd` (wall clock × `GPU_HOURLY_RATE_USD` —
+  what a launch costs) and per completed scan the **billable compute** (worker claim → complete,
+  startup excluded — what one would bill): the worker stamps
+  `photogrammetry_jobs.processing_started_at` at first claim (kept across resumes), `/gpu/usage`
+  matches completed scans into their session's window and adds a $/photo summary over the last 20
+  scans (median/worst/best — worst is the floor for a per-photo price). Another user's scan shows
+  cost but not identity (same rule as the job link). Startups table: Cost column + indented
+  billable-job rows + the compute summary line. **Note:** `GPU_HOURLY_RATE_USD` is still 0.20
+  (spot-era) while the pool runs on-demand g4dn.xlarge ($0.526/h) — set it honestly or every
+  figure reads 2.6× low; the panel prints the rate it used.
+
 - 2026-08-31 **Thumbnails made asynchronous** (API + Vue) after the predicted "if it bites" bit:
   the first `/photos` for a 147-photo scan generated thumbnails synchronously for 2 m 28 s —
   CloudFront's `/api/*` origin timeout is 30 s (default, unconfigured) → 504 → "Could not load

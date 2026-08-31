@@ -186,7 +186,12 @@ returns per session the kind, the promised and actual startup, the stage breakdo
 `job` it was launched for (`gpu_sessions.job_id`, stamped by `ensure_worker("job", …, job_id=)`;
 `{id, name, created_at}` looked up in the family's jobs table, `null` for warm-ups, a deleted job, or
 another user's launch — the list is everyone's, but a scan's name is its owner's content and the link
-only works for them).
+only works for them). Each session also carries `cost_usd` (hours × `GPU_HOURLY_RATE_USD`) and, for
+photogrammetry, `billable_jobs`: scans completed inside the session window with their own compute
+cost (`processing_started_at` — stamped by the worker at first claim — → `completed_at`; startup
+excluded), plus a response-level $/photo summary over the last 20 completed scans
+(`photo_cost_median/worst/best_usd`, the worst being the floor for a per-photo price). Another
+user's scan shows cost but not id/name (the job-link privacy rule).
 
 *Admin release.* `POST /api/v1/gpu/release?family=…&mode=graceful|immediate` (Cognito `admin`
 group; 403 otherwise, 409 with no live worker) writes `release_mode` / `release_requested_at` /

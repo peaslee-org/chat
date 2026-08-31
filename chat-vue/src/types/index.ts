@@ -148,6 +148,21 @@ export interface GpuSessionSummary {
   stages: StartupStages | null
   /** null for warm-ups, or when the job has since been deleted. */
   job: GpuSessionJob | null
+  /** hours × rate — what this session cost, wall clock including startup and idle tail. */
+  cost_usd?: number | null
+  /** Scans completed inside this session with their own compute cost (photogrammetry only). */
+  billable_jobs?: GpuBillableJob[]
+}
+
+/** A scan's billable compute: worker claim → complete, startup excluded. id/name only for
+ * the caller's own scans. */
+export interface GpuBillableJob {
+  id: string | null
+  name: string | null
+  image_count: number
+  billable_seconds: number
+  billable_usd: number
+  usd_per_photo: number | null
 }
 
 export interface GpuUsage {
@@ -162,6 +177,11 @@ export interface GpuUsage {
   cold_samples: number
   warm_median_seconds: number | null
   warm_samples: number
+  /** Compute-$/photo over the last N completed scans — worst is the price-per-photo floor. */
+  photo_cost_median_usd?: number | null
+  photo_cost_worst_usd?: number | null
+  photo_cost_best_usd?: number | null
+  photo_cost_samples?: number
   sessions: GpuSessionSummary[]
 }
 

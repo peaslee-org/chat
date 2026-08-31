@@ -31,6 +31,8 @@ def make(tasks=None, day_hours=0.0, month_hours=0.0, warms=0, lock=True, closed_
     repo.record_timings = AsyncMock()
     repo.latest_cost_snapshot = AsyncMock(return_value=None)
     repo.save_cost_snapshot = AsyncMock()
+    repo.completed_photogrammetry_billables_since = AsyncMock(return_value=[])
+    repo.recent_completed_billables = AsyncMock(return_value=[])
     launcher = MagicMock()
     launcher.list_worker_tasks = MagicMock(return_value=tasks or [])
     launcher.run_worker_task = MagicMock(return_value="arn:task/1")
@@ -208,6 +210,73 @@ async def test_usage_defaults_family_to_transcription_when_not_stamped():
     u = await ctl.usage("u1")
     assert len(u.sessions) == 1
     assert u.sessions[0].family == "transcription"
+
+
+def billable(mins, photos, uid="u1", start=None, name="Scan A"):
+    b = MagicMock(user_id=uid, image_count=photos,
+                  processing_started_at=start or NOW + timedelta(minutes=10))
+    b.completed_at = b.processing_started_at + timedelta(minutes=mins)
+    b.name = name
+    b.id = uuid.uuid4()
+    return b
+
+
+async def test_usage_attaches_cost_and_billable_jobs_to_photogrammetry_sessions():
+    """Session cost = wall clock × rate (what it costs you); each job completed inside the
+    session carries its own compute cost (claim → complete — what you'd bill), startup excluded
+    by construction."""
+    ctl, repo, _ = make(family="photogrammetry")
+    s = MagicMock(started_at=NOW, started_processing_at=NOW + timedelta(minutes=5),
+                  ended_at=NOW + timedelta(hours=1), reason="job", started_by="u1", end_reason=None,
+                  family="photogrammetry", instance_booted_at=None, pull_started_at=None,
+                  pull_stopped_at=None, container_started_at=None, instance_id="i-1",
+                  estimated_startup_seconds=None)
+    repo.sessions_since = AsyncMock(return_value=[s])
+    b = billable(30, 100)   # 30 min of compute at $0.2/h over 100 photos
+    repo.completed_photogrammetry_billables_since = AsyncMock(return_value=[b])
+    u = await ctl.usage("u1")
+    sess = u.sessions[0]
+    assert sess.cost_usd == round(sess.hours * 0.2, 2)
+    (j,) = sess.billable_jobs
+    assert j.billable_seconds == 1800
+    assert j.billable_usd == 0.1
+    assert j.usd_per_photo == 0.001
+    assert j.name == "Scan A" and j.image_count == 100
+
+
+async def test_usage_billable_job_of_another_user_is_anonymous():
+    ctl, repo, _ = make(family="photogrammetry")
+    s = MagicMock(started_at=NOW, started_processing_at=NOW, ended_at=NOW + timedelta(hours=1),
+                  reason="job", started_by="u2", end_reason=None, family="photogrammetry",
+                  instance_booted_at=None, pull_started_at=None, pull_stopped_at=None,
+                  container_started_at=None, instance_id="i-1", estimated_startup_seconds=None)
+    repo.sessions_since = AsyncMock(return_value=[s])
+    repo.completed_photogrammetry_billables_since = AsyncMock(return_value=[billable(30, 100, uid="u2")])
+    u = await ctl.usage("u1")
+    (j,) = u.sessions[0].billable_jobs
+    assert j.name is None and j.id is None      # someone else's scan: cost yes, identity no
+    assert j.billable_usd == 0.1
+
+
+async def test_usage_photo_cost_summary_from_recent_completed_scans():
+    ctl, repo, _ = make(family="photogrammetry")
+    repo.recent_completed_billables = AsyncMock(return_value=[
+        billable(30, 100),   # $0.001/photo
+        billable(60, 100),   # $0.002/photo — the worst case, the floor for pricing
+        billable(15, 50),    # $0.001/photo
+    ])
+    u = await ctl.usage("u1")
+    assert u.photo_cost_samples == 3
+    assert u.photo_cost_median_usd == 0.001
+    assert u.photo_cost_worst_usd == 0.002
+    assert u.photo_cost_best_usd == 0.001
+
+
+async def test_usage_photo_costs_absent_for_the_transcription_family():
+    ctl, repo, _ = make()
+    u = await ctl.usage("u1")
+    assert u.photo_cost_samples == 0 and u.photo_cost_median_usd is None
+    repo.recent_completed_billables.assert_not_awaited()
 
 
 async def test_usage_hours_is_zero_for_a_session_that_never_got_an_instance():

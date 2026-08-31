@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from uuid import UUID
 
 from app.schemas.gpu import (
-    GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState, GpuSessionJob,
+    GpuBillableJob, GpuSessionSummary, GpuStateResponse, GpuUsageResponse, StartupKind, StartupStages, WorkerState, GpuSessionJob,
 )
 from app.services.ecs_launcher import GpuLaunchError
 
@@ -279,6 +279,36 @@ class GpuController:
         # The list is everyone's (one pool, one budget) but a job's name is its owner's content and
         # its link only works for them — so only the caller's own launches carry a job.
         jobs = await self._repo.job_labels([s for s in rows if s.started_by == user_id])
+        rate = self._s.gpu_hourly_rate_usd
+        # Billable compute per completed scan (claim → complete; startup excluded — the part one
+        # would bill), matched to the session whose window contains the claim. Same privacy rule
+        # as the job link: another user's scan shows its cost but not its identity.
+        billables: list = []
+        photo_costs: list[float] = []
+        if self._family == "photogrammetry":
+            billables = await self._repo.completed_photogrammetry_billables_since(month_start)
+            for b in await self._repo.recent_completed_billables():
+                if b.image_count:
+                    seconds = (b.completed_at - b.processing_started_at).total_seconds()
+                    photo_costs.append(round(seconds / 3600.0 * rate / b.image_count, 4))
+
+        def billable_jobs_for(s) -> list[GpuBillableJob]:
+            if s.family != "photogrammetry":
+                return []
+            end = s.ended_at or now
+            out = []
+            for b in billables:
+                if not (s.started_at <= b.processing_started_at <= end):
+                    continue
+                seconds = int((b.completed_at - b.processing_started_at).total_seconds())
+                usd = round(seconds / 3600.0 * rate, 3)
+                mine = b.user_id == user_id
+                out.append(GpuBillableJob(
+                    id=b.id if mine else None, name=b.name if mine else None,
+                    image_count=b.image_count, billable_seconds=seconds, billable_usd=usd,
+                    usd_per_photo=round(usd / b.image_count, 4) if b.image_count else None,
+                ))
+            return out
         sessions = [
             GpuSessionSummary(
                 started_at=s.started_at, ended_at=s.ended_at, reason=s.reason, started_by=s.started_by,
@@ -304,6 +334,10 @@ class GpuController:
             )
             for s in rows
         ]
+        for summary in sessions:
+            summary.cost_usd = round(summary.hours * rate, 2)
+        for summary, s in zip(sessions, rows):
+            summary.billable_jobs = billable_jobs_for(s)
         return GpuUsageResponse(
             today_hours=today, month_hours=month,
             daily_cap_hours=self._s.gpu_daily_cap_hours, monthly_cap_hours=self._s.gpu_monthly_cap_hours,
@@ -317,6 +351,10 @@ class GpuController:
             cold_samples=cold_samples,
             warm_median_seconds=warm_seconds if warm_samples >= _ESTIMATE_MIN_SAMPLES else None,
             warm_samples=warm_samples,
+            photo_cost_median_usd=round(median(photo_costs), 4) if photo_costs else None,
+            photo_cost_worst_usd=max(photo_costs) if photo_costs else None,
+            photo_cost_best_usd=min(photo_costs) if photo_costs else None,
+            photo_cost_samples=len(photo_costs),
         )
 
     async def _actual_cost(self, now: datetime) -> tuple[Optional[float], Optional[datetime]]:
