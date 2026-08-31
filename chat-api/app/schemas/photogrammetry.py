@@ -71,7 +71,9 @@ class SampleJobResponse(BaseModel):
 class PhotoItem(BaseModel):
     filename: str
     url: str        # presigned GET of the original
-    thumb_url: str  # presigned GET of the 256 px thumbnail (the original when none could be made)
+    # Presigned GET of the 256 px thumbnail; None while it hasn't been generated yet (generation
+    # runs in the background — kicked at confirm and by this listing — so clients refetch).
+    thumb_url: Optional[str] = None
     # "registered" | "unregistered" | "skipped:<reason>" from the worker's SfM pass; None before
     # it ran (and always for the sample set listing).
     status: Optional[str] = None

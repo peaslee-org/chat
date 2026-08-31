@@ -168,6 +168,20 @@ class TestConfirmJob:
         await svc.confirm_job("user1", job.id)  # must not raise
         repo.update_job_status.assert_awaited_once_with(job.id, "queued")
 
+    async def test_confirm_kicks_thumbnail_generation_in_the_background(self):
+        """Generation starts at confirm so the thumbs are usually ready before the Photos pane
+        is first opened; /photos only kicks whatever is still missing."""
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        job = make_job(image_count=2)
+        keys = [f"{job.input_prefix}0001.jpg", f"{job.input_prefix}0002.jpg"]
+        svc, _, storage = make_service(job=job, gpu=gpu, keys=keys)
+        with patch.object(ps, "ensure_thumbnails") as ensure:
+            await svc.confirm_job("user1", job.id)
+            ensure.assert_not_called()
+            await drain_thumbs()
+        ensure.assert_called_once_with(storage, keys, f"photogrammetry/user1/{job.id}/thumbs/")
+
     async def test_confirm_publishes_after_commit_then_ensures_worker(self):
         order = []
         gpu = MagicMock()
@@ -390,33 +404,70 @@ class TestLocalService:
         walk.assert_awaited_once_with(res.job_id)
 
 
+async def drain_thumbs():
+    """Run the background thumbnail tasks to completion (they discard themselves when done)."""
+    while ps._THUMB_TASKS:
+        await asyncio.gather(*list(ps._THUMB_TASKS), return_exceptions=True)
+
+
+@pytest.fixture(autouse=True)
+async def _clean_thumb_state():
+    ps._THUMBS_IN_FLIGHT.clear()
+    yield
+    await drain_thumbs()
+    ps._THUMBS_IN_FLIGHT.clear()
+
+
 class TestListJobPhotos:
     async def test_404_when_not_owner(self):
         svc, *_ = make_service(job=None)
         with pytest.raises(NotFoundError):
             await svc.list_job_photos("user1", uuid4())
 
-    async def test_presigns_photo_and_thumbnail_under_the_job_thumbs_prefix(self):
+    async def test_presigns_photo_and_existing_thumbnail_under_the_job_thumbs_prefix(self):
         job = make_job(status="processing")
         keys = [f"{job.input_prefix}0002.jpg", f"{job.input_prefix}0001.png"]
-        svc, _, storage = make_service(job=job, keys=keys)
         thumbs_prefix = f"photogrammetry/user1/{job.id}/thumbs/"
-        with patch.object(ps, "ensure_thumbnails", return_value={
-            keys[0]: f"{thumbs_prefix}0002.jpg", keys[1]: f"{thumbs_prefix}0001.jpg",
-        }) as ensure:
+        svc, _, storage = make_service(job=job)
+        storage.list_keys_with_prefix.side_effect = lambda p: (
+            keys if p == job.input_prefix
+            else [f"{thumbs_prefix}0002.jpg", f"{thumbs_prefix}0001.jpg"]
+        )
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             res = await svc.list_job_photos("user1", job.id)
-        ensure.assert_called_once_with(storage, sorted(keys), thumbs_prefix)
+            await drain_thumbs()
+        ensure.assert_not_called()      # everything already stored: nothing to generate
         assert [p.filename for p in res.photos] == ["0001.png", "0002.jpg"]
         assert res.photos[0].url == f"https://dl/{job.input_prefix}0001.png"
         assert res.photos[0].thumb_url == f"https://dl/{thumbs_prefix}0001.jpg"
 
-    async def test_photo_without_thumbnail_falls_back_to_the_original_url(self):
+    async def test_missing_thumbnail_is_null_and_generated_in_the_background(self):
+        """/photos must answer inside CloudFront's 30 s origin timeout: 147 photos took 2m28s
+        to thumbnail synchronously (504 on 2026-08-31). Missing thumbs come back null and the
+        generation runs after the response; the client refetches while thumbs are pending."""
         job = make_job(status="complete")
         key = f"{job.input_prefix}0001.jpg"
-        svc, *_ = make_service(job=job, keys=[key])
-        with patch.object(ps, "ensure_thumbnails", return_value={}):
+        thumbs_prefix = f"photogrammetry/user1/{job.id}/thumbs/"
+        svc, _, storage = make_service(job=job)
+        storage.list_keys_with_prefix.side_effect = lambda p: [key] if p == job.input_prefix else []
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             res = await svc.list_job_photos("user1", job.id)
-        assert res.photos[0].thumb_url == res.photos[0].url == f"https://dl/{key}"
+            ensure.assert_not_called()  # not before the response
+            assert res.photos[0].thumb_url is None
+            assert res.photos[0].url == f"https://dl/{key}"
+            await drain_thumbs()
+        ensure.assert_called_once_with(storage, [key], thumbs_prefix)
+
+    async def test_thumbnail_generation_not_duplicated_while_in_flight(self):
+        job = make_job(status="complete")
+        key = f"{job.input_prefix}0001.jpg"
+        svc, _, storage = make_service(job=job)
+        storage.list_keys_with_prefix.side_effect = lambda p: [key] if p == job.input_prefix else []
+        with patch.object(ps, "ensure_thumbnails") as ensure:
+            await svc.list_job_photos("user1", job.id)
+            await svc.list_job_photos("user1", job.id)   # first task not yet run
+            await drain_thumbs()
+        ensure.assert_called_once()
 
     async def test_photo_status_from_the_job_row_is_mapped_by_filename(self):
         job = make_job(status="failed")
@@ -444,28 +495,35 @@ class TestListJobPhotos:
         job = make_job(status="complete")
         job.input_prefix = "samples/photogrammetry/images/"
         key = "samples/photogrammetry/images/0001.jpg"
-        svc, _, storage = make_service(job=job, keys=[key])
-        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+        svc, _, storage = make_service(job=job)
+        storage.list_keys_with_prefix.side_effect = lambda p: [key] if p == job.input_prefix else []
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             await svc.list_job_photos("user1", job.id)
+            await drain_thumbs()
         ensure.assert_called_once_with(storage, [key], "samples/photogrammetry/thumbs/")
 
     async def test_keys_nested_below_the_input_prefix_are_not_photos(self):
         job = make_job(status="complete")
         photo = f"{job.input_prefix}0001.jpg"
         stray = f"{job.input_prefix}thumbs/0001.jpg"
-        svc, _, storage = make_service(job=job, keys=[stray, photo])
-        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+        svc, _, storage = make_service(job=job)
+        storage.list_keys_with_prefix.side_effect = lambda p: (
+            [stray, photo] if p == job.input_prefix else []
+        )
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             res = await svc.list_job_photos("user1", job.id)
+            await drain_thumbs()
         assert [p.filename for p in res.photos] == ["0001.jpg"]
         ensure.assert_called_once_with(storage, [photo], f"photogrammetry/user1/{job.id}/thumbs/")
 
-    async def test_no_uploads_yet_is_an_empty_list(self):
+    async def test_no_uploads_yet_is_an_empty_list_and_kicks_nothing(self):
         job = make_job(status="pending")
         svc, *_ = make_service(job=job, keys=[])
-        with patch.object(ps, "ensure_thumbnails", return_value={}) as ensure:
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             res = await svc.list_job_photos("user1", job.id)
+            await drain_thumbs()
         assert res.photos == []
-        ensure.assert_called_once()
+        ensure.assert_not_called()
 
 
 class TestListSamplePhotos:
@@ -482,13 +540,15 @@ class TestListSamplePhotos:
 
     async def test_lists_under_the_sample_prefix_with_thumbs_beside_images(self):
         keys = ["samples/photogrammetry/images/0001.jpg", "samples/photogrammetry/images/0002.jpg"]
-        svc, _, storage = make_service(keys=keys)
-        with patch.object(ps, "ensure_thumbnails", return_value={
-            k: k.replace("images/", "thumbs/") for k in keys
-        }) as ensure:
+        svc, _, storage = make_service()
+        storage.list_keys_with_prefix.side_effect = lambda p: (
+            keys if p == "samples/photogrammetry/images/"
+            else [k.replace("images/", "thumbs/") for k in keys]
+        )
+        with patch.object(ps, "ensure_thumbnails") as ensure:
             res = await svc.list_sample_photos()
-        storage.list_keys_with_prefix.assert_called_once_with("samples/photogrammetry/images/")
-        ensure.assert_called_once_with(storage, keys, "samples/photogrammetry/thumbs/")
+            await drain_thumbs()
+        ensure.assert_not_called()
         assert res.name == "Sample scan" and res.image_count == 2
         assert res.photos[1].thumb_url == "https://dl/samples/photogrammetry/thumbs/0002.jpg"
 
@@ -511,7 +571,9 @@ class TestLocalSamplePhotos:
         n = len(list((ASSET_DIR / "images").glob("*.jpg")))
         assert res.image_count == n == len(res.photos)
         assert res.photos[0].url.endswith("/dev-upload/samples/photogrammetry/images/0001.jpg")
-        assert res.photos[0].thumb_url.endswith("/dev-upload/samples/photogrammetry/thumbs/0001.jpg")
+        assert res.photos[0].thumb_url is None  # generation kicked in the background
+        await drain_thumbs()                    # real Pillow thumbnails into local storage
         assert (tmp_path / "samples/photogrammetry/thumbs/0001.jpg").exists()
         again = await svc.list_sample_photos()
         assert again.image_count == n  # idempotent: no duplicate seeding
+        assert again.photos[0].thumb_url.endswith("/dev-upload/samples/photogrammetry/thumbs/0001.jpg")

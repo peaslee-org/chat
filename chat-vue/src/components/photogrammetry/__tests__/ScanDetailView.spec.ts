@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
 
 vi.mock("@google/model-viewer", () => ({ ModelViewerElement: class {} }))
@@ -73,6 +73,30 @@ describe("ScanDetailView — closing a scan", () => {
     expect(w.find('[data-testid="photo-overlay"]').exists()).toBe(false)
     expect(store.activeJobId).toBe("j1")
     w.unmount()
+  })
+
+  it("refetches while thumbnails are still generating, and stops when they arrive", async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = { photos: [{ ...photo, thumb_url: null }], matched: null, total: 1 }
+      const ready = { photos: [photo], matched: null, total: 1 }
+      vi.mocked(api.fetchJobPhotos).mockReset()
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValue(ready)
+      const { w } = mountSelected()
+      await flushPromises()
+      expect(api.fetchJobPhotos).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(api.fetchJobPhotos).toHaveBeenCalledTimes(2)   // still pending → poll again
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(api.fetchJobPhotos).toHaveBeenCalledTimes(3)   // thumbnails arrived
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(api.fetchJobPhotos).toHaveBeenCalledTimes(3)   // polling stopped
+      w.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("refetches the photos when the job reaches a terminal status", async () => {

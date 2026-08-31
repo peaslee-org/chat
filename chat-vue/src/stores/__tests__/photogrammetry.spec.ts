@@ -35,6 +35,17 @@ describe("photogrammetry store — photos", () => {
     expect(api.fetchJobPhotos).toHaveBeenCalledTimes(2)
   })
 
+  it("does not cache a photo list smaller than the job's image count", async () => {
+    // The Photos pane can ask half a second after job creation, before the presigned PUTs have
+    // landed — caching that near-empty answer froze the pane for the session (2026-08-31).
+    const store = usePhotogrammetryStore()
+    store.jobs.push({ job_id: "j1", image_count: 2 } as never)
+    vi.mocked(api.fetchJobPhotos).mockResolvedValueOnce({ photos: [], matched: null, total: 0 })
+    expect((await store.fetchJobPhotos("j1")).photos).toEqual([])
+    expect((await store.fetchJobPhotos("j1")).photos).toEqual([photo])
+    expect(api.fetchJobPhotos).toHaveBeenCalledTimes(2)
+  })
+
   it("fetchJobPhotos with force refetches and replaces the cache", async () => {
     const store = usePhotogrammetryStore()
     await store.fetchJobPhotos("j1")

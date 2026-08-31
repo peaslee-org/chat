@@ -104,6 +104,17 @@ describe("PhotoGrid", () => {
   })
 
   describe("thumbnail loading state", () => {
+    it("keeps a tile pending with no img while its thumbnail is still being generated", () => {
+      // thumb_url is null until the API's background generation catches up; an <img src="null">
+      // would fire error and mark the tile ✕ even though the thumbnail is merely on its way.
+      const w = mount(PhotoGrid, {
+        props: { photos: [{ filename: "0001.jpg", url: "u", thumb_url: null, status: null }] },
+      })
+      expect(w.findAll('[data-testid="thumb-pending"]')).toHaveLength(1)
+      expect(w.find('[data-testid="thumb-error"]').exists()).toBe(false)
+      expect(w.find('[data-testid="photo-tile"] img').exists()).toBe(false)
+    })
+
     it("counts tiles as they load, then reports the total", async () => {
       const w = mount(PhotoGrid, { props: { photos } })
       expect(w.text()).toContain("Loading photos… 0 of 2")

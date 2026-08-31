@@ -120,7 +120,9 @@ src/
     transcribe.ts      Speaker profiles + samples + transcription jobs state; polling for
                        in-flight jobs (5 s interval) and processing samples (3 s interval)
     photogrammetry.ts   Scan jobs state, concurrent uploads, 3 s polling, presigned mesh URL cache,
-                       per-job photo cache (fetchJobPhotos → {photos, matched, total}; force refetch),
+                       per-job photo cache (fetchJobPhotos → {photos, matched, total}; force refetch;
+                       a listing smaller than the job's image_count — upload still in flight — is
+                       never cached),
                        fetchSamplePhotos(), selectJob()/clearSelection(), toasts
     gpu.ts             GPU worker state per family (transcription | photogrammetry): 30 s polling,
                        warm(), usage; while `starting` a 1 s clock derives elapsedSeconds /
@@ -179,8 +181,11 @@ src/
                                sample mode: name locked, PhotoGrid of the bundled set from
                                GET /samples, "Use my own photos instead", Start runs POST /jobs/sample
       newScanMode.ts           NewScanMode = 'closed' | 'blank' | 'sample'
-      PhotoGrid.vue            Dense lazy thumbnail grid (thumb_url); per-tile skeleton+spinner until
-                               load, ✕ tile on error; status line "Preparing thumbnails…" →
+      PhotoGrid.vue            Dense lazy thumbnail grid (thumb_url; null while the API is still
+                               generating a thumbnail — the tile stays a spinner with no <img>, and
+                               ScanDetailView force-refetches every 5 s, capped ≈5 min, until all
+                               thumbs arrive); tiles keyed by filename; per-tile skeleton+spinner
+                               until load, ✕ tile on error; status line "Preparing thumbnails…" →
                                "Loading photos… n of N" → "N photos[ · M matched]"; tiles marked ✓ /
                                "not matched" / "skipped" from photo.status; click → overlay with the
                                original, ‹ › chevrons outside the image, ←/→/Esc (capture-phase
