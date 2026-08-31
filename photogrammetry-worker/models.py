@@ -32,4 +32,6 @@ class PhotogrammetryJob(Base):
     warnings: Mapped[Optional[list]] = mapped_column(JSONB)
     photo_status: Mapped[Optional[dict]] = mapped_column(JSONB)   # {filename: registered|unregistered|skipped:<why>}
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # First claim by a worker — the start of the job's billable GPU time (survives resumes).
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

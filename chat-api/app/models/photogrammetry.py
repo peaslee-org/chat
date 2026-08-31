@@ -42,4 +42,7 @@ class PhotogrammetryJob(UUIDMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # First claim by a worker — starts the job's billable GPU time (survives resumes; written
+    # by the photogrammetry worker, read by the usage panel's cost-per-job).
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

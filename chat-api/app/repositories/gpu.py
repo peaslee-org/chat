@@ -182,6 +182,32 @@ class GpuSessionRepository:
                 labels[jid] = JobLabel(None, created)
         return labels
 
+    async def completed_photogrammetry_billables_since(self, since: datetime) -> list:
+        """Completed scans with a billable window (worker claim → complete), newest first —
+        matched to sessions by the usage panel. Rows, not ORM objects the caller could mutate."""
+        stmt = (
+            select(PhotogrammetryJob.id, PhotogrammetryJob.name, PhotogrammetryJob.user_id,
+                   PhotogrammetryJob.image_count, PhotogrammetryJob.processing_started_at,
+                   PhotogrammetryJob.completed_at)
+            .where(PhotogrammetryJob.completed_at >= since,
+                   PhotogrammetryJob.processing_started_at.isnot(None))
+            .order_by(PhotogrammetryJob.completed_at.desc())
+        )
+        return list((await self.db.execute(stmt)).all())
+
+    async def recent_completed_billables(self, limit: int = 20) -> list:
+        """The last N completed scans with a billable window — the $/photo summary's sample."""
+        stmt = (
+            select(PhotogrammetryJob.id, PhotogrammetryJob.name, PhotogrammetryJob.user_id,
+                   PhotogrammetryJob.image_count, PhotogrammetryJob.processing_started_at,
+                   PhotogrammetryJob.completed_at)
+            .where(PhotogrammetryJob.completed_at.isnot(None),
+                   PhotogrammetryJob.processing_started_at.isnot(None))
+            .order_by(PhotogrammetryJob.completed_at.desc())
+            .limit(limit)
+        )
+        return list((await self.db.execute(stmt)).all())
+
     async def latest_cost_snapshot(self, month: str) -> Optional[GpuCostSnapshot]:
         stmt = (select(GpuCostSnapshot).where(GpuCostSnapshot.month == month)
                 .order_by(GpuCostSnapshot.fetched_at.desc()).limit(1))

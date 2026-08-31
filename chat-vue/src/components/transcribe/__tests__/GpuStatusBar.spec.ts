@@ -88,6 +88,40 @@ describe("GpuStatusBar", () => {
     w2.unmount()
   })
 
+  it("shows session cost, per-job billable compute, and the $/photo pricing summary", async () => {
+    const withCosts: GpuUsage = {
+      ...usage,
+      photo_cost_median_usd: 0.0011, photo_cost_worst_usd: 0.002, photo_cost_best_usd: 0.0009,
+      photo_cost_samples: 12,
+      sessions: [{
+        ...usage.sessions[0], cost_usd: 0.11,
+        billable_jobs: [
+          { id: SCAN_ID, name: "Sample scan", image_count: 100, billable_seconds: 1800, billable_usd: 0.1, usd_per_photo: 0.001 },
+          { id: null, name: null, image_count: 50, billable_seconds: 600, billable_usd: 0.033, usd_per_photo: 0.0007 },
+        ],
+      }],
+    }
+    vi.mocked(api.getGpuUsage).mockResolvedValue(withCosts)
+    const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })
+    await vi.advanceTimersByTimeAsync(0)
+    await w.find('[data-testid="usage-toggle"]').trigger("click")
+    const toggle = w.find('[data-testid="startups-toggle"]')
+    if (toggle.attributes("aria-expanded") !== "true") await toggle.trigger("click")
+    const panel = w.find('[data-testid="startups"]')
+    expect(panel.text()).toContain("$0.11")                       // the session's wall-clock cost
+    const jobs = w.findAll('[data-testid="billable-job"]')
+    expect(jobs).toHaveLength(2)
+    expect(jobs[0].text()).toContain("Sample scan")
+    expect(jobs[0].text()).toContain("$0.10")
+    expect(jobs[0].text()).toContain("0.10¢/photo")
+    expect(jobs[1].text()).toContain("another user's scan")       // cost visible, identity not
+    const summary = w.find('[data-testid="photo-cost-summary"]')
+    expect(summary.text()).toContain("median 0.11¢/photo")
+    expect(summary.text()).toContain("worst 0.20¢/photo")
+    expect(summary.text()).toContain("12 scans")
+    w.unmount()
+  })
+
   it("collapses the startups table by default behind a cold/warm summary, and remembers expanding it", async () => {
     localStorage.removeItem("gpuStartupsOpen")
     const w = mount(GpuStatusBar, { props: { family: "photogrammetry" }, global: { stubs } })

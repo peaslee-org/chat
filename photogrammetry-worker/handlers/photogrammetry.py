@@ -130,6 +130,10 @@ def process_photogrammetry_job(body: dict, deps: Deps, receive_count: int = 1) -
         first_stage = ck.first_incomplete()
         resuming = first_stage != "sfm"      # markers, not status: a queued (interrupted) job resumes too
         job.status, job.error_message = "processing", None
+        if job.processing_started_at is None:
+            # First claim: starts the job's billable GPU clock (cost per job in the usage
+            # panel). Kept across resumes — the bill spans all attempts.
+            job.processing_started_at = datetime.now(timezone.utc)
         job.stage = "texture" if first_stage == "publish" else first_stage
         if not resuming:
             job.warnings = []

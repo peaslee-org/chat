@@ -71,7 +71,7 @@ The OpenMVS seam-leveling bug reproduces the same way (recipe in `docs/TODO.md`)
 
 | Step | Row `stage` | What happens | Rule |
 |---|---|---|---|
-| load | — | `get` the row; if status ∉ {`queued`, `processing`} → ack and return, remove any scratch | idempotent on redelivery |
+| load | — | `get` the row; if status ∉ {`queued`, `processing`} → ack and return, remove any scratch; first claim stamps `processing_started_at` (billable GPU clock, kept across resumes) | idempotent on redelivery |
 | attempts | — | `ApproximateReceiveCount` ≥ `MAX_ATTEMPTS` (5 = the queue's `maxReceiveCount`), or a `stage.started` marker without its `.done` (the previous attempt died mid-stage) → row `failed` ("did not finish after 5 attempts…") | **no OOM cycling**: a stage that crashed is never retried |
 | fetch | `sfm` (status → `processing`) | list `input_prefix` (direct children only), download; fail if fewer than `image_count` objects | transient S3 errors (`TRANSIENT_S3_CODES`, connection errors) leave the row `processing` and re-raise (redelivery resumes); permanent ones (`AccessDenied`, `NoSuchKey`) fail the row |
 | photos | `sfm` | `pipeline/photos.py`: EXIF orientation applied and stripped (so COLMAP sees upright pixels), unreadable files skipped with a warning, photos whose pixel size differs from the majority skipped (`CAMERA_SINGLE_DIM_ERROR` otherwise); fail if fewer than `MIN_IMAGES` (5) usable | warnings → `job.warnings` |
