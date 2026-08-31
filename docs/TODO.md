@@ -30,6 +30,20 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
 
 ## API (chat-api)
 
+- [ ] **Per-session GPU rate stamping** (designed 2026-08-31, approved — next session's work).
+  Historical costs must never change when prices do: resolve the rate at time of use and stamp it.
+  `gpu_sessions` gains `instance_type`, `market` (spot|on-demand) and `hourly_rate_usd` — filled
+  where the controller already touches the open session for ECS pull timings (one
+  `DescribeInstances` on the known `instance_id`). Rates resolve from a `GPU_RATES` JSON env in
+  terraform (versioned in git; e.g. `{"g4dn.xlarge": {"on-demand": 0.526, "spot": 0.21}}`);
+  unknown type/market falls back to `GPU_HOURLY_RATE_USD`, which demotes to fallback-only. All
+  usage-panel math (session `cost_usd`, per-job billable, $/photo summary) switches to the
+  session's stamped rate, so mixed g4dn/g6 pools compare honestly; unstamped pre-migration rows
+  fall back to the current setting. Edge, accepted: a spot-interrupted job resuming on another
+  instance type bills at the completing session's rate. Not live AWS Pricing API — spot floats
+  hourly and only Cost Explorer (already in the panel) knows actuals; the table + stamp is the
+  estimator, CE the audit. Supersedes flatly bumping `GPU_HOURLY_RATE_USD` to 0.526.
+
 - [ ] **`POST /gpu/release` 200 means "flag written", not "worker acknowledged"** — a worker on an image
   without the watcher never reads it. Either return the session's `release_requested_at`/`ended_at`
   on a follow-up `GET /gpu/state`, or have the controller fall back to `StopTask` when the row is
