@@ -413,6 +413,12 @@ export const useTranscribeStore = defineStore("transcribe", () => {
       .forEach(s => startSamplePolling(s.speaker_id))
   }
 
+  async function setVisibility(jobId: string, isPublic: boolean) {
+    const updated = await api.setJobVisibility(jobId, isPublic)
+    const idx = jobs.value.findIndex((j) => j.job_id === updated.job_id)
+    if (idx >= 0) jobs.value[idx] = { ...jobs.value[idx], ...updated }
+  }
+
   return {
     speakers, speakerNextCursor,
     jobs, jobNextCursor,
@@ -427,5 +433,6 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     dismissToast,
     loadTurnDistances,
     resumePollingForActiveJobs, resumePollingForProcessingSamples,
+    setVisibility,
   }
 })

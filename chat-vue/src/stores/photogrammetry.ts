@@ -214,9 +214,15 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
     jobs.value.filter(j => ACTIVE.has(j.status)).forEach(j => startPolling(j.job_id))
   }
 
+  async function setVisibility(jobId: string, isPublic: boolean) {
+    const updated = await api.setJobVisibility(jobId, isPublic)
+    const idx = jobs.value.findIndex((j) => j.job_id === updated.job_id)
+    if (idx >= 0) jobs.value[idx] = { ...jobs.value[idx], ...updated }
+  }
+
   return {
     jobs, nextCursor, activeJobId, activeJob, uploadProgress, pollingActive, toasts, meshUrls,
     loadJobs, submitScan, submitSampleJob, selectJob, clearSelection, deleteJob, fetchMeshUrls, fetchJobPhotos, fetchSamplePhotos,
-    resumePollingForActiveJobs, dismissToast,
+    resumePollingForActiveJobs, dismissToast, setVisibility,
   }
 })
