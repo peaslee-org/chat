@@ -57,7 +57,7 @@ uv run alembic -c app/db/alembic.ini upgrade head
 
 Migrations run automatically at container start (`scripts/entrypoint.sh` runs `alembic upgrade
 head` before gunicorn binds), so an API deploy *is* the schema deploy. Chain ids in
-`app/db/migrations/versions/` (latest: `r8s9t0u1v2w3`). Deploy the API before any worker whose ORM
+`app/db/migrations/versions/` (latest: `u1v2w3x4y5z6`). Deploy the API before any worker whose ORM
 model reads a new column.
 
 ## Architecture
@@ -103,18 +103,19 @@ app/
 
 ## Endpoints
 
-All under `/api/v1`; every route except `health` requires a Cognito bearer token.
+All under `/api/v1`; every route except `health` and `public` requires a Cognito bearer token.
 
 | Router | Routes |
 |---|---|
 | health | `GET /health`, `GET /health/ready` (`SELECT 1`) |
 | chat | `POST /chat` |
-| conversations | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
+| conversations | `GET /conversations`, `GET /conversations/{id}/messages`, `PATCH /conversations/{id}`, `DELETE /conversations/{id}` |
 | models | `GET /models` (Bedrock model list) |
 | profile | `GET /profile` (sub, email, groups) |
 | admin | `GET /admin/users` (Cognito `admin` group) |
-| transcribe | `POST /transcribe/jobs`, `POST /transcribe/jobs/sample`, `GET /transcribe/jobs`, `GET /transcribe/jobs/{id}`, `POST /transcribe/jobs/{id}/confirm`, `GET /transcribe/jobs/{id}/transcript`, `GET /transcribe/jobs/{id}/turn-distances`, `GET /transcribe/jobs/{id}/events`, `GET /transcribe/jobs/{id}/events/stream`, `DELETE /transcribe/jobs/{id}`; speakers: `POST/GET /transcribe/speakers`, `GET/PATCH/DELETE /transcribe/speakers/{id}`, `POST /transcribe/speakers/{id}/samples`, `POST /transcribe/speakers/{id}/samples/{sid}/confirm`, `DELETE …/samples/{sid}`; dev sink `PUT/GET /transcribe/dev-upload/{path}` (mock mode only) |
-| photogrammetry | `GET /photogrammetry/samples` (bundled set with thumbnails), `POST /photogrammetry/jobs/sample`, `POST /photogrammetry/jobs`, `GET /photogrammetry/jobs`, `GET /photogrammetry/jobs/{id}`, `POST /photogrammetry/jobs/{id}/confirm`, `GET /photogrammetry/jobs/{id}/photos` (originals + thumbnails + per-photo match status), `GET /photogrammetry/jobs/{id}/mesh` (viewer URL + attachment download URLs), `DELETE /photogrammetry/jobs/{id}` |
+| public | `GET /showcase`, `GET /photogrammetry/{job_id}`, `GET /transcriptions/{job_id}`, `GET /conversations/{conversation_id}` (read-only; `is_public` rows only) |
+| transcribe | `POST /transcribe/jobs`, `POST /transcribe/jobs/sample`, `GET /transcribe/jobs`, `GET /transcribe/jobs/{id}`, `PATCH /transcribe/jobs/{id}`, `POST /transcribe/jobs/{id}/confirm`, `GET /transcribe/jobs/{id}/transcript`, `GET /transcribe/jobs/{id}/turn-distances`, `GET /transcribe/jobs/{id}/events`, `GET /transcribe/jobs/{id}/events/stream`, `DELETE /transcribe/jobs/{id}`; speakers: `POST/GET /transcribe/speakers`, `GET/PATCH/DELETE /transcribe/speakers/{id}`, `POST /transcribe/speakers/{id}/samples`, `POST /transcribe/speakers/{id}/samples/{sid}/confirm`, `DELETE …/samples/{sid}`; dev sink `PUT/GET /transcribe/dev-upload/{path}` (mock mode only) |
+| photogrammetry | `GET /photogrammetry/samples` (bundled set with thumbnails), `POST /photogrammetry/jobs/sample`, `POST /photogrammetry/jobs`, `GET /photogrammetry/jobs`, `GET /photogrammetry/jobs/{id}`, `PATCH /photogrammetry/jobs/{id}`, `POST /photogrammetry/jobs/{id}/confirm`, `GET /photogrammetry/jobs/{id}/photos` (originals + thumbnails + per-photo match status), `GET /photogrammetry/jobs/{id}/mesh` (viewer URL + attachment download URLs), `DELETE /photogrammetry/jobs/{id}` |
 | gpu | `GET /gpu/state`, `POST /gpu/warm`, `POST /gpu/release` (admin), `GET /gpu/usage` — all take `?family=transcription|photogrammetry` |
 
 **Request flow for chat:**

@@ -105,6 +105,7 @@ src/
     axios.ts           Axios instance with auth interceptor and 401 handler
     transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
     photogrammetryApi.ts   Photogrammetry API calls (jobs, uploads, mesh URLs, job photos, sample photos)
+    publicApi.ts       Public API calls (unauthenticated: showcase, public conversations/scans/transcripts)
     gpuApi.ts          GET /gpu/state, POST /gpu/warm, GET /gpu/usage (all take `family`)
     jobQuery.ts        useJobDeepLink(open): `?job=<id>` deep link for both views — a watch (the Startups
                        links are same-route navigations, so onMounted never sees them) plus a check()
@@ -129,11 +130,12 @@ src/
                        remainingSeconds from starting_since + startup_estimate_seconds
     profile.ts         Current user's profile (name, email, sub) for /profile
     admin.ts           Admin users list for /admin
-  router/index.ts      Routes: / (ChatView), /transcribe, /photogrammetry, /profile, /admin
+  router/index.ts      Routes: / (ChatView), /demo (DemoView), /transcribe, /photogrammetry, /profile, /admin
                        (requiresAdmin; AdminLayout → DashboardView, UsersView), /callback
   views/
     ChatView.vue       Main layout: sidebar + message thread
     CallbackView.vue   OAuth callback handler — exchanges code for tokens
+    DemoView.vue       Public demo page: showcases public conversations, scans, and transcripts
     TranscribeView.vue Transcribe layout: resizable sidebar (RunSidebar) + detail panel (RunDetailView)
     PhotogrammetryView.vue  Scan layout: resizable ScanSidebar + ScanDetailView, GpuStatusBar
                        (family="photogrammetry") on top; owns formMode ('closed'|'blank'|'sample');
@@ -160,6 +162,7 @@ src/
                                user's scan is anonymous), and a "Compute: median/worst/best ¢/photo"
                                summary line — the worst case is the per-photo price floor; choice in
                                localStorage "gpuStartupsOpen")
+      PublicToggle.vue         Toggle to mark a conversation/job as public (emit `update:isPublic`)
       RunSidebar.vue           Left panel: job list + new job form toggle
       RunDetailView.vue        Right panel: job detail, transcript, speaker panel
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)
@@ -214,17 +217,18 @@ All imports use the `@` alias which maps to `src/`.
 
 ## Auth Flow
 
-1. Router guard detects unauthenticated → calls `auth.login()`
-2. `login()` generates PKCE verifier/challenge, stores verifier in `sessionStorage`, redirects to Cognito Hosted UI
-3. Cognito redirects to `/callback?code=...`
-4. `CallbackView` calls `auth.handleCallback(code)` → POST to Cognito `/oauth2/token`
-5. `id_token` stored in `localStorage`; user redirected to `/`
-6. All API calls via `apiClient` (lib/axios.ts) include `Authorization: Bearer <id_token>`
-7. On logout: `localStorage` cleared, browser redirected to Cognito `/logout`
+1. Router guard detects unauthenticated → redirects to `/demo`
+2. `/demo` is the public demo page (no login required); signed-out visitors see a "Sign in" button that calls `auth.login()`
+3. `login()` generates PKCE verifier/challenge, stores verifier in `sessionStorage`, redirects to Cognito Hosted UI
+4. Cognito redirects to `/callback?code=...`
+5. `CallbackView` calls `auth.handleCallback(code)` → POST to Cognito `/oauth2/token`
+6. `id_token` stored in `localStorage`; user redirected to `/`
+7. All API calls via `apiClient` (lib/axios.ts) include `Authorization: Bearer <id_token>`
+8. On logout: `localStorage` cleared, browser redirected to Cognito `/logout`
 
 The logout URL is derived from `VITE_COGNITO_REDIRECT_URI` by stripping `/callback` to get the app root.
 
-All routes except `/callback` require auth; `/admin` additionally requires `isAdmin`. The guard calls `auth.login()` and returns `false` to abort navigation for unauthenticated users.
+All routes except `/demo` and `/callback` require auth; `/admin` additionally requires `isAdmin`. The guard redirects unauthenticated users to `/demo` instead of forcing login immediately.
 
 ## Environment Variables
 

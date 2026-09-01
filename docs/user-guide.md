@@ -11,6 +11,10 @@ page. **Profile** (`/profile`) shows the name, email and user id on your account
 
 Three tabs run along the top of the left panel: **Chat**, **Transcribe**, **Scan**.
 
+## Demo
+
+Visit `/demo` to see a public showcase without signing in. It displays conversations, transcriptions, and scans that owners have marked public — any of these can be shared via link and viewed by anyone on the internet. Each result (conversation, transcript, scan) has a **Public** toggle that you can use to make your work shareable or private; public items get a small icon on their card. Files are kept for 30 days, then removed; download before then if you want to keep them.
+
 ## Chat
 
 - The left panel lists your conversations; the button at the top starts a new one, ✕ deletes one.
