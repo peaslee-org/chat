@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import ChatView from '@/views/ChatView.vue'
 import CallbackView from '@/views/CallbackView.vue'
@@ -56,18 +57,24 @@ const router = createRouter({
       name: 'callback',
       component: CallbackView,
     },
+    {
+      path: '/demo',
+      name: 'demo',
+      component: () => import('@/views/DemoView.vue'),
+    },
   ],
 })
 
-router.beforeEach((to) => {
+export function authGuard(to: RouteLocationNormalized) {
   const auth = useAuthStore()
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    auth.login()
-    return false
+    return { name: 'demo' }
   }
   if (to.meta.requiresAdmin && !auth.isAdmin) {
     return { name: 'chat' }
   }
-})
+}
+
+router.beforeEach(authGuard)
 
 export default router
