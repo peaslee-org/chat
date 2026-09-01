@@ -44,7 +44,9 @@ internal, and renaming them is a migration with no user-visible payoff.
 - DNS (manual): add the `aitools` CNAME to the distribution domain.
 - Cognito app client: allowlist `https://aitools.peaslee.org/callback` and
   the matching logout URL alongside the existing production + localhost
-  entries.
+  entries. Terraform declares the app client but not its OAuth block — the
+  Hosted UI callback/logout allowlist is console-managed — so this is a
+  manual console step, not part of the Terraform applies.
 - `CORS_ORIGINS` in chat-api gains `https://aitools.peaslee.org`.
 
 ### Branding
@@ -59,7 +61,8 @@ internal, and renaming them is a migration with no user-visible payoff.
 1. Terraform: cert SANs + CloudFront aliases + OIDC `github_repo` var; apply
    both environments (`prod`, `transcription-prod`).
 2. DNS: add the `aitools` CNAME (plus the new cert's validation records).
-3. Cognito callbacks + CORS (Terraform-managed; part of the same applies).
+3. Cognito callbacks (console-managed, manual step) + CORS (Terraform-managed;
+   part of the same applies).
 4. Rename the GitHub repo; update local remotes.
 5. Branding/docs PR through normal CI.
 6. Verify: login works on both domains; a push to `main` deploys green.
