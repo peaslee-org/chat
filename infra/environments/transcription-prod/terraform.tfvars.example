@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars (gitignored). No secret values live in Terraform: credentials are
 # Secrets Manager ARNs, injected into the container by ECS.
 environment                  = "prod"
-cors_allowed_origins         = ["https://chat.example.com", "http://localhost:5173"]
+cors_allowed_origins         = ["http://localhost:5173", "https://chat.peaslee.org", "https://aitools.peaslee.org"]
 huggingface_token_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:transcription-prod/huggingface-token-XXXXXX"
 # Email for the DLQ CloudWatch alarm. Leave empty to skip alarm creation.
 alarm_email = ""

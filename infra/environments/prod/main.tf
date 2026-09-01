@@ -148,6 +148,7 @@ module "cloudfront" {
   source                   = "../../modules/cloudfront"
   environment              = var.environment
   domain_name              = var.domain_name
+  alternate_domain_names   = var.alternate_domain_names
   frontend_bucket_name     = var.frontend_bucket_name
   alb_dns_name             = module.ecs.alb_dns_name
   acm_certificate_arn      = module.acm.certificate_arn

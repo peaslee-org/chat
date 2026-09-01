@@ -77,7 +77,7 @@ resource "aws_cloudfront_function" "spa_router" {
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   is_ipv6_enabled     = true
-  aliases             = [var.domain_name]
+  aliases             = concat([var.domain_name], var.alternate_domain_names)
   default_root_object = "index.html"
 
   # Origin 1: S3 (Vue frontend)
@@ -166,7 +166,7 @@ resource "aws_cloudfront_distribution" "this" {
   tags = { Environment = var.environment }
 }
 
-# ── IAM role for frontend GitHub Actions (peaslee-org/chat-vue) ───────────────
+# ── IAM role for frontend GitHub Actions (repo: var.github_org/var.frontend_github_repo) ──────
 
 resource "aws_iam_role" "frontend_deploy" {
   name = "github-actions-frontend-${var.environment}"
