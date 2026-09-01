@@ -148,6 +148,7 @@ src/
     MessageBubble.vue                    Single message (user = right/indigo, assistant = left/white)
     MessageInput.vue                     Textarea + send button; shows model selector above input
                                          when isNewConversation is true; Enter to send, Shift+Enter for newline
+    PublicToggle.vue                     Shared toggle to mark work public/private (emits `toggle` with flipped boolean)
     transcribe/
       GpuStatusBar.vue         Shared GPU bar (prop `family`): state dot + label with remaining/elapsed
                                while starting (title says cold/warm start and the estimate basis),
@@ -162,7 +163,6 @@ src/
                                user's scan is anonymous), and a "Compute: median/worst/best ¢/photo"
                                summary line — the worst case is the per-photo price floor; choice in
                                localStorage "gpuStartupsOpen")
-      PublicToggle.vue         Toggle to mark a conversation/job as public (emit `update:isPublic`)
       RunSidebar.vue           Left panel: job list + new job form toggle
       RunDetailView.vue        Right panel: job detail, transcript, speaker panel
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)
@@ -274,6 +274,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/api/v1/chat` | `{conversation_id?, message, model_id?}` → `{conversation_id, reply}`; `model_id` only used when creating a new conversation |
 | GET | `/api/v1/conversations` | List conversations for current user |
 | GET | `/api/v1/conversations/{id}/messages` | Fetch message history for a conversation |
+| PATCH | `/api/v1/conversations/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; 204 |
 | DELETE | `/api/v1/conversations/{id}` | 204 |
 
 **Transcribe (`/api/v1/transcribe/`):**
@@ -292,6 +293,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/jobs/{id}/confirm` | Confirm audio uploaded; transitions job → `transcribing` |
 | GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
 | GET | `/jobs/{id}` | Get job status (`TranscriptionJob`) |
+| PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; 204 |
 | GET | `/jobs/{id}/transcript` | Get transcript → `{segments, transcript_url}` |
 | DELETE | `/jobs/{id}` | 204 |
 
@@ -308,11 +310,21 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/jobs/{id}/confirm` | Confirm photos uploaded; transitions job → `queued` |
 | GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
 | GET | `/jobs/{id}` | Job status incl. `stage`, `warnings[]`, `preview_url`, `worker_state`, `estimated_wait_seconds`, `gpu_notice` |
+| PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; 204 |
 | DELETE | `/jobs/{id}` | 204 |
 | POST | `/jobs/sample` | Create a job over the bundled sample photo set (server-side, no upload) |
 | GET | `/samples` | `{name, image_count, photos[{filename,url,thumb_url}]}` — what sample mode shows |
 | GET | `/jobs/{id}/photos` | `{photos[{filename,url,thumb_url,status}], matched, total}` — thumbnails are made on first request; `status` is registered / unregistered / skipped:<reason> once SfM has run |
 | GET | `/jobs/{id}/mesh` | `{url, download_url, preview_download_url, expires_at}` — presigned GLB (viewer) + attachment URLs |
+
+**Public (`/api/v1/public/`, no auth required):**
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/showcase` | List public conversations, transcriptions, scans, and jobs |
+| GET | `/conversations/{conversation_id}` | Get a public conversation with messages (read-only) |
+| GET | `/transcriptions/{job_id}` | Get a public transcription job (read-only) |
+| GET | `/photogrammetry/{job_id}` | Get a public photogrammetry job (read-only) |
 
 **GPU (`/api/v1/gpu/`):** `GET /state` → `{worker_state, estimated_wait_seconds (remaining while
 starting), starting_since, startup_estimate_seconds, estimate_basis, estimate_samples, start_kind,

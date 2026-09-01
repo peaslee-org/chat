@@ -208,7 +208,7 @@ flag is set.
 
 **Database:** Async SQLAlchemy with asyncpg driver. `init_db()` is called at lifespan startup; `get_db()` yields an `AsyncSession` that commits on success and rolls back on exception. `SpeakerSample.embedding` uses `pgvector` (`Vector(192)`); `SpeakerSample.error_message` stores embedding failure reason set by the transcription worker. Production PostgreSQL is EC2-hosted (RDS was decommissioned 2026-03-15); the DSN is a Secrets Manager secret injected by ECS.
 
-**Auth:** All endpoints (except `/api/v1/health`) use `get_current_user`, which validates RS256 JWTs against Cognito's JWKS URL. The JWKS response is cached as a module-level global. Cognito groups drive `admin`-only routes.
+**Auth:** All endpoints (except `/api/v1/health` and `/api/v1/public/*`) use `get_current_user`, which validates RS256 JWTs against Cognito's JWKS URL. The JWKS response is cached as a module-level global. Cognito groups drive `admin`-only routes.
 
 ## CI/CD
 
