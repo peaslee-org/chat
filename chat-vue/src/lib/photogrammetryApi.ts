@@ -54,3 +54,7 @@ export async function fetchJobPhotos(jobId: string): Promise<JobPhotosResponse> 
   const res = await apiClient.get(`${BASE}/jobs/${jobId}/photos`)
   return res.data as JobPhotosResponse
 }
+
+export async function setJobVisibility(jobId: string, isPublic: boolean): Promise<PhotogrammetryJob> {
+  return (await apiClient.patch(`${BASE}/jobs/${jobId}`, { is_public: isPublic })).data
+}

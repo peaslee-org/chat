@@ -103,6 +103,10 @@ export async function fetchTurnDistances(jobId: string): Promise<TurnDistancesRe
   return res.data
 }
 
+export async function setJobVisibility(jobId: string, isPublic: boolean): Promise<TranscriptionJob> {
+  return (await apiClient.patch(`/api/v1/transcribe/jobs/${jobId}`, { is_public: isPublic })).data
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /**
