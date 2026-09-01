@@ -20,8 +20,10 @@ repo name disagree) — do them back-to-back.
    `git remote set-url origin https://github.com/peaslee-org/aiTools.git`
    `git remote set-url --add --push origin https://github.com/peaslee-org/aiTools.git`
    `git remote set-url --add --push origin ssh://henry/srv/data/git/aiTools/chat.git`
-6. `cd ../transcription-prod && terraform apply` — worker OIDC trust + audio
-   bucket CORS for the new origin.
+6. `cd ../transcription-prod`. In the local (gitignored) `terraform.tfvars`,
+   add `https://aitools.peaslee.org` to `cors_allowed_origins` (matching the
+   updated `terraform.tfvars.example`). Then `terraform apply` — worker OIDC
+   trust + audio bucket CORS for the new origin.
 7. Cognito console → user pool `chat-api-prod` → App client → Hosted UI:
    add callback `https://aitools.peaslee.org/callback` and sign-out
    `https://aitools.peaslee.org` (keep the existing chat.* and localhost
