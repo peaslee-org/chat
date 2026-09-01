@@ -45,13 +45,18 @@ async def test_scan_detail_serves_public_job_without_private_fields(client):
 
 async def test_private_and_missing_are_the_same_404(client):
     ac, svc = client
-    jid = uuid4()
-    svc.scan_detail.side_effect = NotFoundError(f"Job {jid} not found")
-    r1 = await ac.get(f"/api/v1/public/photogrammetry/{jid}")
-    svc.scan_detail.side_effect = NotFoundError(f"Job {jid} not found")
-    r2 = await ac.get(f"/api/v1/public/photogrammetry/{jid}")
-    assert r1.status_code == r2.status_code == 404
-    assert r1.json() == r2.json()
+    private_id, missing_id = uuid4(), uuid4()
+
+    def not_found(job_id):
+        raise NotFoundError(f"Job {job_id} not found")
+
+    svc.scan_detail.side_effect = not_found
+    r_private = await ac.get(f"/api/v1/public/photogrammetry/{private_id}")
+    r_missing = await ac.get(f"/api/v1/public/photogrammetry/{missing_id}")
+    assert r_private.status_code == r_missing.status_code == 404
+    # identical body shape: same keys, and details differ only by the id
+    assert set(r_private.json()) == set(r_missing.json())
+    assert r_private.json()["detail"].replace(str(private_id), "X") == r_missing.json()["detail"].replace(str(missing_id), "X")
 
 
 async def test_transcription_and_conversation_routes_exist(client):
