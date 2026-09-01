@@ -30,8 +30,8 @@ export default defineConfig(({ mode }) => ({
     {
       name: 'html-title',
       transformIndexHtml(html) {
-        const title = mode === 'production' ? 'Chat' : 'Chat-dev'
-        return html.replace('<title>Chat</title>', `<title>${title}</title>`)
+        const title = mode === 'production' ? 'aiTools' : 'aiTools-dev'
+        return html.replace('<title>aiTools</title>', `<title>${title}</title>`)
       },
     },
   ],
