@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/axios", () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), patch: vi.fn() },
 }))
 vi.mock("@/lib/transcribeApi", () => ({ uploadToS3: vi.fn() }))
 
 import { apiClient } from "@/lib/axios"
-import { fetchJobPhotos, fetchSamplePhotos } from "@/lib/photogrammetryApi"
+import { fetchJobPhotos, fetchSamplePhotos, setJobVisibility } from "@/lib/photogrammetryApi"
 
 const get = vi.mocked(apiClient.get)
+const patch = vi.mocked(apiClient.patch)
 
 const photo = { filename: "0001.jpg", url: "https://s3/full/0001.jpg", thumb_url: "https://s3/thumbs/0001.jpg" }
 
 describe("photogrammetry api client — photos", () => {
-  beforeEach(() => get.mockReset())
+  beforeEach(() => {
+    get.mockReset()
+    patch.mockReset()
+  })
 
   it("fetchSamplePhotos GETs /samples and returns the body", async () => {
     get.mockResolvedValueOnce({ data: { name: "Sample scan", image_count: 1, photos: [photo] } })
@@ -27,5 +31,12 @@ describe("photogrammetry api client — photos", () => {
     const res = await fetchJobPhotos("job-1")
     expect(get).toHaveBeenCalledWith("/api/v1/photogrammetry/jobs/job-1/photos")
     expect(res).toEqual({ photos: [{ ...photo, status: "registered" }], matched: 1, total: 1 })
+  })
+
+  it("setJobVisibility PATCHes /jobs/{id} with is_public and returns PhotogrammetryJob", async () => {
+    patch.mockResolvedValueOnce({ data: { job_id: "j1", name: "Scan", status: "complete", is_public: true } })
+    const res = await setJobVisibility("j1", true)
+    expect(patch).toHaveBeenCalledWith("/api/v1/photogrammetry/jobs/j1", { is_public: true })
+    expect(res.is_public).toBe(true)
   })
 })
