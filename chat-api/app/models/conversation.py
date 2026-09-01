@@ -1,4 +1,4 @@
-from sqlalchemy import Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,9 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
     model_id: Mapped[str] = mapped_column(String(256), nullable=True)
     input_price_per_1k_tokens: Mapped[float] = mapped_column(Float, nullable=True)
     output_price_per_1k_tokens: Mapped[float] = mapped_column(Float, nullable=True)
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
