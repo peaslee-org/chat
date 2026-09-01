@@ -155,7 +155,7 @@ module "cloudfront" {
   cloudfront_secret        = random_password.cloudfront_secret.result
   github_oidc_provider_arn = module.github_oidc.oidc_provider_arn
   github_org               = "peaslee-org"
-  frontend_github_repo     = "chat"
+  frontend_github_repo     = "aiTools"
 }
 
 module "monitoring" {
@@ -167,7 +167,7 @@ module "github_oidc" {
   source         = "../../modules/github-oidc"
   environment    = var.environment
   github_org     = "peaslee-org"
-  github_repo    = "chat"
+  github_repo    = "aiTools"
   deploy_branch  = "main"
   aws_region     = var.aws_region
   aws_account_id = data.aws_caller_identity.current.account_id

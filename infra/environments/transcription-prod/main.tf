@@ -32,7 +32,7 @@ module "transcription" {
   image_tag                    = var.image_tag
   alarm_email                  = var.alarm_email
   huggingface_token_secret_arn = var.huggingface_token_secret_arn
-  github_repo                  = "chat"
+  github_repo                  = "aiTools"
   sample_files_path            = "${path.module}/../../../chat-vue/public/samples"
   idle_exit_seconds            = var.idle_exit_seconds
   max_lifetime_seconds         = var.max_lifetime_seconds
@@ -46,7 +46,7 @@ module "photogrammetry" {
   audio_bucket_arn        = "arn:aws:s3:::${module.transcription.bucket_name}"
   database_url_secret_arn = var.database_url_secret_arn
   ecs_cluster_arn         = data.aws_ecs_cluster.api.arn
-  github_repo             = "chat"
+  github_repo             = "aiTools"
   image_tag               = var.photogrammetry_image_tag
   idle_exit_seconds       = var.idle_exit_seconds
   max_lifetime_seconds    = var.max_lifetime_seconds
