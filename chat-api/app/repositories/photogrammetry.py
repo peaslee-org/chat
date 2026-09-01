@@ -128,3 +128,29 @@ class PhotogrammetryRepository:
         job = result.scalar_one_or_none()
         if job:
             await self.db.delete(job)
+
+    async def list_public_jobs(self, limit: int = 20) -> List[PhotogrammetryJob]:
+        result = await self.db.execute(
+            select(PhotogrammetryJob)
+            .where(PhotogrammetryJob.is_public.is_(True))
+            .order_by(PhotogrammetryJob.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def get_public_job(self, job_id: UUID) -> Optional[PhotogrammetryJob]:
+        result = await self.db.execute(
+            select(PhotogrammetryJob).where(
+                PhotogrammetryJob.id == job_id,
+                PhotogrammetryJob.is_public.is_(True),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def set_is_public(self, job_id: UUID, user_id: str, value: bool) -> Optional[PhotogrammetryJob]:
+        job = await self.get_job(job_id, user_id)
+        if job is None:
+            return None
+        job.is_public = value
+        await self.db.flush()
+        return job
