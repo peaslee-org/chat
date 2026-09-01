@@ -44,6 +44,15 @@ def make_mock_service():
     svc.confirm_job_upload = AsyncMock(return_value=None)
     svc.get_transcript = AsyncMock(return_value=TranscriptResponse(segments=[]))
     svc.delete_job = AsyncMock(return_value=None)
+    svc.set_visibility = AsyncMock(return_value=JobStatusResponse(
+        job_id=uuid4(),
+        status="pending",
+        speaker_count_hint=None,
+        language="en-US",
+        created_at=_now(),
+        updated_at=_now(),
+        is_public=True,
+    ))
     return svc
 
 
@@ -154,3 +163,26 @@ class TestJobEndpoints:
         )
         assert response.status_code == 200
         assert response.json()["partial_transcript_available"] is True
+
+
+class TestVisibility:
+    async def test_patch_visibility(self, client):
+        ac, svc = client
+        jid = uuid4()
+        r = await ac.patch(
+            f"/api/v1/transcribe/jobs/{jid}",
+            json={"is_public": True},
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 200 and r.json()["is_public"] is True
+        svc.set_visibility.assert_awaited_once_with("user1", jid, True)
+
+    async def test_patch_visibility_not_owner_is_404(self, client):
+        ac, svc = client
+        svc.set_visibility.side_effect = NotFoundError("Job x not found")
+        r = await ac.patch(
+            f"/api/v1/transcribe/jobs/{uuid4()}",
+            json={"is_public": True},
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 404

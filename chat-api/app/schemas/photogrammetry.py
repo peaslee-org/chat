@@ -57,6 +57,7 @@ class JobStatusResponse(BaseModel):
     worker_state: Optional[str] = None
     estimated_wait_seconds: Optional[int] = None
     gpu_notice: Optional[str] = None
+    is_public: bool = False
 
 
 class JobListResponse(BaseModel):

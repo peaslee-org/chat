@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, get_current_user
 from app.schemas.conversation import ConversationOut, MessageOut
+from app.schemas.public import VisibilityRequest
 from app.services.conversation import ConversationService
 
 router = APIRouter()
@@ -37,3 +38,16 @@ async def delete_conversation(
 ):
     service = ConversationService(db)
     await service.delete(conversation_id, user_sub=current_user["sub"])
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def set_conversation_visibility(
+    conversation_id: UUID,
+    body: VisibilityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    service = ConversationService(db)
+    return await service.set_visibility(
+        conversation_id, user_sub=current_user["sub"], is_public=body.is_public
+    )

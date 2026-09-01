@@ -62,6 +62,7 @@ def make_mock_service():
         )
     )
     svc.create_sample_job = AsyncMock(return_value=SampleJobResponse(job_id=uuid4()))
+    svc.set_visibility = AsyncMock(return_value=status_response(is_public=True))
     return svc
 
 
@@ -214,3 +215,22 @@ class TestPhotos:
         svc.list_sample_photos = AsyncMock(side_effect=ConflictError("Sample photo set has not been uploaded"))
         r = await ac.get("/api/v1/photogrammetry/samples", headers=H)
         assert r.status_code == 409
+
+
+class TestVisibility:
+    async def test_patch_visibility(self, client):
+        ac, svc = client
+        jid = uuid4()
+        r = await ac.patch(
+            f"/api/v1/photogrammetry/jobs/{jid}", json={"is_public": True}, headers=H
+        )
+        assert r.status_code == 200 and r.json()["is_public"] is True
+        svc.set_visibility.assert_awaited_once_with("user1", jid, True)
+
+    async def test_patch_visibility_not_owner_is_404(self, client):
+        ac, svc = client
+        svc.set_visibility.side_effect = NotFoundError("Job x not found")
+        r = await ac.patch(
+            f"/api/v1/photogrammetry/jobs/{uuid4()}", json={"is_public": True}, headers=H
+        )
+        assert r.status_code == 404

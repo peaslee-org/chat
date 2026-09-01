@@ -10,6 +10,7 @@ from app.api.v1.transcribe.deps import get_transcription_service
 from app.core.security import verify_cognito_token
 from app.dependencies import get_current_user
 from app.repositories.transcription import TranscriptionRepository
+from app.schemas.public import VisibilityRequest
 from app.schemas.transcription import (
     JobCreateRequest,
     JobCreateResponse,
@@ -88,6 +89,16 @@ async def delete_job(
     service: TranscriptionService = Depends(get_transcription_service),
 ) -> None:
     await service.delete_job(current_user["sub"], job_id)
+
+
+@router.patch("/jobs/{job_id}", response_model=JobStatusResponse)
+async def set_job_visibility(
+    job_id: UUID,
+    body: VisibilityRequest,
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> JobStatusResponse:
+    return await service.set_visibility(current_user["sub"], job_id, body.is_public)
 
 
 @router.get("/jobs/{job_id}/turn-distances", response_model=TurnDistancesResponse)

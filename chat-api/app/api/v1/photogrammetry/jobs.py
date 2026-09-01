@@ -15,6 +15,7 @@ from app.schemas.photogrammetry import (
     SampleJobResponse,
     SamplePhotosResponse,
 )
+from app.schemas.public import VisibilityRequest
 from app.services.photogrammetry_service import PhotogrammetryService
 
 router = APIRouter()
@@ -99,3 +100,13 @@ async def delete_job(
     service: PhotogrammetryService = Depends(get_photogrammetry_service),
 ) -> None:
     await service.delete_job(current_user["sub"], job_id)
+
+
+@router.patch("/jobs/{job_id}", response_model=JobStatusResponse)
+async def set_job_visibility(
+    job_id: UUID,
+    body: VisibilityRequest,
+    current_user: dict = Depends(get_current_user),
+    service: PhotogrammetryService = Depends(get_photogrammetry_service),
+) -> JobStatusResponse:
+    return await service.set_visibility(current_user["sub"], job_id, body.is_public)
