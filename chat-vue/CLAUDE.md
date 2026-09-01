@@ -321,7 +321,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/showcase` | List public conversations, transcriptions, scans, and jobs |
+| GET | `/showcase` | List public conversations, transcriptions, and scans |
 | GET | `/conversations/{conversation_id}` | Get a public conversation with messages (read-only) |
 | GET | `/transcriptions/{job_id}` | Get a public transcription job (read-only) |
 | GET | `/photogrammetry/{job_id}` | Get a public photogrammetry job (read-only) |

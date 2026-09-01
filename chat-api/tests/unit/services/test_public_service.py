@@ -52,10 +52,23 @@ async def test_showcase_assembles_all_three_features():
     scans.list_public_jobs.return_value = [scan()]
     tjob = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=2)
     transcriptions.list_public_jobs.return_value = [tjob]
-    transcriptions.get_segment_stats.return_value = (123.4, 56)
+    transcriptions.get_segment_stats_bulk.return_value = {tjob.id: (123.4, 56)}
     conversations.list_public.return_value = [
         MagicMock(id=uuid4(), title="t", model_id="m", created_at=datetime.now(timezone.utc))
     ]
     out = await svc.showcase()
     assert len(out.scans) == len(out.transcriptions) == len(out.conversations) == 1
     assert out.transcriptions[0].duration_seconds == 123.4
+    transcriptions.get_segment_stats_bulk.assert_called_once_with([tjob.id])
+
+
+async def test_showcase_missing_stats_default_to_none_and_zero():
+    svc, scans, transcriptions, conversations, _ = make_service()
+    scans.list_public_jobs.return_value = []
+    tjob = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=None)
+    transcriptions.list_public_jobs.return_value = [tjob]
+    transcriptions.get_segment_stats_bulk.return_value = {}
+    conversations.list_public.return_value = []
+    out = await svc.showcase()
+    assert out.transcriptions[0].duration_seconds is None
+    assert out.transcriptions[0].segment_count is None

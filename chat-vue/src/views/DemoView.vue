@@ -23,9 +23,12 @@ const showcase = ref<ShowcaseResponse | null>(null)
 const loadError = ref(false)
 const scan = ref<PublicScanDetail | null>(null)
 const scanPending = ref(false)
+const scanError = ref(false)
 const transcript = ref<PublicTranscriptionDetail | null>(null)
+const transcriptionError = ref(false)
 const messages = ref<Message[] | null>(null)
 const activeConversationId = ref<string | null>(null)
+const conversationError = ref(false)
 
 onMounted(async () => {
   try {
@@ -41,30 +44,49 @@ async function openScan(jobId: string) {
   scanPending.value = true
   try {
     scan.value = await getPublicScan(jobId)
+    scanError.value = false
+  } catch {
+    scanError.value = true
   } finally {
     scanPending.value = false
   }
 }
 
 async function openTranscription(jobId: string) {
-  transcript.value = await getPublicTranscription(jobId)
+  try {
+    transcript.value = await getPublicTranscription(jobId)
+    transcriptionError.value = false
+  } catch {
+    transcriptionError.value = true
+  }
 }
 
 async function openConversation(id: string) {
   activeConversationId.value = id
-  const detail = await getPublicConversation(id)
-  messages.value = detail.messages.map((m, i) => ({
-    id: `${id}-${i}`,
-    role: m.role,
-    content: m.content,
-    timestamp: new Date(m.created_at),
-  }))
+  try {
+    const detail = await getPublicConversation(id)
+    messages.value = detail.messages.map((m, i) => ({
+      id: `${id}-${i}`,
+      role: m.role,
+      content: m.content,
+      timestamp: new Date(m.created_at),
+    }))
+    conversationError.value = false
+  } catch {
+    conversationError.value = true
+  }
 }
 
 function durationLabel(seconds: number | null): string {
   if (!seconds) return ""
   const m = Math.floor(seconds / 60)
   return `${m}m${Math.round(seconds % 60)}s`
+}
+
+function transcriptionChipLabel(t: { created_at: string; duration_seconds: number | null }): string {
+  return [new Date(t.created_at).toLocaleDateString(), durationLabel(t.duration_seconds)]
+    .filter(Boolean)
+    .join(" · ")
 }
 </script>
 
@@ -123,6 +145,9 @@ function durationLabel(seconds: number | null): string {
         <p v-if="scan?.matched != null" class="mt-2 text-xs text-gray-500">
           {{ scan.matched }} of {{ scan.total }} photos matched by structure-from-motion
         </p>
+        <p v-if="scanError" class="mt-2 text-xs text-red-600" data-testid="section-error">
+          This item is no longer available.
+        </p>
       </section>
 
       <section v-if="showcase?.transcriptions.length" data-testid="section-transcriptions">
@@ -138,11 +163,14 @@ function durationLabel(seconds: number | null): string {
             class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
             data-testid="transcription-chip"
             @click="openTranscription(t.job_id)"
-          >{{ new Date(t.created_at).toLocaleDateString() }} · {{ durationLabel(t.duration_seconds) }}</button>
+          >{{ transcriptionChipLabel(t) }}</button>
         </div>
         <div v-if="transcript" class="rounded border border-gray-200 bg-white p-4">
           <TranscriptDisplay :transcript="{ segments: transcript.segments }" />
         </div>
+        <p v-if="transcriptionError" class="mt-2 text-xs text-red-600" data-testid="section-error">
+          This item is no longer available.
+        </p>
       </section>
 
       <section v-if="showcase?.conversations.length" data-testid="section-conversations">
@@ -153,7 +181,8 @@ function durationLabel(seconds: number | null): string {
             v-for="c in showcase.conversations"
             :key="c.conversation_id"
             type="button"
-            class="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            class="rounded border px-2.5 py-1 text-xs font-medium"
+            :class="activeConversationId === c.conversation_id ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'"
             data-testid="conversation-chip"
             @click="openConversation(c.conversation_id)"
           >{{ c.title ?? "Untitled" }}</button>
@@ -161,6 +190,9 @@ function durationLabel(seconds: number | null): string {
         <div v-if="messages" class="rounded border border-gray-200 bg-white">
           <MessageList :messages="messages" :is-sending="false" />
         </div>
+        <p v-if="conversationError" class="mt-2 text-xs text-red-600" data-testid="section-error">
+          This item is no longer available.
+        </p>
       </section>
     </main>
   </div>

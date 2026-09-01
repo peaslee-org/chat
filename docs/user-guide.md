@@ -11,7 +11,7 @@ Three tabs run along the top of the left panel: **Chat**, **Transcribe**, **Scan
 
 ## Demo
 
-Visit `/demo` to see a public showcase without signing in. It displays conversations, transcriptions, and scans that owners have marked public — any of these can be shared via link and viewed by anyone on the internet. To mark your own work public, use the **Public** toggle on the active conversation's sidebar row, or on a transcript/scan's detail header. Files are kept for 30 days, then removed; download before then if you want to keep them.
+Visit `/demo` to see a public showcase without signing in. It displays conversations, transcriptions, and scans that owners have marked public — `/demo` itself is the shareable page; there are no separate per-item links to hand out. To mark your own work public, use the **Public** toggle on the active conversation's sidebar row, or on a transcript/scan's detail header. Marking a transcript public also publishes the enrolled speaker names shown in it, not just the transcript text. Files are kept for 30 days, then removed; download before then if you want to keep them.
 
 ## Chat
 

@@ -156,6 +156,8 @@ async function setVisibility(next: boolean) {
   visibilityBusy.value = true
   try {
     await store.setVisibility(job.value.job_id, next)
+  } catch {
+    store.pushToast("Couldn't update visibility — try again")
   } finally {
     visibilityBusy.value = false
   }

@@ -223,6 +223,6 @@ export const usePhotogrammetryStore = defineStore("photogrammetry", () => {
   return {
     jobs, nextCursor, activeJobId, activeJob, uploadProgress, pollingActive, toasts, meshUrls,
     loadJobs, submitScan, submitSampleJob, selectJob, clearSelection, deleteJob, fetchMeshUrls, fetchJobPhotos, fetchSamplePhotos,
-    resumePollingForActiveJobs, dismissToast, setVisibility,
+    resumePollingForActiveJobs, dismissToast, pushToast, setVisibility,
   }
 })

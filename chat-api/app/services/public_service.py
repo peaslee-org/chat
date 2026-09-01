@@ -4,6 +4,7 @@ Rule: a non-public id and a missing id raise the same NotFoundError — the
 public surface must not reveal that a private row exists.
 """
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID
 
 from app.core.exceptions import NotFoundError
@@ -32,9 +33,11 @@ class PublicService:
 
     async def showcase(self) -> ShowcaseResponse:
         scans = [self._scan_summary(j) for j in await self._scans.list_public_jobs(SHOWCASE_LIMIT)]
+        transcription_jobs = await self._transcriptions.list_public_jobs(SHOWCASE_LIMIT)
+        stats = await self._transcriptions.get_segment_stats_bulk([j.id for j in transcription_jobs])
         transcriptions = [
-            await self._transcription_summary(j)
-            for j in await self._transcriptions.list_public_jobs(SHOWCASE_LIMIT)
+            self._transcription_summary(j, stats.get(j.id, (None, 0)))
+            for j in transcription_jobs
         ]
         conversations = [
             PublicConversationSummary(
@@ -71,7 +74,8 @@ class PublicService:
         job = await self._transcriptions.get_public_job(job_id)
         if job is None:
             raise NotFoundError(f"Job {job_id} not found")
-        summary = await self._transcription_summary(job)
+        stats = await self._transcriptions.get_segment_stats(job_id)
+        summary = self._transcription_summary(job, stats)
         segments = [
             SegmentResponse(
                 segment_id=s.id,
@@ -116,8 +120,10 @@ class PublicService:
             created_at=job.created_at,
         )
 
-    async def _transcription_summary(self, job) -> PublicTranscriptionSummary:
-        duration, count = await self._transcriptions.get_segment_stats(job.id)
+    def _transcription_summary(
+        self, job, stats: tuple[Optional[float], int]
+    ) -> PublicTranscriptionSummary:
+        duration, count = stats
         return PublicTranscriptionSummary(
             job_id=job.id,
             created_at=job.created_at,

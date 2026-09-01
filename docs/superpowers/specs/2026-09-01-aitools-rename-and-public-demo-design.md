@@ -102,6 +102,17 @@ prefixes, cost fields, or queue/session internals. Presigned URLs expire in
 ~15 minutes. Abuse exposure is bounded to S3 GET bandwidth on the flagged
 objects — acceptable for a portfolio.
 
+**Ruling on presigned URL paths:** presigned URLs are themselves served on
+the public surface, and their path necessarily reveals the storage bucket
+name, the owning user's opaque Cognito `sub`, and the job id (the object key
+is `photogrammetry/<cognito-sub>/<job-id>/output/…`). This is an accepted
+disclosure, not a violation of the scrubbing rule above: nothing in the URL
+grants access beyond what the signature already scopes and time-limits, and
+a Cognito `sub` is an opaque identifier with no PII value on its own. If this
+ever needs tightening, the noted alternative is a `public/<job_id>/` output
+prefix (populated by copying or symlinking flagged job output) so presigned
+paths carry no user identifier at all.
+
 ### Owner toggle
 
 The existing authenticated detail endpoints for each of the three types gain

@@ -2,7 +2,7 @@
 everything else — including rows that exist but are private — is a 404."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from app.api.v1.public.deps import get_public_service
 from app.schemas.public import (
@@ -17,7 +17,10 @@ router = APIRouter()
 
 
 @router.get("/showcase", response_model=ShowcaseResponse)
-async def showcase(service: PublicService = Depends(get_public_service)) -> ShowcaseResponse:
+async def showcase(
+    response: Response, service: PublicService = Depends(get_public_service)
+) -> ShowcaseResponse:
+    response.headers["Cache-Control"] = "public, max-age=60"
     return await service.showcase()
 
 

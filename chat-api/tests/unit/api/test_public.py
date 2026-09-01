@@ -29,6 +29,13 @@ async def test_showcase_needs_no_auth(client):
     assert set(r.json()) == {"scans", "transcriptions", "conversations"}
 
 
+async def test_showcase_sets_cache_control(client):
+    ac, svc = client
+    svc.showcase.return_value = ShowcaseResponse()
+    r = await ac.get("/api/v1/public/showcase")
+    assert r.headers["cache-control"] == "public, max-age=60"
+
+
 async def test_scan_detail_serves_public_job_without_private_fields(client):
     ac, svc = client
     svc.scan_detail.return_value = PublicScanDetail(

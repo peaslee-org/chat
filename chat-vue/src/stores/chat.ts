@@ -165,9 +165,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function setConversationVisibility(id: string, isPublic: boolean): Promise<void> {
-    const { data } = await apiClient.patch(`/api/v1/conversations/${id}`, { is_public: isPublic })
-    const conv = conversations.value.find((c) => c.id === id)
-    if (conv) conv.is_public = data.is_public
+    try {
+      const { data } = await apiClient.patch(`/api/v1/conversations/${id}`, { is_public: isPublic })
+      const conv = conversations.value.find((c) => c.id === id)
+      if (conv) conv.is_public = data.is_public
+    } catch (err) {
+      error.value = extractError(err, 'Failed to update visibility')
+    }
   }
 
   return {

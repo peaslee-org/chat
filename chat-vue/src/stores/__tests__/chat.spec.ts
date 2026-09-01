@@ -38,4 +38,15 @@ describe("chat store — visibility", () => {
     expect(apiClient.patch).toHaveBeenCalledWith("/api/v1/conversations/c1", { is_public: true })
     expect(store.conversations.find((c) => c.id === "c1")?.is_public).toBe(true)
   })
+
+  it("setConversationVisibility records the error and leaves is_public unchanged on failure", async () => {
+    const store = useChatStore()
+    store.conversations.push(conversation({ is_public: false }))
+    vi.mocked(apiClient.patch).mockRejectedValue(new Error("network down"))
+
+    await store.setConversationVisibility("c1", true)
+
+    expect(store.error).toBe("Failed to update visibility")
+    expect(store.conversations.find((c) => c.id === "c1")?.is_public).toBe(false)
+  })
 })

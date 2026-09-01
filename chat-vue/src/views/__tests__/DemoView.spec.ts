@@ -42,4 +42,12 @@ describe("DemoView", () => {
     await flushPromises()
     expect(w.find('[data-testid="demo-error"]').exists()).toBe(true)
   })
+
+  it("shows a section error when opening a scan fails", async () => {
+    vi.mocked(getShowcase).mockResolvedValue(showcase as never)
+    vi.mocked(getPublicScan).mockRejectedValue(new Error("gone"))
+    const w = mountDemo()
+    await flushPromises()
+    expect(w.find('[data-testid="section-error"]').exists()).toBe(true)
+  })
 })

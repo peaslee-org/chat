@@ -289,6 +289,22 @@ class TranscriptionRepository:
         duration, count = result.one()
         return duration, count
 
+    async def get_segment_stats_bulk(
+        self, job_ids: list[UUID]
+    ) -> dict[UUID, tuple[Optional[float], int]]:
+        if not job_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                TranscriptSegment.job_id,
+                func.max(TranscriptSegment.end_time),
+                func.count(TranscriptSegment.id),
+            )
+            .where(TranscriptSegment.job_id.in_(job_ids))
+            .group_by(TranscriptSegment.job_id)
+        )
+        return {job_id: (duration, count) for job_id, duration, count in result.all()}
+
     # ── Transcript Segments ───────────────────────────────────────────────────
 
     async def get_segments(self, job_id: UUID) -> List[TranscriptSegment]:

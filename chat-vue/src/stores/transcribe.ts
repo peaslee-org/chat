@@ -430,7 +430,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     turnDistanceData,
     loadSpeakers, createSpeaker, renameSpeaker, deleteSpeaker, uploadSample, deleteSample,
     loadJobs, submitJob, submitSampleJob, selectJob, loadTranscript, deleteJob,
-    dismissToast,
+    dismissToast, pushToast,
     loadTurnDistances,
     resumePollingForActiveJobs, resumePollingForProcessingSamples,
     setVisibility,
