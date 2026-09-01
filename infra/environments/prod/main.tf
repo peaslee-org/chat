@@ -71,8 +71,9 @@ data "aws_subnets" "gpu" {
 }
 
 module "acm" {
-  source      = "../../modules/acm"
-  domain_name = var.domain_name
+  source                    = "../../modules/acm"
+  domain_name               = var.domain_name
+  subject_alternative_names = var.alternate_domain_names
 }
 
 module "cognito" {

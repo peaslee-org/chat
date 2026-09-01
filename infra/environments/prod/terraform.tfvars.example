@@ -1,6 +1,7 @@
 # Copy to terraform.tfvars (gitignored). No secret values live in Terraform: credentials are
 # Secrets Manager ARNs, injected into the container by ECS.
 domain_name                  = "chat.example.com"
+alternate_domain_names       = ["aitools.example.com"]
 frontend_bucket_name         = "chat-frontend-prod"
 audio_bucket_name            = "chat-audio-prod-123456789012"
 transcribe_sqs_queue_url     = "https://sqs.us-east-1.amazonaws.com/123456789012/transcription-prod"

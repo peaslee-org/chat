@@ -150,3 +150,9 @@ variable "photogrammetry_sqs_queue_url" {
   default     = ""
   description = "Photogrammetry worker queue URL from the transcription-prod state; empty keeps the feature off (confirm returns 503)"
 }
+
+variable "alternate_domain_names" {
+  type        = list(string)
+  description = "Extra hostnames served by CloudFront and added to the certificate as SANs (e.g. [\"aitools.example.com\"])."
+  default     = []
+}
