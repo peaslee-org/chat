@@ -1,6 +1,6 @@
-# chat
+# aiTools
 
-An AI-powered chat application with audio transcription, speaker diarization and photo-to-3D scanning. Users chat with Claude via AWS Bedrock, upload recordings to get speaker-identified transcripts, and upload a set of photos to get a textured 3D mesh (COLMAP + OpenMVS on an on-demand GPU worker). User guide: [docs/user-guide.md](docs/user-guide.md).
+aiTools — chat, audio transcription, and photo-to-3D scanning, at **aitools.peaslee.org** (alias: chat.peaslee.org). Users chat with Claude via AWS Bedrock, upload recordings to get speaker-identified transcripts, and upload a set of photos to get a textured 3D mesh (COLMAP + OpenMVS on an on-demand GPU worker). User guide: [docs/user-guide.md](docs/user-guide.md).
 
 ## Structure
 

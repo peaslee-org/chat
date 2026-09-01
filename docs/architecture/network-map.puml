@@ -36,7 +36,7 @@ rectangle "<b>AWS Bedrock</b>\nclaude-3-sonnet-20240229-v1:0\n(LLM Inference)" a
 rectangle "<b>AWS Cognito</b>\nUser Pool: chat-api-prod\nHosted UI + PKCE\nJWKS endpoint" as cognito #BF0816/white
 
 package "CI/CD Pipeline" {
-  rectangle "<b>GitHub</b>\npeaslee-org/chat\n(main branch)" as github #dae8fc
+  rectangle "<b>GitHub</b>\npeaslee-org/aiTools\n(main branch)" as github #dae8fc
   rectangle "<b>GitHub Actions: Deploy</b>\nchanges → api → vue + workers\ntest, build, push to ECR" as codebuild #C7131F/white
   rectangle "<b>ECS rolling deploy</b>\nregister task-def → update service" as codepipeline #C7131F/white
   rectangle "<b>GitHub OIDC IAM Role</b>\ngithub-actions-prod" as oidc #DD344C/white

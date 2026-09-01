@@ -1,6 +1,6 @@
 # User guide
 
-What you can do at **chat.peaslee.org**, tab by tab. Nothing here is about how it's built — for
+What you can do at **aitools.peaslee.org** (also reachable at chat.peaslee.org), tab by tab. Nothing here is about how it's built — for
 that see the `CLAUDE.md` files.
 
 ## Signing in

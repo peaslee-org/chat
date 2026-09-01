@@ -1,7 +1,7 @@
 [project]
 name = "photogrammetry-worker"
 version = "0.1.0"
-description = "GPU worker: COLMAP → OpenMVS → GLB for chat.peaslee.org photogrammetry jobs"
+description = "GPU worker: COLMAP → OpenMVS → GLB for aitools.peaslee.org photogrammetry jobs"
 requires-python = ">=3.12"
 dependencies = [
     "gpu-worker",

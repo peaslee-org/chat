@@ -2,7 +2,7 @@
 
 Vue 3 · TypeScript · Tailwind CSS · Pinia · AWS Cognito (PKCE) · Vite · vitest
 
-The browser app for **chat.peaslee.org**: three tabs — **Chat** (Claude via Bedrock), **Transcribe**
+The browser app for **aitools.peaslee.org** (alias: chat.peaslee.org): three tabs — **Chat** (Claude via Bedrock), **Transcribe**
 (audio → transcript with speaker diarization) and **Scan** (photos → textured 3D mesh). A `/profile`
 page and an `/admin` area (user list) round it out. End-user documentation: [docs/user-guide.md](../docs/user-guide.md).
 

@@ -40,3 +40,9 @@ variable "frontend_bucket_name" {
   type        = string
   description = "Name of the S3 bucket holding the built SPA."
 }
+
+variable "alternate_domain_names" {
+  type        = list(string)
+  description = "Extra CloudFront aliases; each must be on the ACM certificate."
+  default     = []
+}

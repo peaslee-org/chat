@@ -71,8 +71,9 @@ data "aws_subnets" "gpu" {
 }
 
 module "acm" {
-  source      = "../../modules/acm"
-  domain_name = var.domain_name
+  source                    = "../../modules/acm"
+  domain_name               = var.domain_name
+  subject_alternative_names = var.alternate_domain_names
 }
 
 module "cognito" {
@@ -147,13 +148,14 @@ module "cloudfront" {
   source                   = "../../modules/cloudfront"
   environment              = var.environment
   domain_name              = var.domain_name
+  alternate_domain_names   = var.alternate_domain_names
   frontend_bucket_name     = var.frontend_bucket_name
   alb_dns_name             = module.ecs.alb_dns_name
   acm_certificate_arn      = module.acm.certificate_arn
   cloudfront_secret        = random_password.cloudfront_secret.result
   github_oidc_provider_arn = module.github_oidc.oidc_provider_arn
   github_org               = "peaslee-org"
-  frontend_github_repo     = "chat"
+  frontend_github_repo     = "aiTools"
 }
 
 module "monitoring" {
@@ -165,7 +167,7 @@ module "github_oidc" {
   source         = "../../modules/github-oidc"
   environment    = var.environment
   github_org     = "peaslee-org"
-  github_repo    = "chat"
+  github_repo    = "aiTools"
   deploy_branch  = "main"
   aws_region     = var.aws_region
   aws_account_id = data.aws_caller_identity.current.account_id
