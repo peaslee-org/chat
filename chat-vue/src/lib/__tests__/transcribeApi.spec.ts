@@ -5,7 +5,7 @@ vi.mock("@/lib/axios", () => ({
 }))
 
 import { apiClient } from "@/lib/axios"
-import { getSamples, setJobVisibility } from "@/lib/transcribeApi"
+import { getSamples, setJobVisibility, getJobAudioUrl, getSampleAudioUrl } from "@/lib/transcribeApi"
 
 const get = vi.mocked(apiClient.get)
 const patch = vi.mocked(apiClient.patch)
@@ -36,6 +36,36 @@ describe("transcribe api client — samples", () => {
     get.mockResolvedValueOnce({ data: body })
     const res = await getSamples()
     expect(get).toHaveBeenCalledWith("/api/v1/transcribe/samples")
+    expect(res).toEqual(body)
+  })
+})
+
+describe("transcribe api client — audio", () => {
+  beforeEach(() => get.mockReset())
+
+  it("getJobAudioUrl GETs /jobs/{id}/audio and returns the presigned bundle", async () => {
+    const body = {
+      url: "https://dl/audio/u/j/source",
+      download_url: "https://dl/audio/u/j/source?dl=job-audio",
+      filename: "job-audio",
+      expires_at: "2026-09-02T10:15:00Z",
+    }
+    get.mockResolvedValueOnce({ data: body })
+    const res = await getJobAudioUrl("j1")
+    expect(get).toHaveBeenCalledWith("/api/v1/transcribe/jobs/j1/audio")
+    expect(res).toEqual(body)
+  })
+
+  it("getSampleAudioUrl GETs /speakers/{id}/samples/{id}/audio and returns the presigned bundle", async () => {
+    const body = {
+      url: "https://dl/audio/u/speakers/s/samples/sm",
+      download_url: "https://dl/audio/u/speakers/s/samples/sm?dl=speaker-sample",
+      filename: "speaker-sample",
+      expires_at: "2026-09-02T10:15:00Z",
+    }
+    get.mockResolvedValueOnce({ data: body })
+    const res = await getSampleAudioUrl("s1", "sm1")
+    expect(get).toHaveBeenCalledWith("/api/v1/transcribe/speakers/s1/samples/sm1/audio")
     expect(res).toEqual(body)
   })
 })

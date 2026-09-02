@@ -41,6 +41,32 @@ watch(
   { immediate: true },
 )
 
+// ── Input audio: fetched lazily once a terminal (complete/failed) job is open ──
+const TERMINAL_JOB_STATUSES = new Set(["complete", "failed"])
+const jobAudioUrl = ref<string | null>(null)
+const jobAudioDownloadUrl = ref<string | null>(null)
+const jobAudioExpired = ref(false)
+
+watch(
+  [() => store.activeJobId, () => store.activeJob?.status],
+  async ([jobId, status]) => {
+    jobAudioUrl.value = null
+    jobAudioDownloadUrl.value = null
+    jobAudioExpired.value = false
+    if (!jobId || !status || !TERMINAL_JOB_STATUSES.has(status)) return
+    try {
+      const urls = await store.fetchJobAudioUrl(jobId)
+      if (store.activeJobId !== jobId) return
+      jobAudioUrl.value = urls.url
+      jobAudioDownloadUrl.value = urls.downloadUrl
+    } catch {
+      if (store.activeJobId !== jobId) return
+      jobAudioExpired.value = true
+    }
+  },
+  { immediate: true },
+)
+
 const computedTurnsForDisplay = computed((): ComputedTurn[] => {
   const jobId = store.activeJobId
   if (!jobId) return []
@@ -129,6 +155,21 @@ async function setVisibility(next: boolean) {
           :job="activeJob"
           :is-active="true"
         />
+
+        <div
+          v-if="activeJob && (activeJob.status === 'complete' || activeJob.status === 'failed')"
+          class="mt-2 flex items-center gap-2 text-xs"
+        >
+          <span class="text-gray-500 shrink-0">Input audio</span>
+          <template v-if="jobAudioUrl">
+            <audio controls :src="jobAudioUrl" class="h-8 flex-1 min-w-0" />
+            <a
+              :href="jobAudioDownloadUrl ?? undefined"
+              class="text-indigo-600 hover:text-indigo-500 shrink-0"
+            >Download</a>
+          </template>
+          <span v-else-if="jobAudioExpired" class="text-gray-400">Input audio expired</span>
+        </div>
       </div>
 
       <!-- Transcript -->

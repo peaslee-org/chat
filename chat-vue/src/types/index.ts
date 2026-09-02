@@ -210,6 +210,23 @@ export interface SamplePreview {
   speakers: { speaker_name: string; url: string }[]
 }
 
+/** Mirrors AudioUrlResponse from app/schemas/transcription.py — a job's raw input audio,
+ *  or a speaker enrollment sample. */
+export interface AudioUrlResponse {
+  url: string             // plain GET — what <audio controls> plays
+  download_url: string    // same object, Content-Disposition: attachment
+  filename: string
+  expires_at: string
+}
+
+/** Store-side cache entry for AudioUrlResponse (camelCase, epoch-ms expiry). */
+export interface AudioUrls {
+  url: string
+  downloadUrl: string
+  filename: string
+  expiresAt: number
+}
+
 // ── Job activity log ──────────────────────────────────────────────────────
 
 export interface JobLogEntry {

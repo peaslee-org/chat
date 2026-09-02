@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { ref, reactive, computed } from "vue"
 import axios from "axios"
 import * as api from "@/lib/transcribeApi"
-import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData, SamplePreview } from "@/types"
+import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData, SamplePreview, AudioUrls } from "@/types"
 
 export interface Toast {
   id: number
@@ -31,6 +31,12 @@ export const useTranscribeStore = defineStore("transcribe", () => {
 
   // job_id → turn distance data (lazy-loaded on demand)
   const turnDistanceData = ref<Record<string, TurnDistanceData[]>>({})
+
+  // job_id → presigned playback/download URLs for the job's raw input audio (lazy-loaded)
+  const jobAudioUrls = ref<Record<string, AudioUrls>>({})
+
+  // sample_id → presigned playback/download URLs for a speaker enrollment clip (lazy-loaded)
+  const sampleAudioUrls = ref<Record<string, AudioUrls>>({})
 
   function logJob(jobId: string, entry: JobLogEntry) {
     if (!jobLogs.value[jobId]) jobLogs.value[jobId] = []
@@ -440,6 +446,38 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     turnDistanceData.value[jobId] = res.turns
   }
 
+  /** Presigned playback + download URLs for a job's raw input audio, cached until 30 s
+   *  before they expire. Callers (e.g. RunDetailView) are expected to catch a 404 — the
+   *  audio has expired from the bucket — and show a quiet note instead of a toast. */
+  async function fetchJobAudioUrl(jobId: string): Promise<AudioUrls> {
+    const cached = jobAudioUrls.value[jobId]
+    if (cached && cached.expiresAt - Date.now() > 30_000) return cached
+    const res = await api.getJobAudioUrl(jobId)
+    const entry: AudioUrls = {
+      url: res.url,
+      downloadUrl: res.download_url,
+      filename: res.filename,
+      expiresAt: new Date(res.expires_at).getTime(),
+    }
+    jobAudioUrls.value[jobId] = entry
+    return entry
+  }
+
+  /** Presigned playback + download URLs for a speaker enrollment sample, cached the same way. */
+  async function fetchSampleAudioUrl(speakerId: string, sampleId: string): Promise<AudioUrls> {
+    const cached = sampleAudioUrls.value[sampleId]
+    if (cached && cached.expiresAt - Date.now() > 30_000) return cached
+    const res = await api.getSampleAudioUrl(speakerId, sampleId)
+    const entry: AudioUrls = {
+      url: res.url,
+      downloadUrl: res.download_url,
+      filename: res.filename,
+      expiresAt: new Date(res.expires_at).getTime(),
+    }
+    sampleAudioUrls.value[sampleId] = entry
+    return entry
+  }
+
   /** Resume polling for any speakers with processing samples on store hydration.
    *  Skips samples already stuck past the 10-minute polling window. */
   function resumePollingForProcessingSamples(): void {
@@ -466,10 +504,12 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     toasts,
     readySpeakers,
     turnDistanceData,
+    jobAudioUrls, sampleAudioUrls,
     loadSpeakers, createSpeaker, renameSpeaker, deleteSpeaker, uploadSample, deleteSample,
     loadJobs, submitJob, submitSampleJob, loadSamplePreview, selectJob, loadTranscript, deleteJob, rerunJob,
     dismissToast, pushToast,
     loadTurnDistances,
+    fetchJobAudioUrl, fetchSampleAudioUrl,
     resumePollingForActiveJobs, resumePollingForProcessingSamples,
     setVisibility,
   }

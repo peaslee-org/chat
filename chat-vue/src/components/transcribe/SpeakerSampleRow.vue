@@ -1,15 +1,45 @@
 <script setup lang="ts">
+import { ref } from "vue"
 import type { SpeakerSample } from "@/types"
+import { useTranscribeStore } from "@/stores/transcribe"
 import SampleStatusBadge from "./SampleStatusBadge.vue"
 
-defineProps<{
+const props = defineProps<{
   sample: SpeakerSample
+  speakerId: string
   speakerName: string
 }>()
 
 const emit = defineEmits<{
   delete: []
 }>()
+
+const store = useTranscribeStore()
+const playerOpen = ref(false)
+const audioUrl = ref<string | null>(null)
+const downloadUrl = ref<string | null>(null)
+const loading = ref(false)
+const loadError = ref(false)
+
+async function togglePlay() {
+  if (playerOpen.value) {
+    playerOpen.value = false
+    return
+  }
+  playerOpen.value = true
+  if (audioUrl.value) return
+  loading.value = true
+  loadError.value = false
+  try {
+    const urls = await store.fetchSampleAudioUrl(props.speakerId, props.sample.sample_id)
+    audioUrl.value = urls.url
+    downloadUrl.value = urls.downloadUrl
+  } catch {
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
+}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })
@@ -26,11 +56,27 @@ function formatDate(dateStr: string): string {
       </span>
       <SampleStatusBadge :status="sample.status" />
       <button
+        v-if="sample.status === 'ready'"
+        data-testid="play-sample"
+        class="text-gray-400 hover:text-indigo-500 transition-colors"
+        @click="togglePlay"
+      >
+        {{ playerOpen ? 'Hide' : 'Play' }}
+      </button>
+      <button
         class="ml-auto text-gray-400 hover:text-red-500 transition-colors"
         @click="emit('delete')"
       >
         Remove
       </button>
+    </div>
+    <div v-if="playerOpen" class="mt-1 pl-4 flex items-center gap-2">
+      <template v-if="audioUrl">
+        <audio controls :src="audioUrl" class="h-8" />
+        <a :href="downloadUrl ?? undefined" class="text-indigo-600 hover:text-indigo-500">Download</a>
+      </template>
+      <span v-else-if="loading" class="text-gray-400">Loading…</span>
+      <span v-else-if="loadError" class="text-gray-400">Couldn't load audio</span>
     </div>
     <p v-if="sample.status === 'failed' && sample.error_message" class="mt-0.5 pl-4 text-red-500 break-words">
       {{ sample.error_message }}

@@ -2,7 +2,7 @@ import { apiClient } from "@/lib/axios"
 import type {
   SpeakerProfile, SpeakerListResponse, SampleUploadInitResponse, SpeakerSample,
   TranscriptionJob, JobListResponse, JobCreateRequest, JobCreateResponse,
-  TranscriptResponse, TurnDistancesResponse, SamplePreview,
+  TranscriptResponse, TurnDistancesResponse, SamplePreview, AudioUrlResponse,
 } from "@/types"
 
 // ── Speakers ──────────────────────────────────────────────────────────────
@@ -54,6 +54,13 @@ export async function deleteSample(speakerId: string, sampleId: string): Promise
   await apiClient.delete(
     `/api/v1/transcribe/speakers/${speakerId}/samples/${sampleId}`
   )
+}
+
+export async function getSampleAudioUrl(speakerId: string, sampleId: string): Promise<AudioUrlResponse> {
+  const res = await apiClient.get(
+    `/api/v1/transcribe/speakers/${speakerId}/samples/${sampleId}/audio`
+  )
+  return res.data
 }
 
 // ── Jobs ──────────────────────────────────────────────────────────────────
@@ -115,6 +122,11 @@ export async function fetchTurnDistances(jobId: string): Promise<TurnDistancesRe
 
 export async function setJobVisibility(jobId: string, isPublic: boolean): Promise<TranscriptionJob> {
   return (await apiClient.patch(`/api/v1/transcribe/jobs/${jobId}`, { is_public: isPublic })).data
+}
+
+export async function getJobAudioUrl(jobId: string): Promise<AudioUrlResponse> {
+  const res = await apiClient.get(`/api/v1/transcribe/jobs/${jobId}/audio`)
+  return res.data
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

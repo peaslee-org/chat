@@ -10,6 +10,8 @@ vi.mock("@/lib/transcribeApi", () => ({
   listSpeakers: vi.fn(),
   rerunJob: vi.fn(),
   getSamples: vi.fn(),
+  getJobAudioUrl: vi.fn(),
+  getSampleAudioUrl: vi.fn(),
 }))
 
 import * as api from "@/lib/transcribeApi"
@@ -198,5 +200,85 @@ describe("transcribe store — sample preview", () => {
     const store = useTranscribeStore()
 
     await expect(store.loadSamplePreview()).rejects.toThrow("not uploaded")
+  })
+})
+
+describe("transcribe store — job audio url", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(api.getJobAudioUrl).mockReset()
+  })
+
+  it("fetchJobAudioUrl fetches and caches, keyed by job id", async () => {
+    vi.mocked(api.getJobAudioUrl).mockResolvedValue({
+      url: "https://dl/a", download_url: "https://dl/a?dl=x",
+      filename: "job-audio", expires_at: "2099-01-01T00:00:00Z",
+    })
+    const store = useTranscribeStore()
+
+    const res = await store.fetchJobAudioUrl("j1")
+
+    expect(api.getJobAudioUrl).toHaveBeenCalledWith("j1")
+    expect(res).toEqual({
+      url: "https://dl/a", downloadUrl: "https://dl/a?dl=x",
+      filename: "job-audio", expiresAt: new Date("2099-01-01T00:00:00Z").getTime(),
+    })
+    expect(store.jobAudioUrls["j1"]).toEqual(res)
+  })
+
+  it("fetchJobAudioUrl does not refetch while the cached entry is far from expiry", async () => {
+    vi.mocked(api.getJobAudioUrl).mockResolvedValue({
+      url: "https://dl/a", download_url: "https://dl/a?dl=x",
+      filename: "job-audio", expires_at: "2099-01-01T00:00:00Z",
+    })
+    const store = useTranscribeStore()
+
+    await store.fetchJobAudioUrl("j1")
+    await store.fetchJobAudioUrl("j1")
+
+    expect(api.getJobAudioUrl).toHaveBeenCalledTimes(1)
+  })
+
+  it("propagates a 404 (expired audio) to the caller", async () => {
+    const err = Object.assign(new Error("not found"), { response: { status: 404 } })
+    vi.mocked(api.getJobAudioUrl).mockRejectedValue(err)
+    const store = useTranscribeStore()
+
+    await expect(store.fetchJobAudioUrl("j1")).rejects.toThrow("not found")
+    expect(store.jobAudioUrls["j1"]).toBeUndefined()
+  })
+})
+
+describe("transcribe store — sample audio url", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(api.getSampleAudioUrl).mockReset()
+  })
+
+  it("fetchSampleAudioUrl fetches and caches, keyed by sample id", async () => {
+    vi.mocked(api.getSampleAudioUrl).mockResolvedValue({
+      url: "https://dl/s", download_url: "https://dl/s?dl=x",
+      filename: "speaker-sample", expires_at: "2099-01-01T00:00:00Z",
+    })
+    const store = useTranscribeStore()
+
+    const res = await store.fetchSampleAudioUrl("sp1", "sm1")
+
+    expect(api.getSampleAudioUrl).toHaveBeenCalledWith("sp1", "sm1")
+    expect(res.url).toBe("https://dl/s")
+    expect(store.sampleAudioUrls["sm1"]).toEqual(res)
+  })
+
+  it("fetchSampleAudioUrl does not refetch while the cached entry is far from expiry", async () => {
+    vi.mocked(api.getSampleAudioUrl).mockResolvedValue({
+      url: "https://dl/s", download_url: "https://dl/s?dl=x",
+      filename: "speaker-sample", expires_at: "2099-01-01T00:00:00Z",
+    })
+    const store = useTranscribeStore()
+
+    await store.fetchSampleAudioUrl("sp1", "sm1")
+    await store.fetchSampleAudioUrl("sp1", "sm1")
+
+    expect(api.getSampleAudioUrl).toHaveBeenCalledTimes(1)
   })
 })

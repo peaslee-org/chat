@@ -123,6 +123,7 @@ async function handleDeleteSample(sampleId: string) {
         v-for="sample in speaker.samples"
         :key="sample.sample_id"
         :sample="sample"
+        :speaker-id="speaker.speaker_id"
         :speaker-name="speaker.speaker_name ?? 'Unnamed speaker'"
         @delete="handleDeleteSample(sample.sample_id)"
       />
