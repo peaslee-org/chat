@@ -262,6 +262,12 @@ class TranscriptionService:
 
         The bucket lifecycle expires audio objects, so existence is checked before the new job
         row is created — a stale rerun 404s cleanly instead of leaving an orphaned pending job.
+
+        The audio is server-side copied to a key owned by the new job, rather than aliasing the
+        source job's key: `delete_job` unconditionally deletes a job's `audio_s3_key`, so sharing
+        the key would mean deleting either job destroys the other's audio. The one exception is a
+        `samples/` key, which is shared by design and never deleted — those are passed through
+        uncopied.
         """
         active = await self._repo.count_active_jobs(user_id)
         if active >= self._settings.max_concurrent_jobs:
@@ -278,10 +284,16 @@ class TranscriptionService:
                 "Audio for this job is no longer available — it may have expired from storage"
             )
 
+        if source.audio_s3_key.startswith("samples/"):
+            new_audio_key = source.audio_s3_key
+        else:
+            new_audio_key = f"audio/{user_id}/{uuid4()}/source"
+            self._storage.copy_object(source.audio_s3_key, new_audio_key)
+
         speaker_ids = [UUID(s) for s in source.speaker_ids] if source.speaker_ids else None
         new_job = await self._repo.create_job(
             user_id=user_id,
-            audio_s3_key=source.audio_s3_key,
+            audio_s3_key=new_audio_key,
             speaker_count_hint=source.speaker_count_hint,
             language=source.language,
             speaker_ids=speaker_ids,

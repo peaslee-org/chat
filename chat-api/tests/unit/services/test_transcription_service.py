@@ -248,7 +248,6 @@ class TestRerunJob:
     async def test_429_when_at_concurrent_job_limit(self):
         service, repo, *_ = make_service(active_jobs=3, max_concurrent_jobs=3)
         source = self._source_job()
-        repo.get_job.return_value = source
 
         with pytest.raises(ConcurrentJobLimitExceeded):
             await service.rerun_job("user1", source.id)
@@ -310,15 +309,19 @@ class TestRerunJob:
 
         result = await service.rerun_job("user1", source.id)
 
+        new_audio_key = repo.create_job.call_args.kwargs["audio_s3_key"]
+        assert new_audio_key != source.audio_s3_key
+        assert new_audio_key.startswith("audio/user1/")
+        storage.copy_object.assert_called_once_with(source.audio_s3_key, new_audio_key)
         repo.create_job.assert_called_once_with(
             user_id="user1",
-            audio_s3_key=source.audio_s3_key,
+            audio_s3_key=new_audio_key,
             speaker_count_hint=source.speaker_count_hint,
             language=source.language,
             speaker_ids=[speaker_id],
         )
         # Called at least once for the rerun's own pre-create check (confirm_job_upload's
-        # internal re-check against the same key follows once the row exists).
+        # internal re-check against the *new* key follows once the row exists).
         storage.object_exists.assert_any_call(source.audio_s3_key)
         storage.start_transcription_job.assert_called_once()
         sqs.publish_transcription_job.assert_called_once()
@@ -346,9 +349,42 @@ class TestRerunJob:
 
         await service.rerun_job("user1", source.id)
 
+        new_audio_key = repo.create_job.call_args.kwargs["audio_s3_key"]
         repo.create_job.assert_called_once_with(
             user_id="user1",
+            audio_s3_key=new_audio_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=None,
+        )
+
+    async def test_sample_source_key_is_passed_through_uncopied(self):
+        """A `samples/` key is shared by design; rerun must not copy or delete it."""
+        service, repo, storage, sqs = make_service()
+        source = self._source_job(audio_s3_key="samples/barry.wav", speaker_ids=[])
+        new_job = self._new_job(
             audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=[],
+        )
+
+        def get_job_side_effect(job_id, user_id):
+            if job_id == source.id:
+                return source
+            if job_id == new_job.id:
+                return new_job
+            return None
+
+        repo.get_job.side_effect = get_job_side_effect
+        repo.create_job.return_value = new_job
+
+        await service.rerun_job("user1", source.id)
+
+        storage.copy_object.assert_not_called()
+        repo.create_job.assert_called_once_with(
+            user_id="user1",
+            audio_s3_key="samples/barry.wav",
             speaker_count_hint=source.speaker_count_hint,
             language=source.language,
             speaker_ids=None,

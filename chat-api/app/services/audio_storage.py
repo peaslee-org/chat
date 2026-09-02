@@ -1,3 +1,5 @@
+import shutil
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -100,6 +102,14 @@ class AudioStorageService:
                 keys.append(obj["Key"])
         return keys
 
+    def copy_object(self, src_key: str, dest_key: str) -> None:
+        """Server-side copy within the bucket (no download/upload round trip)."""
+        self.s3.copy_object(
+            Bucket=self.bucket,
+            CopySource={"Bucket": self.bucket, "Key": src_key},
+            Key=dest_key,
+        )
+
     def start_transcription_job(
         self,
         job_id: str,
@@ -160,6 +170,9 @@ class MockAudioStorageService:
 
     def list_keys_with_prefix(self, prefix: str) -> list[str]:
         return []
+
+    def copy_object(self, src_key: str, dest_key: str) -> None:
+        pass
 
     def start_transcription_job(
         self,
@@ -228,6 +241,12 @@ class LocalAudioStorageService:
             for p in parent.iterdir()
             if p.name.startswith(stem) and p.is_file()
         ]
+
+    def copy_object(self, src_key: str, dest_key: str) -> None:
+        src = self._root / src_key
+        dest = self._root / dest_key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
 
     def start_transcription_job(
         self,
