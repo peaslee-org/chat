@@ -244,3 +244,46 @@ class TestVisibility:
             headers={"Authorization": "Bearer fake-token"},
         )
         assert r.status_code == 404
+
+
+class TestSamples:
+    async def test_samples_200(self, client):
+        from app.schemas.transcription import (
+            SampleAudioItem,
+            SamplePreviewResponse,
+            SampleSpeakerItem,
+        )
+
+        ac, svc = client
+        svc.get_samples = AsyncMock(return_value=SamplePreviewResponse(
+            name="Sample conversation",
+            audio=SampleAudioItem(filename="conversation", url="https://dl/samples/conversation.wav"),
+            speakers=[
+                SampleSpeakerItem(speaker_name="Barry", url="https://dl/samples/speakers/barry.wav"),
+                SampleSpeakerItem(speaker_name="Jane", url="https://dl/samples/speakers/jane.wav"),
+            ],
+        ))
+        r = await ac.get(
+            "/api/v1/transcribe/samples",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["name"] == "Sample conversation"
+        assert body["audio"]["filename"] == "conversation"
+        assert body["audio"]["url"] == "https://dl/samples/conversation.wav"
+        assert body["speakers"][0] == {
+            "speaker_name": "Barry", "url": "https://dl/samples/speakers/barry.wav"
+        }
+        assert body["speakers"][1] == {
+            "speaker_name": "Jane", "url": "https://dl/samples/speakers/jane.wav"
+        }
+
+    async def test_samples_409_when_not_uploaded(self, client):
+        ac, svc = client
+        svc.get_samples = AsyncMock(side_effect=ConflictError("Sample audio has not been uploaded"))
+        r = await ac.get(
+            "/api/v1/transcribe/samples",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 409

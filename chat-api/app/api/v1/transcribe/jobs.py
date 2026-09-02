@@ -18,6 +18,7 @@ from app.schemas.transcription import (
     JobListResponse,
     JobStatusResponse,
     SampleJobResponse,
+    SamplePreviewResponse,
     TranscriptResponse,
     TurnDistancesResponse,
 )
@@ -25,6 +26,16 @@ from app.services.transcription_service import TranscriptionService
 import app.db.session as db_session
 
 router = APIRouter()
+
+
+@router.get("/samples", response_model=SamplePreviewResponse)
+async def get_samples(
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> SamplePreviewResponse:
+    """The bundled sample conversation + speaker voice samples: what Try the sample previews
+    before an explicit Start submits it."""
+    return await service.get_samples()
 
 
 @router.post("/jobs/sample", status_code=202, response_model=SampleJobResponse)

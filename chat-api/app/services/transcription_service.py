@@ -1,5 +1,6 @@
 import asyncio
 import io
+from pathlib import Path
 from uuid import UUID, uuid4
 from typing import Optional
 
@@ -20,8 +21,11 @@ from app.schemas.transcription import (
     JobEventResponse,
     JobStatusResponse,
     JobListResponse,
+    SampleAudioItem,
     SampleJobResponse,
+    SamplePreviewResponse,
     SampleResponse,
+    SampleSpeakerItem,
     SampleUploadInitResponse,
     SpeakerResponse,
     SpeakerListResponse,
@@ -517,6 +521,35 @@ class TranscriptionService:
 
         return SampleJobResponse(job_id=job.id, speaker_ids=speaker_ids)
 
+    async def get_samples(self) -> SamplePreviewResponse:
+        """The bundled sample: what NewJobForm previews in sample-review mode before Start."""
+        keys = [
+            self._settings.sample_audio_s3_key,
+            self._settings.sample_barry_s3_key,
+            self._settings.sample_jane_s3_key,
+        ]
+        if not all(self._storage.object_exists(k) for k in keys):
+            raise ConflictError("Sample audio has not been uploaded")
+        presign = self._storage.generate_presigned_download_url
+        return SamplePreviewResponse(
+            name="Sample conversation",
+            audio=SampleAudioItem(
+                filename=Path(self._settings.sample_audio_s3_key).stem,
+                url=presign(self._settings.sample_audio_s3_key),
+            ),
+            speakers=[
+                SampleSpeakerItem(
+                    speaker_name="Barry", url=presign(self._settings.sample_barry_s3_key)
+                ),
+                SampleSpeakerItem(
+                    speaker_name="Jane", url=presign(self._settings.sample_jane_s3_key)
+                ),
+            ],
+        )
+
+
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "transcribe"
+
 
 class LocalTranscriptionService(TranscriptionService):
     """TranscriptionService variant for local dev (USE_MOCK_TRANSCRIPTION=true).
@@ -651,3 +684,15 @@ class LocalTranscriptionService(TranscriptionService):
             asyncio.create_task(self._mock_process_job(user_id, job.id))
 
         return SampleJobResponse(job_id=job.id, speaker_ids=speaker_ids)
+
+    async def get_samples(self) -> SamplePreviewResponse:
+        """Seed the committed sample audio into the dev sink once, then list it like prod."""
+        seeds = {
+            self._settings.sample_audio_s3_key: ASSET_DIR / "conversation.wav",
+            self._settings.sample_barry_s3_key: ASSET_DIR / "barry.wav",
+            self._settings.sample_jane_s3_key: ASSET_DIR / "jane.wav",
+        }
+        for key, path in seeds.items():
+            if not self._storage.object_exists(key):
+                self._storage.write_object(key, path.read_bytes())
+        return await super().get_samples()

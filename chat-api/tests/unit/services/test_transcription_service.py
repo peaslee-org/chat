@@ -38,6 +38,9 @@ def make_service(
 
     storage = MagicMock()
     storage.generate_presigned_upload_url = MagicMock(return_value="https://s3.example.com/upload")
+    storage.generate_presigned_download_url = MagicMock(
+        side_effect=lambda k, ttl_seconds=900: f"https://dl/{k}"
+    )
     storage.object_exists = MagicMock(return_value=True)
     storage.start_transcription_job = MagicMock(return_value=("job-abc", "audio/user/job/transcript_raw.json"))
     storage.delete_objects = MagicMock()
@@ -49,6 +52,9 @@ def make_service(
 
     settings = MagicMock()
     settings.max_concurrent_jobs = max_concurrent_jobs
+    settings.sample_audio_s3_key = "samples/conversation.wav"
+    settings.sample_barry_s3_key = "samples/speakers/barry.wav"
+    settings.sample_jane_s3_key = "samples/speakers/jane.wav"
 
     return TranscriptionService(repo, storage, sqs, settings, gpu), repo, storage, sqs
 
@@ -619,3 +625,61 @@ class TestGpuIntegration:
         gpu.ensure_worker.assert_awaited_once_with("resume", "user1")
         assert resp.worker_state == "starting"
         assert resp.estimated_wait_seconds == 120
+
+
+class TestGetSamples:
+    async def test_returns_presigned_urls_for_the_three_shared_keys(self):
+        service, repo, storage, _ = make_service()
+
+        res = await service.get_samples()
+
+        storage.object_exists.assert_any_call("samples/conversation.wav")
+        storage.object_exists.assert_any_call("samples/speakers/barry.wav")
+        storage.object_exists.assert_any_call("samples/speakers/jane.wav")
+        assert res.name == "Sample conversation"
+        assert res.audio.filename == "conversation"
+        assert res.audio.url == "https://dl/samples/conversation.wav"
+        assert res.speakers[0].speaker_name == "Barry"
+        assert res.speakers[0].url == "https://dl/samples/speakers/barry.wav"
+        assert res.speakers[1].speaker_name == "Jane"
+        assert res.speakers[1].url == "https://dl/samples/speakers/jane.wav"
+
+    async def test_409_when_any_asset_missing(self):
+        service, repo, storage, _ = make_service()
+        storage.object_exists = MagicMock(
+            side_effect=lambda k: k != "samples/speakers/jane.wav"
+        )
+
+        with pytest.raises(ConflictError):
+            await service.get_samples()
+
+    async def test_409_when_no_assets_present(self):
+        service, repo, storage, _ = make_service()
+        storage.object_exists = MagicMock(return_value=False)
+
+        with pytest.raises(ConflictError):
+            await service.get_samples()
+
+
+class TestLocalGetSamples:
+    async def test_seeds_local_storage_from_the_committed_assets_once(self, tmp_path):
+        from app.services.audio_storage import LocalAudioStorageService
+        from app.services.transcription_service import LocalTranscriptionService
+
+        storage = LocalAudioStorageService("http://localhost:8000", str(tmp_path))
+        settings = MagicMock(
+            sample_audio_s3_key="samples/conversation.wav",
+            sample_barry_s3_key="samples/speakers/barry.wav",
+            sample_jane_s3_key="samples/speakers/jane.wav",
+        )
+        service = LocalTranscriptionService(MagicMock(), storage, MagicMock(), settings)
+
+        res = await service.get_samples()
+
+        assert res.audio.url.endswith("/dev-upload/samples/conversation.wav")
+        assert (tmp_path / "samples/conversation.wav").exists()
+        assert (tmp_path / "samples/speakers/barry.wav").exists()
+        assert (tmp_path / "samples/speakers/jane.wav").exists()
+
+        again = await service.get_samples()  # idempotent: no error re-seeding over existing files
+        assert again.audio.url == res.audio.url

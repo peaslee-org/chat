@@ -146,3 +146,19 @@ class TurnDistancesResponse(BaseModel):
 class SampleJobResponse(BaseModel):
     job_id: UUID
     speaker_ids: List[UUID]
+
+
+class SampleAudioItem(BaseModel):
+    filename: str
+    url: str
+
+
+class SampleSpeakerItem(BaseModel):
+    speaker_name: str
+    url: str
+
+
+class SamplePreviewResponse(BaseModel):
+    name: str
+    audio: SampleAudioItem
+    speakers: List[SampleSpeakerItem]
