@@ -40,8 +40,13 @@ resource "aws_iam_role" "github_actions" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          # Scoped to pushes to the deploy branch from this specific repo.
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/${var.deploy_branch}"
+          # Scoped to pushes to the deploy branch from this specific repo. Both sub formats are
+          # accepted: after a repo rename GitHub issues ID-qualified subs (org@id/repo@id) as a
+          # rename-attack defense (observed 2026-09-02, post chat→aiTools rename).
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/${var.deploy_branch}",
+            "repo:${var.github_org}@${var.github_org_id}/${var.github_repo}@${var.github_repo_id}:ref:refs/heads/${var.deploy_branch}",
+          ]
         }
       }
     }]

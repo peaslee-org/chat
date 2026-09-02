@@ -184,7 +184,11 @@ resource "aws_iam_role" "frontend_deploy" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.frontend_github_repo}:ref:refs/heads/${var.frontend_deploy_branch}"
+          # Classic and ID-qualified sub formats (GitHub issues org@id/repo@id subs after a rename).
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_org}/${var.frontend_github_repo}:ref:refs/heads/${var.frontend_deploy_branch}",
+            "repo:${var.github_org}@${var.github_org_id}/${var.frontend_github_repo}@${var.github_repo_id}:ref:refs/heads/${var.frontend_deploy_branch}",
+          ]
         }
       }
     }]
