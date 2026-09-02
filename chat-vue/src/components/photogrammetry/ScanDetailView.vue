@@ -7,6 +7,7 @@ import StageStrip from "./StageStrip.vue"
 import MeshViewer from "./MeshViewer.vue"
 import NewScanForm from "./NewScanForm.vue"
 import PhotoGrid from "./PhotoGrid.vue"
+import PublicToggle from "@/components/PublicToggle.vue"
 import type { NewScanMode } from "./newScanMode"
 
 type Pane = "3d" | "photos"
@@ -149,6 +150,19 @@ async function download(which: "mesh" | "preview"): Promise<void> {
   }
 }
 
+const visibilityBusy = ref(false)
+async function setVisibility(next: boolean) {
+  if (!job.value) return
+  visibilityBusy.value = true
+  try {
+    await store.setVisibility(job.value.job_id, next)
+  } catch {
+    store.pushToast("Couldn't update visibility — try again")
+  } finally {
+    visibilityBusy.value = false
+  }
+}
+
 const segment = "px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
 </script>
 
@@ -174,6 +188,11 @@ const segment = "px-3 py-1 text-xs font-medium transition-colors disabled:cursor
         <span v-if="job.gpu_notice" class="text-xs text-amber-700">{{ job.gpu_notice }}</span>
 
         <div class="ml-auto flex shrink-0 items-center gap-2">
+          <PublicToggle
+            :is-public="job.is_public ?? false"
+            :busy="visibilityBusy"
+            @toggle="(next) => setVisibility(next)"
+          />
           <div class="inline-flex overflow-hidden rounded border border-gray-300 bg-white" role="tablist" aria-label="View">
             <button
               type="button"

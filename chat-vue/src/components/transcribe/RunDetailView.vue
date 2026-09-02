@@ -12,6 +12,7 @@ import SpeakerProfileCard from "./SpeakerProfileCard.vue"
 import TranscribeJobCard from "./TranscribeJobCard.vue"
 import NewJobForm from "./NewJobForm.vue"
 import MatchingAnalysis from "./MatchingAnalysis.vue"
+import PublicToggle from "@/components/PublicToggle.vue"
 
 const props = defineProps<{
   showNewJobForm: boolean
@@ -80,6 +81,19 @@ function onCardExpanded(speakerId: string) {
 function onJobSubmitted() {
   emit("close-new-job-form")
 }
+
+const visibilityBusy = ref(false)
+async function setVisibility(next: boolean) {
+  if (!activeJob.value) return
+  visibilityBusy.value = true
+  try {
+    await store.setVisibility(activeJob.value.job_id, next)
+  } catch {
+    store.pushToast("Couldn't update visibility — try again")
+  } finally {
+    visibilityBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -102,6 +116,14 @@ function onJobSubmitted() {
     <template v-else>
       <!-- Job header -->
       <div class="flex-shrink-0 px-4 pt-4">
+        <div class="mb-2 flex justify-end">
+          <PublicToggle
+            v-if="activeJob"
+            :is-public="activeJob.is_public ?? false"
+            :busy="visibilityBusy"
+            @toggle="(next) => setVisibility(next)"
+          />
+        </div>
         <TranscribeJobCard
           v-if="activeJob"
           :job="activeJob"

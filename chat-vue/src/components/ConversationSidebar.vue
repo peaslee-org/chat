@@ -48,6 +48,16 @@
           <span class="text-gray-500 text-xs pl-2 text-right self-center">{{ formatDate(conv.created_at) }}</span>
         </span>
         <span
+          v-if="conv.id === activeId"
+          class="ml-1 shrink-0"
+          @click.stop
+        >
+          <PublicToggle
+            :is-public="conv.is_public ?? false"
+            @toggle="(next) => emit('set-visibility', conv.id, next)"
+          />
+        </span>
+        <span
           class="invisible group-hover:visible text-gray-400 hover:text-red-400 ml-1 text-xs shrink-0"
           @click.stop="emit('delete', conv.id)"
         >
@@ -69,6 +79,7 @@
 
 <script setup lang="ts">
 import type { Conversation } from '@/types'
+import PublicToggle from '@/components/PublicToggle.vue'
 
 withDefaults(defineProps<{
   conversations?: Conversation[]
@@ -97,5 +108,6 @@ const emit = defineEmits<{
   new: []
   delete: [id: string]
   logout: []
+  'set-visibility': [id: string, isPublic: boolean]
 }>()
 </script>

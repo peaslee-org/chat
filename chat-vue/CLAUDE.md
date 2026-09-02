@@ -105,6 +105,7 @@ src/
     axios.ts           Axios instance with auth interceptor and 401 handler
     transcribeApi.ts   Transcribe feature API calls (speakers, samples, jobs, transcripts)
     photogrammetryApi.ts   Photogrammetry API calls (jobs, uploads, mesh URLs, job photos, sample photos)
+    publicApi.ts       Public API calls (unauthenticated: showcase, public conversations/scans/transcripts)
     gpuApi.ts          GET /gpu/state, POST /gpu/warm, GET /gpu/usage (all take `family`)
     jobQuery.ts        useJobDeepLink(open): `?job=<id>` deep link for both views — a watch (the Startups
                        links are same-route navigations, so onMounted never sees them) plus a check()
@@ -129,11 +130,12 @@ src/
                        remainingSeconds from starting_since + startup_estimate_seconds
     profile.ts         Current user's profile (name, email, sub) for /profile
     admin.ts           Admin users list for /admin
-  router/index.ts      Routes: / (ChatView), /transcribe, /photogrammetry, /profile, /admin
+  router/index.ts      Routes: / (ChatView), /demo (DemoView), /transcribe, /photogrammetry, /profile, /admin
                        (requiresAdmin; AdminLayout → DashboardView, UsersView), /callback
   views/
     ChatView.vue       Main layout: sidebar + message thread
     CallbackView.vue   OAuth callback handler — exchanges code for tokens
+    DemoView.vue       Public demo page: showcases public conversations, scans, and transcripts
     TranscribeView.vue Transcribe layout: resizable sidebar (RunSidebar) + detail panel (RunDetailView)
     PhotogrammetryView.vue  Scan layout: resizable ScanSidebar + ScanDetailView, GpuStatusBar
                        (family="photogrammetry") on top; owns formMode ('closed'|'blank'|'sample');
@@ -146,6 +148,7 @@ src/
     MessageBubble.vue                    Single message (user = right/indigo, assistant = left/white)
     MessageInput.vue                     Textarea + send button; shows model selector above input
                                          when isNewConversation is true; Enter to send, Shift+Enter for newline
+    PublicToggle.vue                     Shared toggle to mark work public/private (emits `toggle` with flipped boolean)
     transcribe/
       GpuStatusBar.vue         Shared GPU bar (prop `family`): state dot + label with remaining/elapsed
                                while starting (title says cold/warm start and the estimate basis),
@@ -214,17 +217,18 @@ All imports use the `@` alias which maps to `src/`.
 
 ## Auth Flow
 
-1. Router guard detects unauthenticated → calls `auth.login()`
-2. `login()` generates PKCE verifier/challenge, stores verifier in `sessionStorage`, redirects to Cognito Hosted UI
-3. Cognito redirects to `/callback?code=...`
-4. `CallbackView` calls `auth.handleCallback(code)` → POST to Cognito `/oauth2/token`
-5. `id_token` stored in `localStorage`; user redirected to `/`
-6. All API calls via `apiClient` (lib/axios.ts) include `Authorization: Bearer <id_token>`
-7. On logout: `localStorage` cleared, browser redirected to Cognito `/logout`
+1. Router guard detects unauthenticated → redirects to `/demo`
+2. `/demo` is the public demo page (no login required); signed-out visitors see a "Sign in" button that calls `auth.login()`
+3. `login()` generates PKCE verifier/challenge, stores verifier in `sessionStorage`, redirects to Cognito Hosted UI
+4. Cognito redirects to `/callback?code=...`
+5. `CallbackView` calls `auth.handleCallback(code)` → POST to Cognito `/oauth2/token`
+6. `id_token` stored in `localStorage`; user redirected to `/`
+7. All API calls via `apiClient` (lib/axios.ts) include `Authorization: Bearer <id_token>`
+8. On logout: `localStorage` cleared, browser redirected to Cognito `/logout`
 
 The logout URL is derived from `VITE_COGNITO_REDIRECT_URI` by stripping `/callback` to get the app root.
 
-All routes except `/callback` require auth; `/admin` additionally requires `isAdmin`. The guard calls `auth.login()` and returns `false` to abort navigation for unauthenticated users.
+All routes except `/demo` and `/callback` require auth; `/admin` additionally requires `isAdmin`. The guard redirects unauthenticated users to `/demo` instead of forcing login immediately.
 
 ## Environment Variables
 
@@ -270,6 +274,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/api/v1/chat` | `{conversation_id?, message, model_id?}` → `{conversation_id, reply}`; `model_id` only used when creating a new conversation |
 | GET | `/api/v1/conversations` | List conversations for current user |
 | GET | `/api/v1/conversations/{id}/messages` | Fetch message history for a conversation |
+| PATCH | `/api/v1/conversations/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; → updated ConversationOut |
 | DELETE | `/api/v1/conversations/{id}` | 204 |
 
 **Transcribe (`/api/v1/transcribe/`):**
@@ -288,6 +293,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/jobs/{id}/confirm` | Confirm audio uploaded; transitions job → `transcribing` |
 | GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
 | GET | `/jobs/{id}` | Get job status (`TranscriptionJob`) |
+| PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; → updated job status (JobStatusResponse) |
 | GET | `/jobs/{id}/transcript` | Get transcript → `{segments, transcript_url}` |
 | DELETE | `/jobs/{id}` | 204 |
 
@@ -304,11 +310,21 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/jobs/{id}/confirm` | Confirm photos uploaded; transitions job → `queued` |
 | GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
 | GET | `/jobs/{id}` | Job status incl. `stage`, `warnings[]`, `preview_url`, `worker_state`, `estimated_wait_seconds`, `gpu_notice` |
+| PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; → updated job status (JobStatusResponse) |
 | DELETE | `/jobs/{id}` | 204 |
 | POST | `/jobs/sample` | Create a job over the bundled sample photo set (server-side, no upload) |
 | GET | `/samples` | `{name, image_count, photos[{filename,url,thumb_url}]}` — what sample mode shows |
 | GET | `/jobs/{id}/photos` | `{photos[{filename,url,thumb_url,status}], matched, total}` — thumbnails are made on first request; `status` is registered / unregistered / skipped:<reason> once SfM has run |
 | GET | `/jobs/{id}/mesh` | `{url, download_url, preview_download_url, expires_at}` — presigned GLB (viewer) + attachment URLs |
+
+**Public (`/api/v1/public/`, no auth required):**
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/showcase` | List public conversations, transcriptions, and scans |
+| GET | `/conversations/{conversation_id}` | Get a public conversation with messages (read-only) |
+| GET | `/transcriptions/{job_id}` | Get a public transcription job (read-only) |
+| GET | `/photogrammetry/{job_id}` | Get a public photogrammetry job (read-only) |
 
 **GPU (`/api/v1/gpu/`):** `GET /state` → `{worker_state, estimated_wait_seconds (remaining while
 starting), starting_since, startup_estimate_seconds, estimate_basis, estimate_samples, start_kind,

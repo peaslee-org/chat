@@ -6,7 +6,7 @@ Input images are not rows — `input_prefix` + `image_count` describe them; keys
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,3 +46,6 @@ class PhotogrammetryJob(UUIDMixin, Base):
     # by the photogrammetry worker, read by the usage panel's cost-per-job).
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )

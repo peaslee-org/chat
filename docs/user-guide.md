@@ -5,11 +5,13 @@ that see the `CLAUDE.md` files.
 
 ## Signing in
 
-The app uses a hosted sign-in page. If you're not signed in, any page sends you there; after
-signing in you land back on the app. **Sign out** is at the bottom of the left panel on every
-page. **Profile** (`/profile`) shows the name, email and user id on your account.
+If you're not signed in, you land on the **Demo** page (`/demo`) where you can browse public work. Click the **Sign in** button to open the hosted sign-in page; after signing in, you land back on the app. **Sign out** is at the bottom of the left panel on every page. **Profile** (`/profile`) shows the name, email and user id on your account.
 
 Three tabs run along the top of the left panel: **Chat**, **Transcribe**, **Scan**.
+
+## Demo
+
+Visit `/demo` to see a public showcase without signing in. It displays conversations, transcriptions, and scans that owners have marked public — `/demo` itself is the shareable page; there are no separate per-item links to hand out. To mark your own work public, use the **Public** toggle on the active conversation's sidebar row, or on a transcript/scan's detail header. Marking a transcript public also publishes the enrolled speaker names shown in it, not just the transcript text. Files are kept for 30 days, then removed; download before then if you want to keep them.
 
 ## Chat
 

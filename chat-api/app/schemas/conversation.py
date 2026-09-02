@@ -12,6 +12,7 @@ class ConversationOut(BaseModel):
     model_id: str | None
     input_price_per_1k_tokens: float | None
     output_price_per_1k_tokens: float | None
+    is_public: bool = False
     created_at: datetime
     updated_at: datetime
 

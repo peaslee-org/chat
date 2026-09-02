@@ -288,6 +288,7 @@ class TranscriptionService:
             worker_state=gpu_state.worker_state if gpu_state else None,
             estimated_wait_seconds=gpu_state.estimated_wait_seconds if gpu_state else None,
             gpu_notice=gpu_state.notice if gpu_state else None,
+            is_public=job.is_public,
         )
 
     async def list_jobs(
@@ -311,6 +312,7 @@ class TranscriptionService:
                     created_at=j.created_at,
                     updated_at=j.updated_at,
                     completed_at=j.completed_at,
+                    is_public=j.is_public,
                 )
                 for j in items
             ],
@@ -405,6 +407,14 @@ class TranscriptionService:
         s3_keys.extend(self._storage.list_keys_with_prefix(segment_prefix))
         self._storage.delete_objects(s3_keys)
         await self._repo.delete_job(job_id)
+
+    async def set_visibility(
+        self, user_id: str, job_id: UUID, is_public: bool
+    ) -> JobStatusResponse:
+        job = await self._repo.set_is_public(job_id, user_id, is_public)
+        if job is None:
+            raise NotFoundError(f"Job {job_id} not found")
+        return await self.get_job_status(user_id, job_id)
 
     # ── Sample Job ────────────────────────────────────────────────────────────
 

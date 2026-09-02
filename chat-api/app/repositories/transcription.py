@@ -254,6 +254,57 @@ class TranscriptionRepository:
         if job:
             await self.db.delete(job)
 
+    async def list_public_jobs(self, limit: int = 20) -> List[TranscriptionJob]:
+        result = await self.db.execute(
+            select(TranscriptionJob)
+            .where(TranscriptionJob.is_public.is_(True))
+            .order_by(TranscriptionJob.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def get_public_job(self, job_id: UUID) -> Optional[TranscriptionJob]:
+        result = await self.db.execute(
+            select(TranscriptionJob).where(
+                TranscriptionJob.id == job_id,
+                TranscriptionJob.is_public.is_(True),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def set_is_public(self, job_id: UUID, user_id: str, value: bool) -> Optional[TranscriptionJob]:
+        job = await self.get_job(job_id, user_id)
+        if job is None:
+            return None
+        job.is_public = value
+        await self.db.flush()
+        return job
+
+    async def get_segment_stats(self, job_id: UUID) -> tuple[Optional[float], int]:
+        result = await self.db.execute(
+            select(func.max(TranscriptSegment.end_time), func.count(TranscriptSegment.id)).where(
+                TranscriptSegment.job_id == job_id
+            )
+        )
+        duration, count = result.one()
+        return duration, count
+
+    async def get_segment_stats_bulk(
+        self, job_ids: list[UUID]
+    ) -> dict[UUID, tuple[Optional[float], int]]:
+        if not job_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                TranscriptSegment.job_id,
+                func.max(TranscriptSegment.end_time),
+                func.count(TranscriptSegment.id),
+            )
+            .where(TranscriptSegment.job_id.in_(job_ids))
+            .group_by(TranscriptSegment.job_id)
+        )
+        return {job_id: (duration, count) for job_id, duration, count in result.all()}
+
     # ── Transcript Segments ───────────────────────────────────────────────────
 
     async def get_segments(self, job_id: UUID) -> List[TranscriptSegment]:

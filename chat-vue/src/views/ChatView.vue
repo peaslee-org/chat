@@ -9,6 +9,7 @@
       @new="chat.startNewConversation"
       @delete="chat.deleteConversation"
       @logout="auth.logout"
+      @set-visibility="chat.setConversationVisibility"
     />
     <div
       class="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-indigo-500"

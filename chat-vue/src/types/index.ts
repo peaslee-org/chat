@@ -17,6 +17,7 @@ export interface Conversation {
   created_at: string
   updated_at: string
   messages: Message[]
+  is_public?: boolean
 }
 
 // Mirrors ChatRequest from app/schemas/chat.py
@@ -95,6 +96,7 @@ export interface TranscriptionJob {
   worker_state?: WorkerState | null
   estimated_wait_seconds?: number
   gpu_notice?: string | null
+  is_public?: boolean
 }
 
 export type WorkerState = 'off' | 'starting' | 'running'
@@ -266,6 +268,7 @@ export interface PhotogrammetryJob {
   worker_state?: WorkerState | null
   estimated_wait_seconds?: number | null
   gpu_notice?: string | null
+  is_public?: boolean
 }
 
 export interface UploadTarget {
@@ -321,4 +324,58 @@ export interface MeshUrls {
   downloadUrl: string
   previewDownloadUrl: string | null
   expiresAt: number
+}
+
+// ── Public demo (mirrors chat-api app/schemas/public.py) ─────────────────────
+export interface PublicScanSummary {
+  job_id: string
+  name: string
+  image_count: number
+  status: string
+  preview_url: string | null
+  created_at: string
+}
+
+export interface PublicScanDetail extends PublicScanSummary {
+  warnings: string[]
+  matched: number | null
+  total: number | null
+  mesh_url: string | null
+  expires_at: string | null
+  completed_at: string | null
+}
+
+export interface PublicTranscriptionSummary {
+  job_id: string
+  created_at: string
+  duration_seconds: number | null
+  segment_count: number | null
+  speaker_count: number | null
+}
+
+export interface PublicTranscriptionDetail extends PublicTranscriptionSummary {
+  segments: TranscriptSegment[]
+}
+
+export interface PublicMessage {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface PublicConversationSummary {
+  conversation_id: string
+  title: string | null
+  model_id: string | null
+  created_at: string
+}
+
+export interface PublicConversationDetail extends PublicConversationSummary {
+  messages: PublicMessage[]
+}
+
+export interface ShowcaseResponse {
+  scans: PublicScanSummary[]
+  transcriptions: PublicTranscriptionSummary[]
+  conversations: PublicConversationSummary[]
 }

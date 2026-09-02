@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
 
@@ -14,6 +14,7 @@ vi.mock("@/lib/photogrammetryApi", () => ({
   createSampleJob: vi.fn(),
   getMeshUrl: vi.fn(),
   uploadToS3: vi.fn(),
+  setJobVisibility: vi.fn(),
 }))
 
 import * as api from "@/lib/photogrammetryApi"
@@ -106,6 +107,16 @@ describe("ScanDetailView — closing a scan", () => {
     store.jobs[0] = job({ status: "failed", error_message: "Only 0 of 1 photos could be matched" })
     await vi.waitFor(() => expect(api.fetchJobPhotos).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(w.find('[data-testid="status-tag"]').text()).toBe("not matched"))
+    w.unmount()
+  })
+
+  it("toggles visibility through the store", async () => {
+    const { store, w } = mountSelected()
+    await w.vm.$nextTick()
+    ;(api.setJobVisibility as Mock).mockResolvedValue({ ...store.jobs[0], is_public: true })
+    await w.find('[data-testid="public-toggle"]').trigger("click")
+    await flushPromises()
+    expect(api.setJobVisibility).toHaveBeenCalledWith("j1", true)
     w.unmount()
   })
 })
