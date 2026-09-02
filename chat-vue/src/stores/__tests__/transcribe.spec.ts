@@ -82,6 +82,29 @@ describe("transcribe store — speaker refresh after job creation", () => {
     expect(api.listSpeakers).toHaveBeenCalledTimes(1)
   })
 
+  it("submitJob adds the pending job to state before the speaker refresh resolves", async () => {
+    vi.mocked(api.createJob).mockResolvedValue({ job_id: "j4", upload_url: "https://s3.example/upload" })
+    let resolveSpeakers!: (v: { items: never[]; next_cursor: null }) => void
+    vi.mocked(api.listSpeakers).mockReturnValue(
+      new Promise((resolve) => { resolveSpeakers = resolve })
+    )
+    const store = useTranscribeStore()
+    const file = new File(["audio"], "a.wav", { type: "audio/wav" })
+
+    const submitPromise = store.submitJob(file, { speakerCountHint: 2, speakerIds: ["s1"], language: "en-US" })
+    // Flush microtasks so createJob resolves and the pending job is unshifted,
+    // without letting the still-pending speaker refresh resolve.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(store.jobs.some((j) => j.job_id === "j4" && j.status === "pending")).toBe(true)
+    expect(api.uploadToS3).not.toHaveBeenCalled()
+
+    resolveSpeakers({ items: [], next_cursor: null })
+    await submitPromise
+  })
+
   it("submitJob does not refetch the speaker list when no speaker_ids are passed", async () => {
     vi.mocked(api.createJob).mockResolvedValue({ job_id: "j2", upload_url: "https://s3.example/upload" })
     const store = useTranscribeStore()

@@ -87,6 +87,16 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     speakerNextCursor.value = res.next_cursor
   }
 
+  /**
+   * Refetch the speaker list after job creation may have seeded fresh profiles
+   * (e.g. sample uploads), so the speaker panel can find them by speaker_id.
+   * Failures are swallowed — a refresh failure must not fail job submission;
+   * the panel falls back to a manual refresh.
+   */
+  function refreshSpeakersQuietly(): Promise<void> {
+    return loadSpeakers(true).catch(() => {})
+  }
+
   async function createSpeaker(name?: string): Promise<string> {
     const profile = await api.createSpeaker(name)
     speakers.value.unshift({ ...profile, samples: [] })
@@ -157,10 +167,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
       completed_at: null,
     })
     startPolling(job_id)
-    // Each sample run seeds fresh speaker profiles (new UUIDs) — refetch so the
-    // speaker panel can find them by the job's speaker_ids. A refresh failure
-    // must not fail job creation; the panel falls back to a manual refresh.
-    await loadSpeakers(true).catch(() => {})
+    await refreshSpeakersQuietly()
     return job_id
   }
 
@@ -182,10 +189,6 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     } catch (err) {
       throw err
     }
-    // Job creation may have just seeded speaker profiles (e.g. fresh sample
-    // uploads) — refetch so the speaker panel can find them. A refresh failure
-    // must not fail job submission; the panel falls back to a manual refresh.
-    if (params.speakerIds.length) await loadSpeakers(true).catch(() => {})
     // 2. Add to local job list as pending while uploading
     const now = ts()
     jobs.value.unshift({
@@ -202,6 +205,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
       updated_at: now,
       completed_at: null,
     })
+    if (params.speakerIds.length) await refreshSpeakersQuietly()
     // 3. Upload to S3
     const t1 = ts()
     logJob(job_id, { ts: t1, direction: 'request', label: `PUT S3 (${(file.size / 1024).toFixed(0)} KB)` })
