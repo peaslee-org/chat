@@ -96,7 +96,7 @@ main.py  (dispatches to HANDLERS; SQS poll loop, visibility extender, SpotWatche
 | `db.py` | Sync SQLAlchemy engine; `get_session()` context manager with auto-commit/rollback |
 | `models.py` | SQLAlchemy models duplicated from `chat-api`: `SpeakerProfile`, `SpeakerSample`, `TranscriptionJob`, `TranscriptSegment` |
 | `handlers/transcription.py` | Full transcription pipeline (poll → pyannote → align → embed → match → write DB → write S3 → metrics) |
-| `handlers/embedding.py` | Download sample audio, generate embedding, update `SpeakerSample` status and `error_message` on failure |
+| `handlers/embedding.py` | Download sample audio, generate embedding, update `SpeakerSample` status and `error_message` on failure; no-ops on a sample already `ready` (embedded inline by the transcription handler ahead of this message) |
 | `services/diarizer.py` | Singleton `PyannoteDiarizer`; loads `pyannote/speaker-diarization-community-1` on CUDA; returns `turns` and `exclusive_turns` |
 | `services/aligner.py` | `align_words_to_turns()`: bisect midpoint assignment with gap-word fallback; `find_overlaps()`: sweep-line overlap detection |
 | `services/embedder.py` | Singleton `EcapaTdnnEmbedder`; SpeechBrain ECAPA-TDNN; outputs 192-dim L2-normalised vector |
@@ -113,7 +113,9 @@ main.py  (dispatches to HANDLERS; SQS poll loop, visibility extender, SpotWatche
 5. Download source audio to a temp file; run `PyannoteDiarizer.diarize()` on CUDA
 6. `align_words_to_turns()` maps each word to one speaker using exclusive diarization turns (bisect midpoint; gap words go to nearest turn)
 7. For each unique speaker label: slice + concatenate audio, export to WAV, upload to S3, generate ECAPA-TDNN embedding
-8. Load `ready` `SpeakerSample` rows (filtered to `speaker_ids` if provided)
+8. Load `ready` `SpeakerSample` rows (filtered to `speaker_ids` if provided); a still-`processing`
+   sample of a filtered speaker is embedded inline before matching — a failure there marks only
+   that sample `failed` (with `error_message`) rather than failing the whole job
 9. Cosine-distance match each label embedding to candidate speaker profiles (threshold: 0.25)
 10. Write `TranscriptSegment` rows to DB
 11. Write `transcript.txt` to S3 (`audio/{user_id}/{job_id}/transcript.txt`)

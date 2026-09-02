@@ -217,10 +217,21 @@ def process_transcription_job(body: dict, settings: Settings, abort: "threading.
                         "Sample %s (speaker %s) still processing — embedding inline before matching",
                         pending.id, pending.speaker_profile_id,
                     )
-                    audio_bytes = s3.download_bytes(pending.s3_key)
-                    pending.embedding = embedder.encode(audio_bytes)
-                    pending.status = "ready"
-                    samples.append(pending)
+                    try:
+                        audio_bytes = s3.download_bytes(pending.s3_key)
+                        pending.embedding = embedder.encode(audio_bytes)
+                        pending.status = "ready"
+                        samples.append(pending)
+                    except Exception as exc:
+                        # Contain the failure to this one sample, matching the dedicated embedding
+                        # handler (handlers/embedding.py) — the raced sample loses its shot at this
+                        # job's matching, but the job itself must not fail over it.
+                        logger.error(
+                            "Inline embed failed for sample %s (speaker %s): %s",
+                            pending.id, pending.speaker_profile_id, exc,
+                        )
+                        pending.status = "failed"
+                        pending.error_message = str(exc)
 
             profile_ids = list({s.speaker_profile_id for s in samples})
             profile_result = session.execute(

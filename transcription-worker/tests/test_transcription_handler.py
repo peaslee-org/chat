@@ -54,13 +54,14 @@ def exec_result(rows):
 _last: dict = {}
 
 
-def run(job_body_extra=None, *, abort=None, poller=None, embedder=None, execute_side_effect=None):
+def run(job_body_extra=None, *, abort=None, poller=None, embedder=None, execute_side_effect=None, s3=None):
     """Drive the handler with every collaborator faked; the job row and session land in `_last`
     so a test can inspect them even when the handler raises."""
     job, session, get_session = make_job(execute_side_effect)
     poller = poller or MagicMock()
-    s3 = MagicMock()
-    s3.download_bytes.return_value = json.dumps(TRANSCRIPT).encode()
+    if s3 is None:
+        s3 = MagicMock()
+        s3.download_bytes.return_value = json.dumps(TRANSCRIPT).encode()
     embedder = embedder or MagicMock()
     _last.update(job=job, session=session, s3=s3, embedder=embedder)
     diarizer = MagicMock()
@@ -155,6 +156,60 @@ def test_processing_sample_for_filtered_speaker_is_embedded_inline_and_joins_can
     assert pending.status == "ready"
     assert pending.embedding == [0.1] * 192
     assert "Loaded 1 candidate sample(s)" in caplog.text
+    assert job.status == "complete"
+
+
+def test_one_failing_inline_embed_is_contained_and_the_other_sample_still_joins_candidates(caplog):
+    """A raced sample's inline embed can itself fail (bad S3 key, corrupt audio, model error).
+    That must only fail the one sample — not the whole job — matching the dedicated embedding
+    handler's per-sample containment (handlers/embedding.py)."""
+    speaker_fail = uuid.uuid4()
+    speaker_ok = uuid.uuid4()
+    pending_fail = MagicMock(id=uuid.uuid4(), speaker_profile_id=speaker_fail, s3_key="samples/fail.wav",
+                              status="processing", embedding=None, error_message=None)
+    pending_ok = MagicMock(id=uuid.uuid4(), speaker_profile_id=speaker_ok, s3_key="samples/ok.wav",
+                            status="processing", embedding=None, error_message=None)
+    profile = MagicMock(id=speaker_ok, speaker_name="Bob")
+
+    poller = MagicMock()
+    poller.wait_for_completion.return_value = {"Transcript": {"TranscriptFileUri": "s3://b/k.json"}}
+    poller.parse_words.return_value = []
+    embedder = MagicMock()
+    embedder.encode_tensor.return_value = None
+    embedder.encode.side_effect = lambda audio_bytes: (
+        (_ for _ in ()).throw(RuntimeError("model blew up")) if audio_bytes == b"fail-bytes"
+        else [0.2] * 192
+    )
+
+    def download_side_effect(key):
+        if key == "k.json":
+            return json.dumps(TRANSCRIPT).encode()
+        if key == pending_fail.s3_key:
+            return b"fail-bytes"
+        if key == pending_ok.s3_key:
+            return b"ok-bytes"
+        return b""
+
+    s3 = MagicMock()
+    s3.download_bytes.side_effect = download_side_effect
+
+    with caplog.at_level(logging.ERROR, logger=handler_mod.__name__):
+        job, session = run(
+            job_body_extra={"speaker_ids": [str(speaker_fail), str(speaker_ok)]},
+            poller=poller,
+            embedder=embedder,
+            s3=s3,
+            execute_side_effect=[
+                exec_result([]),                          # step 7: no `ready` samples yet
+                exec_result([pending_fail, pending_ok]),   # `processing` samples of filtered speakers
+                exec_result([profile]),                    # speaker-profile name lookup
+            ],
+        )
+
+    assert pending_fail.status == "failed"
+    assert pending_fail.error_message == "model blew up"
+    assert pending_ok.status == "ready"
+    assert pending_ok.embedding == [0.2] * 192
     assert job.status == "complete"
 
 
