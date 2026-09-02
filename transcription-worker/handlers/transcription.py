@@ -199,6 +199,29 @@ def process_transcription_job(body: dict, settings: Settings, abort: "threading.
             result = session.execute(query)
             samples = [s for s in result.scalars().all() if s.embedding is not None]
 
+            if speaker_ids:
+                # Race (live prod, 2026-09-02): a filtered speaker's `sample_embedding` message can
+                # still be queued behind this job's message, so its sample is `processing` here.
+                # The model is already loaded on the GPU — embed it inline rather than matching
+                # against a candidate set that's short a speaker. The sample's own queued
+                # `sample_embedding` message becomes a no-op when it's later delivered.
+                pending_query = select(SpeakerSample).where(
+                    SpeakerSample.status == "processing",
+                    SpeakerSample.speaker_profile_id.in_(
+                        [uuid.UUID(sid) for sid in speaker_ids]
+                    ),
+                )
+                pending_samples = session.execute(pending_query).scalars().all()
+                for pending in pending_samples:
+                    logger.info(
+                        "Sample %s (speaker %s) still processing — embedding inline before matching",
+                        pending.id, pending.speaker_profile_id,
+                    )
+                    audio_bytes = s3.download_bytes(pending.s3_key)
+                    pending.embedding = embedder.encode(audio_bytes)
+                    pending.status = "ready"
+                    samples.append(pending)
+
             profile_ids = list({s.speaker_profile_id for s in samples})
             profile_result = session.execute(
                 select(SpeakerProfile).where(SpeakerProfile.id.in_(profile_ids))

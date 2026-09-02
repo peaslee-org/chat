@@ -14,6 +14,17 @@ def process_sample_embedding(body: dict, settings: Settings) -> None:
     sample_id = uuid.UUID(body["sample_id"])
     s3_key = body["s3_key"]
 
+    with get_session() as session:
+        sample = session.get(SpeakerSample, sample_id)
+        if sample is None:
+            raise ValueError(f"Sample {sample_id} not found in DB")
+        if sample.status == "ready":
+            # The transcription handler can embed a sample inline (ahead of this message) when
+            # matching would otherwise race a still-`processing` sample of a filtered speaker —
+            # see handlers/transcription.py. This message is then a harmless duplicate.
+            logger.info("Sample %s already ready — skipping (embedded inline during job matching)", sample_id)
+            return
+
     s3 = S3Client(settings)
     embedder = EcapaTdnnEmbedder.get()
 
