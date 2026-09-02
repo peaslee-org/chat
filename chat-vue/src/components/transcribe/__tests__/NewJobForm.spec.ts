@@ -78,17 +78,46 @@ describe("NewJobForm — sample preview", () => {
     expect(wrapper.emitted("submitted")).toBeTruthy()
   })
 
-  it("Back returns to the normal form without submitting", async () => {
+  it("Use my own audio instead returns to the normal form without submitting", async () => {
     vi.mocked(api.getSamples).mockResolvedValue(PREVIEW)
     const wrapper = mountForm()
 
     await wrapper.find("button[data-test=try-sample]").trigger("click")
     await flushPromises()
-    await wrapper.find("button[data-test=back-from-sample]").trigger("click")
+    await wrapper.find("button[data-test=use-own-audio]").trigger("click")
 
     expect(api.createSampleJob).not.toHaveBeenCalled()
     expect(wrapper.find("button[data-test=try-sample]").exists()).toBe(true)
     expect(wrapper.find("audio").exists()).toBe(false)
+  })
+
+  it("sample state pre-fills the normal form and disables/hides the user's own controls", async () => {
+    vi.mocked(api.getSamples).mockResolvedValue(PREVIEW)
+    const wrapper = mountForm()
+
+    await wrapper.find("button[data-test=try-sample]").trigger("click")
+    await flushPromises()
+
+    // The user's own interactive controls are gone/inert while sample state is active.
+    expect(wrapper.find("button[data-test=try-sample]").exists()).toBe(false)
+    expect(wrapper.find("input[type=number]").exists()).toBe(false)
+    expect(wrapper.find("select").exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("Submit")
+
+    // Sample's fixed values are shown in disabled controls.
+    const sampleLanguage = wrapper.find("[data-test=sample-language]")
+    expect(sampleLanguage.exists()).toBe(true)
+    expect((sampleLanguage.element as HTMLInputElement).value).toBe("English (US)")
+    expect(sampleLanguage.attributes("disabled")).toBeDefined()
+
+    const sampleSpeakerCount = wrapper.find("[data-test=sample-speaker-count]")
+    expect(sampleSpeakerCount.exists()).toBe(true)
+    expect((sampleSpeakerCount.element as HTMLInputElement).value).toBe("2")
+    expect(sampleSpeakerCount.attributes("disabled")).toBeDefined()
+
+    // Start transcription button is present in place of the normal submit button.
+    expect(wrapper.find("button[data-test=start-sample]").exists()).toBe(true)
+    expect(wrapper.find("button[data-test=use-own-audio]").exists()).toBe(true)
   })
 
   it("shows an error and no players when the fetch fails", async () => {
@@ -103,7 +132,7 @@ describe("NewJobForm — sample preview", () => {
     expect(wrapper.find("button[data-test=start-sample]").attributes("disabled")).toBeDefined()
   })
 
-  it("Back preserves a previously selected audio file in the dropzone", async () => {
+  it("Use my own audio instead preserves a previously selected audio file in the dropzone", async () => {
     vi.mocked(api.getSamples).mockResolvedValue(PREVIEW)
     const wrapper = mountForm()
 
@@ -115,7 +144,7 @@ describe("NewJobForm — sample preview", () => {
 
     await wrapper.find("button[data-test=try-sample]").trigger("click")
     await flushPromises()
-    await wrapper.find("button[data-test=back-from-sample]").trigger("click")
+    await wrapper.find("button[data-test=use-own-audio]").trigger("click")
     await flushPromises()
 
     expect(wrapper.text()).toContain("my-clip.mp3")
@@ -137,7 +166,7 @@ describe("NewJobForm — sample preview", () => {
 
     expect(document.body.textContent).not.toContain("Unsaved speaker")
 
-    await wrapper.find("button[data-test=back-from-sample]").trigger("click")
+    await wrapper.find("button[data-test=use-own-audio]").trigger("click")
     await flushPromises()
 
     expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe("Alice")

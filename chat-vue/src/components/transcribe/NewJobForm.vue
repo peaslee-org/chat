@@ -311,54 +311,7 @@ function parseSampleFetchError(e: unknown): string {
 </script>
 
 <template>
-  <div v-show="sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
-    <h3 class="text-base font-semibold text-gray-700 mb-3">{{ samplePreview?.name ?? 'Sample conversation' }}</h3>
-
-    <div v-if="samplePreviewLoading" class="text-sm text-gray-500">Loading sample…</div>
-    <p v-else-if="samplePreviewError" data-test="sample-error" class="text-xs text-red-600">
-      {{ samplePreviewError }}
-    </p>
-    <div v-else-if="samplePreview" class="space-y-4">
-      <div>
-        <p class="text-sm font-medium text-gray-600 mb-1">{{ samplePreview.audio.filename }}</p>
-        <audio controls :src="samplePreview.audio.url" class="w-full" />
-      </div>
-      <div class="space-y-2">
-        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Speakers</p>
-        <div
-          v-for="speaker in samplePreview.speakers"
-          :key="speaker.speaker_name"
-          class="flex items-center gap-2"
-        >
-          <span class="text-sm text-gray-700 w-14 shrink-0">{{ speaker.speaker_name }}</span>
-          <audio controls :src="speaker.url" class="flex-1" />
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-4 flex gap-2">
-      <button
-        type="button"
-        data-test="start-sample"
-        class="flex-1 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        :disabled="submittingSample || samplePreviewLoading || !samplePreview"
-        @click="startSampleTranscription"
-      >
-        {{ submittingSample ? 'Starting…' : 'Start transcription' }}
-      </button>
-      <button
-        type="button"
-        data-test="back-from-sample"
-        class="py-2 px-4 text-sm font-medium rounded-md border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
-        @click="backFromSample"
-      >
-        Back
-      </button>
-    </div>
-    <p v-if="uploadError" class="mt-2 text-xs text-red-600">{{ uploadError }}</p>
-  </div>
-
-  <div v-show="!sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+  <div class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
     <h3 class="text-base font-semibold text-gray-700 mb-3">New Transcription Job</h3>
 
     <div class="space-y-3">
@@ -367,6 +320,7 @@ function parseSampleFetchError(e: unknown): string {
         <div class="flex items-baseline justify-between mb-1">
           <label class="block text-sm font-medium text-gray-600">Audio file *</label>
           <button
+            v-if="!sampleMode"
             type="button"
             data-test="try-sample"
             class="text-xs text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -375,7 +329,27 @@ function parseSampleFetchError(e: unknown): string {
             Try the sample
           </button>
         </div>
+
+        <!-- Sample audio, shown in place of the dropzone while sample state is active -->
+        <div
+          v-if="sampleMode"
+          data-test="sample-audio"
+          class="border-2 border-dashed rounded-lg p-4 border-green-300 bg-green-50"
+        >
+          <div v-if="samplePreviewLoading" class="text-sm text-gray-500">Loading sample…</div>
+          <p v-else-if="samplePreviewError" data-test="sample-error" class="text-xs text-red-600">
+            {{ samplePreviewError }}
+          </p>
+          <div v-else-if="samplePreview" class="text-sm text-gray-700">
+            <span class="font-medium">{{ samplePreview.audio.filename }}</span>
+            <div class="mt-2" @click.stop>
+              <audio controls :src="samplePreview.audio.url" class="w-full" />
+            </div>
+          </div>
+        </div>
+
         <AudioFileDropzone
+          v-show="!sampleMode"
           ref="audioDropzone"
           label="Drop audio file or click to browse"
           @file-selected="audioFile = $event"
@@ -386,160 +360,183 @@ function parseSampleFetchError(e: unknown): string {
       <div class="border border-gray-200 rounded-lg bg-gray-50 p-3">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Speakers <span class="font-normal normal-case text-gray-400">(optional)</span></p>
 
-        <!-- Added speaker rows -->
-        <div v-if="pendingSpeakers.length > 0" class="space-y-1.5 mb-2">
+        <!-- Sample speakers, shown read-only where the user's own would appear -->
+        <div v-if="sampleMode" data-test="sample-speakers" class="space-y-2 mb-2">
           <div
-            v-for="speaker in pendingSpeakers"
-            :key="speaker.localId"
-            class="border rounded-md bg-white"
-            :class="speaker.uploadError ? 'border-red-300' : 'border-gray-200'"
+            v-for="speaker in samplePreview?.speakers ?? []"
+            :key="speaker.speaker_name"
+            class="flex items-center gap-2"
           >
-            <!-- View row -->
-            <div
-              v-if="!speaker.editing"
-              class="px-2 py-1.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-md"
-              @click="startEdit(speaker)"
-            >
-              <p class="text-sm text-gray-700">{{ speaker.name || "Unnamed speaker" }}</p>
-              <p v-if="speaker.file" class="text-xs text-gray-400 tabular-nums truncate mt-0.5">{{ speakerFileSummary(speaker) }}</p>
-            </div>
-            <p v-if="speaker.uploadError" class="px-2 pb-1.5 text-xs text-red-600">{{ speaker.uploadError }}</p>
+            <span class="text-sm text-gray-700 w-14 shrink-0">{{ speaker.speaker_name }}</span>
+            <audio controls :src="speaker.url" class="flex-1" />
+          </div>
+        </div>
 
-            <!-- Edit row -->
-            <div v-if="speaker.editing" class="p-2">
-              <div class="flex gap-2 items-stretch">
-                <div class="flex-1 flex flex-col gap-1.5">
-                  <input
-                    v-model="speaker.editName"
-                    type="text"
-                    placeholder="Speaker name (optional)"
-                    class="w-full text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <div
-                    class="flex-1 border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors"
-                    :class="speaker.editFile ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-gray-400'"
-                    @dragover.prevent
-                    @drop.prevent="(e) => { const f = e.dataTransfer?.files[0]; if (f) speaker.editFile = f }"
-                    @click="(e) => (e.currentTarget as HTMLElement).querySelector('input')?.click()"
-                  >
+        <div v-show="!sampleMode">
+          <!-- Added speaker rows -->
+          <div v-if="pendingSpeakers.length > 0" class="space-y-1.5 mb-2">
+            <div
+              v-for="speaker in pendingSpeakers"
+              :key="speaker.localId"
+              class="border rounded-md bg-white"
+              :class="speaker.uploadError ? 'border-red-300' : 'border-gray-200'"
+            >
+              <!-- View row -->
+              <div
+                v-if="!speaker.editing"
+                class="px-2 py-1.5 cursor-pointer hover:bg-gray-50 transition-colors rounded-md"
+                @click="startEdit(speaker)"
+              >
+                <p class="text-sm text-gray-700">{{ speaker.name || "Unnamed speaker" }}</p>
+                <p v-if="speaker.file" class="text-xs text-gray-400 tabular-nums truncate mt-0.5">{{ speakerFileSummary(speaker) }}</p>
+              </div>
+              <p v-if="speaker.uploadError" class="px-2 pb-1.5 text-xs text-red-600">{{ speaker.uploadError }}</p>
+
+              <!-- Edit row -->
+              <div v-if="speaker.editing" class="p-2">
+                <div class="flex gap-2 items-stretch">
+                  <div class="flex-1 flex flex-col gap-1.5">
                     <input
-                      type="file"
-                      accept="audio/*"
-                      class="hidden"
-                      @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) speaker.editFile = f }"
+                      v-model="speaker.editName"
+                      type="text"
+                      placeholder="Speaker name (optional)"
+                      class="w-full text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
-                    <div v-if="speaker.editFile" class="text-sm text-gray-700">
-                      <span class="font-medium">{{ speaker.editFile.name }}</span>
-                      <span class="text-gray-400 ml-2">({{ formatSize(speaker.editFile.size) }})</span>
-                      <div class="mt-2 pt-2 border-t border-green-200" @click.stop>
-                        <AudioPlayer :file="speaker.editFile" />
+                    <div
+                      class="flex-1 border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors"
+                      :class="speaker.editFile ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-gray-400'"
+                      @dragover.prevent
+                      @drop.prevent="(e) => { const f = e.dataTransfer?.files[0]; if (f) speaker.editFile = f }"
+                      @click="(e) => (e.currentTarget as HTMLElement).querySelector('input')?.click()"
+                    >
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        class="hidden"
+                        @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) speaker.editFile = f }"
+                      />
+                      <div v-if="speaker.editFile" class="text-sm text-gray-700">
+                        <span class="font-medium">{{ speaker.editFile.name }}</span>
+                        <span class="text-gray-400 ml-2">({{ formatSize(speaker.editFile.size) }})</span>
+                        <div class="mt-2 pt-2 border-t border-green-200" @click.stop>
+                          <AudioPlayer :file="speaker.editFile" />
+                        </div>
+                      </div>
+                      <div v-else class="text-sm text-gray-500">
+                        <p>{{ speaker.file ? speaker.file.name : 'Drop audio sample or click to browse' }}</p>
+                        <p v-if="!speaker.file" class="text-xs text-gray-400 mt-0.5">Optional — used for speaker identification</p>
                       </div>
                     </div>
-                    <div v-else class="text-sm text-gray-500">
-                      <p>{{ speaker.file ? speaker.file.name : 'Drop audio sample or click to browse' }}</p>
-                      <p v-if="!speaker.file" class="text-xs text-gray-400 mt-0.5">Optional — used for speaker identification</p>
+                  </div>
+                  <div class="flex flex-col gap-1.5 shrink-0">
+                    <button
+                      class="flex-1 text-xs px-3 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+                      @click="saveEdit(speaker)"
+                    >
+                      Save
+                    </button>
+                    <button
+                      class="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
+                      @click="cancelEdit(speaker)"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      class="text-xs px-3 py-1.5 rounded-md border border-red-300 text-red-500 hover:border-red-400 hover:text-red-600 transition-colors"
+                      @click="removeSpeaker(speaker.localId)"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add speaker block (collapsible) -->
+          <div
+            v-if="draftOpen"
+            ref="draftContainer"
+            class="border border-dashed border-gray-300 rounded-md p-2 bg-white"
+            @focusout="handleDraftFocusOut"
+          >
+            <p class="text-xs font-medium text-gray-500 mb-1.5">
+              {{ pendingSpeakers.length === 0 ? 'Add speaker' : 'New speaker' }}
+            </p>
+            <div class="flex gap-2 items-stretch">
+              <div class="flex-1 flex flex-col gap-1.5">
+                <input
+                  v-model="draftName"
+                  type="text"
+                  :placeholder="draftPlaceholder"
+                  class="w-full text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div
+                  class="flex-1 border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors"
+                  :class="draftIsDragOver ? 'border-indigo-400 bg-indigo-50' : draftFile ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-gray-400'"
+                  @dragover.prevent="draftIsDragOver = true"
+                  @dragleave="draftIsDragOver = false"
+                  @drop.prevent="(e) => { draftIsDragOver = false; const f = e.dataTransfer?.files[0]; if (f) draftFile = f }"
+                  @click="draftFileInput?.click()"
+                >
+                  <input
+                    ref="draftFileInput"
+                    type="file"
+                    accept="audio/*"
+                    class="hidden"
+                    @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) draftFile = f }"
+                  />
+                  <div v-if="draftFile" class="text-sm text-gray-700">
+                    <span class="font-medium">{{ draftFile.name }}</span>
+                    <span class="text-gray-400 ml-2">({{ formatSize(draftFile.size) }})</span>
+                    <div class="mt-2 pt-2 border-t border-green-200" @click.stop>
+                      <AudioPlayer :file="draftFile" />
                     </div>
                   </div>
-                </div>
-                <div class="flex flex-col gap-1.5 shrink-0">
-                  <button
-                    class="flex-1 text-xs px-3 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
-                    @click="saveEdit(speaker)"
-                  >
-                    Save
-                  </button>
-                  <button
-                    class="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
-                    @click="cancelEdit(speaker)"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    class="text-xs px-3 py-1.5 rounded-md border border-red-300 text-red-500 hover:border-red-400 hover:text-red-600 transition-colors"
-                    @click="removeSpeaker(speaker.localId)"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Add speaker block (collapsible) -->
-        <div
-          v-if="draftOpen"
-          ref="draftContainer"
-          class="border border-dashed border-gray-300 rounded-md p-2 bg-white"
-          @focusout="handleDraftFocusOut"
-        >
-          <p class="text-xs font-medium text-gray-500 mb-1.5">
-            {{ pendingSpeakers.length === 0 ? 'Add speaker' : 'New speaker' }}
-          </p>
-          <div class="flex gap-2 items-stretch">
-            <div class="flex-1 flex flex-col gap-1.5">
-              <input
-                v-model="draftName"
-                type="text"
-                :placeholder="draftPlaceholder"
-                class="w-full text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <div
-                class="flex-1 border-2 border-dashed rounded-lg p-2 text-center cursor-pointer transition-colors"
-                :class="draftIsDragOver ? 'border-indigo-400 bg-indigo-50' : draftFile ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-gray-400'"
-                @dragover.prevent="draftIsDragOver = true"
-                @dragleave="draftIsDragOver = false"
-                @drop.prevent="(e) => { draftIsDragOver = false; const f = e.dataTransfer?.files[0]; if (f) draftFile = f }"
-                @click="draftFileInput?.click()"
-              >
-                <input
-                  ref="draftFileInput"
-                  type="file"
-                  accept="audio/*"
-                  class="hidden"
-                  @change="(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) draftFile = f }"
-                />
-                <div v-if="draftFile" class="text-sm text-gray-700">
-                  <span class="font-medium">{{ draftFile.name }}</span>
-                  <span class="text-gray-400 ml-2">({{ formatSize(draftFile.size) }})</span>
-                  <div class="mt-2 pt-2 border-t border-green-200" @click.stop>
-                    <AudioPlayer :file="draftFile" />
+                  <div v-else class="text-sm text-gray-500">
+                    <p>Drop audio sample or click to browse</p>
+                    <p class="text-xs text-gray-400 mt-0.5">Optional — used for speaker identification</p>
                   </div>
                 </div>
-                <div v-else class="text-sm text-gray-500">
-                  <p>Drop audio sample or click to browse</p>
-                  <p class="text-xs text-gray-400 mt-0.5">Optional — used for speaker identification</p>
-                </div>
               </div>
+              <button
+                :disabled="!draftName.trim() && !draftFile"
+                class="text-xs px-3 rounded-md border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 self-stretch"
+                @click="commitDraft"
+              >
+                + Add
+              </button>
             </div>
-            <button
-              :disabled="!draftName.trim() && !draftFile"
-              class="text-xs px-3 rounded-md border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 self-stretch"
-              @click="commitDraft"
-            >
-              + Add
-            </button>
           </div>
-        </div>
 
-        <!-- "Add another speaker" link (shown when draft is collapsed) -->
-        <button
-          v-else
-          class="mt-1 text-xs text-indigo-600 hover:text-indigo-500 transition-colors"
-          @click="draftOpen = true"
-        >
-          + Add another speaker
-        </button>
+          <!-- "Add another speaker" link (shown when draft is collapsed) -->
+          <button
+            v-else
+            class="mt-1 text-xs text-indigo-600 hover:text-indigo-500 transition-colors"
+            @click="draftOpen = true"
+          >
+            + Add another speaker
+          </button>
+        </div>
 
         <!-- Speaker count hint -->
         <div class="mt-3 pt-3 border-t border-gray-200">
           <label class="block text-xs font-medium text-gray-500 mb-1">Speaker count hint</label>
           <input
+            v-if="!sampleMode"
             v-model.number="speakerCountHint"
             type="number"
             min="1"
             max="30"
             class="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <input
+            v-else
+            type="text"
+            data-test="sample-speaker-count"
+            value="2"
+            disabled
+            class="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 bg-gray-100 text-gray-500"
           />
         </div>
       </div>
@@ -548,6 +545,7 @@ function parseSampleFetchError(e: unknown): string {
       <div>
         <label class="block text-sm font-medium text-gray-600 mb-1">Language</label>
         <select
+          v-if="!sampleMode"
           v-model="language"
           class="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
@@ -555,12 +553,21 @@ function parseSampleFetchError(e: unknown): string {
             {{ lang.label }}
           </option>
         </select>
+        <input
+          v-else
+          type="text"
+          data-test="sample-language"
+          value="English (US)"
+          disabled
+          class="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 bg-gray-100 text-gray-500"
+        />
       </div>
     </div>
 
     <!-- Submit -->
     <div class="mt-4">
       <button
+        v-if="!sampleMode"
         :disabled="!audioFile || uploading"
         class="w-full py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         @click="handleSubmit"
@@ -574,6 +581,27 @@ function parseSampleFetchError(e: unknown): string {
         </span>
         <span v-else>Submit</span>
       </button>
+
+      <template v-else>
+        <button
+          type="button"
+          data-test="start-sample"
+          class="w-full py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          :disabled="submittingSample || samplePreviewLoading || !samplePreview"
+          @click="startSampleTranscription"
+        >
+          {{ submittingSample ? 'Starting…' : 'Start transcription' }}
+        </button>
+        <button
+          type="button"
+          data-test="use-own-audio"
+          class="mt-2 text-xs text-indigo-600 hover:text-indigo-500 transition-colors"
+          @click="backFromSample"
+        >
+          Use my own audio instead
+        </button>
+      </template>
+
       <p v-if="uploadError" class="mt-2 text-xs text-red-600">{{ uploadError }}</p>
     </div>
 
