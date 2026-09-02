@@ -9,6 +9,7 @@ vi.mock("@/lib/transcribeApi", () => ({
   confirmJobUpload: vi.fn(),
   listSpeakers: vi.fn(),
   rerunJob: vi.fn(),
+  getSamples: vi.fn(),
 }))
 
 import * as api from "@/lib/transcribeApi"
@@ -167,5 +168,35 @@ describe("transcribe store — rerunJob", () => {
 
     await expect(store.rerunJob("j-source")).rejects.toThrow("gone")
     expect(store.jobs.some((j) => j.job_id !== "j-source")).toBe(false)
+  })
+})
+
+describe("transcribe store — sample preview", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(api.getSamples).mockReset()
+  })
+
+  it("loadSamplePreview passes the sample bundle through", async () => {
+    const preview = {
+      name: "Sample conversation",
+      audio: { filename: "conversation", url: "https://dl/samples/conversation.wav" },
+      speakers: [
+        { speaker_name: "Barry", url: "https://dl/samples/speakers/barry.wav" },
+        { speaker_name: "Jane", url: "https://dl/samples/speakers/jane.wav" },
+      ],
+    }
+    vi.mocked(api.getSamples).mockResolvedValue(preview)
+    const store = useTranscribeStore()
+
+    expect(await store.loadSamplePreview()).toEqual(preview)
+    expect(api.getSamples).toHaveBeenCalledOnce()
+  })
+
+  it("propagates fetch failures", async () => {
+    vi.mocked(api.getSamples).mockRejectedValue(new Error("not uploaded"))
+    const store = useTranscribeStore()
+
+    await expect(store.loadSamplePreview()).rejects.toThrow("not uploaded")
   })
 })

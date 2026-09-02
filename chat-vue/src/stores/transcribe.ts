@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { ref, reactive, computed } from "vue"
 import axios from "axios"
 import * as api from "@/lib/transcribeApi"
-import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData } from "@/types"
+import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData, SamplePreview } from "@/types"
 
 export interface Toast {
   id: number
@@ -144,6 +144,10 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     const res = await api.listJobs(jobNextCursor.value ?? undefined)
     jobs.value.push(...res.items)
     jobNextCursor.value = res.next_cursor
+  }
+
+  function loadSamplePreview(): Promise<SamplePreview> {
+    return api.getSamples()
   }
 
   async function submitSampleJob(): Promise<string> {
@@ -463,7 +467,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     readySpeakers,
     turnDistanceData,
     loadSpeakers, createSpeaker, renameSpeaker, deleteSpeaker, uploadSample, deleteSample,
-    loadJobs, submitJob, submitSampleJob, selectJob, loadTranscript, deleteJob, rerunJob,
+    loadJobs, submitJob, submitSampleJob, loadSamplePreview, selectJob, loadTranscript, deleteJob, rerunJob,
     dismissToast, pushToast,
     loadTurnDistances,
     resumePollingForActiveJobs, resumePollingForProcessingSamples,

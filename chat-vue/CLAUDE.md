@@ -165,7 +165,10 @@ src/
                                localStorage "gpuStartupsOpen")
       RunSidebar.vue           Left panel: job list + new job form toggle
       RunDetailView.vue        Right panel: job detail, transcript, speaker panel
-      NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs)
+      NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs);
+                               "Try the sample" flips to a read-only sample-review mode (players for
+                               the bundled audio + Barry/Jane samples, from GET /samples) — Start
+                               transcription submits (submitSampleJob, unchanged), Back returns
       AudioFileDropzone.vue    Drag-and-drop / click-to-upload audio file picker
       TranscribeJobCard.vue    Job summary card in the sidebar list
       JobStatusBadge.vue       Status chip (pending / transcribing / matching / complete / failed)
@@ -289,6 +292,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | POST | `/speakers/{id}/samples` | Initiate upload → `{sample_id, upload_url}` |
 | POST | `/speakers/{id}/samples/{sid}/confirm` | Confirm S3 upload → `SpeakerSample` with actual status |
 | DELETE | `/speakers/{id}/samples/{sid}` | 204 |
+| GET | `/samples` | Bundled sample bundle: `{name, audio: {filename, url}, speakers: [{speaker_name, url}]}` — presigned; what NewJobForm's sample-review mode plays |
 | POST | `/jobs` | Create job; `{speaker_count_hint?, speaker_ids?, language?}` → `{job_id, upload_url}` |
 | POST | `/jobs/{id}/confirm` | Confirm audio uploaded; transitions job → `transcribing` |
 | POST | `/jobs/{id}/rerun` | Rerun a completed/failed job — new job row reusing its audio + params; 404 if the source job or its audio is gone → job status (JobStatusResponse) |

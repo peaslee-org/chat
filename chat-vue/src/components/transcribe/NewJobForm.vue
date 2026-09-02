@@ -2,6 +2,7 @@
 import { ref, watch, computed } from "vue"
 import axios from "axios"
 import { useTranscribeStore } from "@/stores/transcribe"
+import type { SamplePreview } from "@/types"
 import AudioFileDropzone from "./AudioFileDropzone.vue"
 import AudioPlayer from "./AudioPlayer.vue"
 
@@ -55,7 +56,6 @@ function speakerFileSummary(speaker: PendingSpeaker): string {
 
 const audioFile = ref<File | null>(null)
 const audioDropzone = ref<InstanceType<typeof AudioFileDropzone> | null>(null)
-const loadingSample = ref(false)
 const speakerCountHint = ref(1)
 const language = ref("en-US")
 const uploading = ref(false)
@@ -76,6 +76,13 @@ const draftOpen = ref(true)
 const showUnsavedWarning = ref(false)
 // null = triggered by focus-away, "submit" = triggered by submit button
 const pendingAction = ref<"submit" | null>(null)
+
+// ── Sample review mode: preview the bundled sample before submitting ───────
+const sampleMode = ref(false)
+const samplePreview = ref<SamplePreview | null>(null)
+const samplePreviewLoading = ref(false)
+const samplePreviewError = ref<string | null>(null)
+const submittingSample = ref(false)
 
 // Dynamic placeholder: "Speaker 1", "Speaker 2", …
 const draftPlaceholder = computed(() => `Speaker ${pendingSpeakers.value.length + 1}`)
@@ -181,8 +188,30 @@ function saveEdit(speaker: PendingSpeaker) {
   speaker.editing = false
 }
 
-async function loadSample() {
-  loadingSample.value = true
+async function openSamplePreview() {
+  sampleMode.value = true
+  samplePreview.value = null
+  samplePreviewError.value = null
+  uploadError.value = null
+  samplePreviewLoading.value = true
+  try {
+    samplePreview.value = await store.loadSamplePreview()
+  } catch (e) {
+    samplePreviewError.value = parseJobError(e, null)
+  } finally {
+    samplePreviewLoading.value = false
+  }
+}
+
+function backFromSample() {
+  sampleMode.value = false
+  samplePreview.value = null
+  samplePreviewError.value = null
+  uploadError.value = null
+}
+
+async function startSampleTranscription() {
+  submittingSample.value = true
   uploadError.value = null
   try {
     const jobId = await store.submitSampleJob()
@@ -191,7 +220,7 @@ async function loadSample() {
   } catch (e) {
     uploadError.value = parseJobError(e, null)
   } finally {
-    loadingSample.value = false
+    submittingSample.value = false
   }
 }
 
@@ -270,7 +299,54 @@ function parseJobError(e: unknown, jobId?: string | null): string {
 </script>
 
 <template>
-  <div class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+  <div v-if="sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+    <h3 class="text-base font-semibold text-gray-700 mb-3">Sample conversation</h3>
+
+    <div v-if="samplePreviewLoading" class="text-sm text-gray-500">Loading sample…</div>
+    <p v-else-if="samplePreviewError" data-test="sample-error" class="text-xs text-red-600">
+      {{ samplePreviewError }}
+    </p>
+    <div v-else-if="samplePreview" class="space-y-4">
+      <div>
+        <p class="text-sm font-medium text-gray-600 mb-1">{{ samplePreview.audio.filename }}</p>
+        <audio controls :src="samplePreview.audio.url" class="w-full" />
+      </div>
+      <div class="space-y-2">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Speakers</p>
+        <div
+          v-for="speaker in samplePreview.speakers"
+          :key="speaker.speaker_name"
+          class="flex items-center gap-2"
+        >
+          <span class="text-sm text-gray-700 w-14 shrink-0">{{ speaker.speaker_name }}</span>
+          <audio controls :src="speaker.url" class="flex-1" />
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 flex gap-2">
+      <button
+        type="button"
+        data-test="start-sample"
+        class="flex-1 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        :disabled="submittingSample || samplePreviewLoading || !samplePreview"
+        @click="startSampleTranscription"
+      >
+        {{ submittingSample ? 'Starting…' : 'Start transcription' }}
+      </button>
+      <button
+        type="button"
+        data-test="back-from-sample"
+        class="py-2 px-4 text-sm font-medium rounded-md border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
+        @click="backFromSample"
+      >
+        Back
+      </button>
+    </div>
+    <p v-if="uploadError" class="mt-2 text-xs text-red-600">{{ uploadError }}</p>
+  </div>
+
+  <div v-else class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
     <h3 class="text-base font-semibold text-gray-700 mb-3">New Transcription Job</h3>
 
     <div class="space-y-3">
@@ -280,11 +356,11 @@ function parseJobError(e: unknown, jobId?: string | null): string {
           <label class="block text-sm font-medium text-gray-600">Audio file *</label>
           <button
             type="button"
+            data-test="try-sample"
             class="text-xs text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            :disabled="loadingSample"
-            @click="loadSample"
+            @click="openSamplePreview"
           >
-            {{ loadingSample ? 'Loading…' : 'Try sample data' }}
+            Try the sample
           </button>
         </div>
         <AudioFileDropzone

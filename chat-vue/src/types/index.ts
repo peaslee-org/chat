@@ -203,6 +203,13 @@ export interface JobCreateResponse {
   upload_url: string
 }
 
+/** The bundled sample audio + Barry/Jane voice samples, as shown in NewJobForm's sample-review mode. */
+export interface SamplePreview {
+  name: string
+  audio: { filename: string; url: string }
+  speakers: { speaker_name: string; url: string }[]
+}
+
 // ── Job activity log ──────────────────────────────────────────────────────
 
 export interface JobLogEntry {

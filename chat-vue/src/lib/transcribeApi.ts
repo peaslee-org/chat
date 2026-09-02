@@ -2,7 +2,7 @@ import { apiClient } from "@/lib/axios"
 import type {
   SpeakerProfile, SpeakerListResponse, SampleUploadInitResponse, SpeakerSample,
   TranscriptionJob, JobListResponse, JobCreateRequest, JobCreateResponse,
-  TranscriptResponse, TurnDistancesResponse,
+  TranscriptResponse, TurnDistancesResponse, SamplePreview,
 } from "@/types"
 
 // ── Speakers ──────────────────────────────────────────────────────────────
@@ -65,6 +65,11 @@ export interface SampleJobResponse {
 
 export async function createSampleJob(): Promise<SampleJobResponse> {
   const res = await apiClient.post("/api/v1/transcribe/jobs/sample")
+  return res.data
+}
+
+export async function getSamples(): Promise<SamplePreview> {
+  const res = await apiClient.get("/api/v1/transcribe/samples")
   return res.data
 }
 
