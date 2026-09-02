@@ -12,6 +12,7 @@ from app.dependencies import get_current_user
 from app.repositories.transcription import TranscriptionRepository
 from app.schemas.public import VisibilityRequest
 from app.schemas.transcription import (
+    AudioUrlResponse,
     JobCreateRequest,
     JobCreateResponse,
     JobEventResponse,
@@ -100,6 +101,15 @@ async def get_transcript(
     service: TranscriptionService = Depends(get_transcription_service),
 ) -> TranscriptResponse:
     return await service.get_transcript(current_user["sub"], job_id)
+
+
+@router.get("/jobs/{job_id}/audio", response_model=AudioUrlResponse)
+async def get_job_audio_url(
+    job_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> AudioUrlResponse:
+    return await service.get_job_audio_url(current_user["sub"], job_id)
 
 
 @router.delete("/jobs/{job_id}", status_code=204)

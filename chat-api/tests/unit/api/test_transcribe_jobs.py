@@ -15,6 +15,7 @@ from app.core.exceptions import (
     NotFoundError,
 )
 from app.schemas.transcription import (
+    AudioUrlResponse,
     JobCreateResponse,
     JobListResponse,
     JobStatusResponse,
@@ -60,6 +61,12 @@ def make_mock_service():
         language="en-US",
         created_at=_now(),
         updated_at=_now(),
+    ))
+    svc.get_job_audio_url = AsyncMock(return_value=AudioUrlResponse(
+        url="https://dl/audio/user1/job1/source",
+        download_url="https://dl/audio/user1/job1/source?dl=job-audio",
+        filename="job-audio",
+        expires_at=_now(),
     ))
     return svc
 
@@ -287,3 +294,49 @@ class TestSamples:
             headers={"Authorization": "Bearer fake-token"},
         )
         assert r.status_code == 409
+
+
+class TestJobAudioUrl:
+    async def test_returns_200_with_urls(self, client):
+        ac, svc = client
+        job_id = uuid4()
+        r = await ac.get(
+            f"/api/v1/transcribe/jobs/{job_id}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["url"] == "https://dl/audio/user1/job1/source"
+        assert body["download_url"] == "https://dl/audio/user1/job1/source?dl=job-audio"
+        assert body["filename"] == "job-audio"
+        assert "expires_at" in body
+        svc.get_job_audio_url.assert_awaited_once_with("user1", job_id)
+
+    async def test_404_when_job_not_found_or_not_owned(self, client):
+        ac, svc = client
+        svc.get_job_audio_url.side_effect = NotFoundError("Job not found")
+        r = await ac.get(
+            f"/api/v1/transcribe/jobs/{uuid4()}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 404
+
+    async def test_404_when_audio_object_gone(self, client):
+        ac, svc = client
+        svc.get_job_audio_url.side_effect = NotFoundError(
+            "Input audio is no longer available — it may have expired from storage"
+        )
+        r = await ac.get(
+            f"/api/v1/transcribe/jobs/{uuid4()}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 404
+
+    async def test_404_when_job_has_no_audio(self, client):
+        ac, svc = client
+        svc.get_job_audio_url.side_effect = NotFoundError("Job has no input audio")
+        r = await ac.get(
+            f"/api/v1/transcribe/jobs/{uuid4()}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert r.status_code == 404

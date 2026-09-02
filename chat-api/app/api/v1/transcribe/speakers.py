@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.v1.transcribe.deps import get_transcription_service
 from app.dependencies import get_current_user
 from app.schemas.transcription import (
+    AudioUrlResponse,
     SampleResponse,
     SampleUploadInitResponse,
     SpeakerCreateRequest,
@@ -86,6 +87,19 @@ async def confirm_sample_upload(
     service: TranscriptionService = Depends(get_transcription_service),
 ) -> SampleResponse:
     return await service.confirm_sample_upload(current_user["sub"], speaker_id, sample_id)
+
+
+@router.get(
+    "/speakers/{speaker_id}/samples/{sample_id}/audio",
+    response_model=AudioUrlResponse,
+)
+async def get_sample_audio_url(
+    speaker_id: UUID,
+    sample_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> AudioUrlResponse:
+    return await service.get_sample_audio_url(current_user["sub"], speaker_id, sample_id)
 
 
 @router.delete("/speakers/{speaker_id}/samples/{sample_id}", status_code=204)

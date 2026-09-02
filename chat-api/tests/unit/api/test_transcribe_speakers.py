@@ -11,6 +11,7 @@ from app.api.v1.transcribe.deps import get_transcription_service
 from app.dependencies import get_current_user
 from app.core.exceptions import NotFoundError
 from app.schemas.transcription import (
+    AudioUrlResponse,
     SampleResponse,
     SampleUploadInitResponse,
     SpeakerListResponse,
@@ -38,6 +39,12 @@ def make_mock_service():
         created_at=datetime.now(timezone.utc),
     ))
     svc.delete_sample = AsyncMock(return_value=None)
+    svc.get_sample_audio_url = AsyncMock(return_value=AudioUrlResponse(
+        url="https://dl/audio/user1/speakers/sp1/samples/sm1",
+        download_url="https://dl/audio/user1/speakers/sp1/samples/sm1?dl=speaker-sample",
+        filename="speaker-sample",
+        expires_at=datetime.now(timezone.utc),
+    ))
     return svc
 
 
@@ -107,6 +114,52 @@ class TestSpeakerEndpoints:
         speaker_id = uuid4()
         response = await ac.post(
             f"/api/v1/transcribe/speakers/{speaker_id}/samples",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 404
+
+
+class TestSampleAudioUrl:
+    async def test_returns_200_with_urls(self, client):
+        ac, svc = client
+        speaker_id, sample_id = uuid4(), uuid4()
+        response = await ac.get(
+            f"/api/v1/transcribe/speakers/{speaker_id}/samples/{sample_id}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["url"] == "https://dl/audio/user1/speakers/sp1/samples/sm1"
+        assert body["download_url"] == "https://dl/audio/user1/speakers/sp1/samples/sm1?dl=speaker-sample"
+        assert body["filename"] == "speaker-sample"
+        assert "expires_at" in body
+        svc.get_sample_audio_url.assert_awaited_once_with("user1", speaker_id, sample_id)
+
+    async def test_404_when_speaker_not_found_or_not_owned(self, client):
+        ac, svc = client
+        svc.get_sample_audio_url.side_effect = NotFoundError("Speaker not found")
+        response = await ac.get(
+            f"/api/v1/transcribe/speakers/{uuid4()}/samples/{uuid4()}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 404
+
+    async def test_404_when_sample_not_found(self, client):
+        ac, svc = client
+        svc.get_sample_audio_url.side_effect = NotFoundError("Sample not found")
+        response = await ac.get(
+            f"/api/v1/transcribe/speakers/{uuid4()}/samples/{uuid4()}/audio",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 404
+
+    async def test_404_when_audio_object_gone(self, client):
+        ac, svc = client
+        svc.get_sample_audio_url.side_effect = NotFoundError(
+            "Sample audio is no longer available — it may have expired from storage"
+        )
+        response = await ac.get(
+            f"/api/v1/transcribe/speakers/{uuid4()}/samples/{uuid4()}/audio",
             headers={"Authorization": "Bearer fake-token"},
         )
         assert response.status_code == 404

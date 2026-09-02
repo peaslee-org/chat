@@ -1,8 +1,9 @@
 import asyncio
 import io
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from uuid import UUID, uuid4
 from typing import Optional
+from uuid import UUID, uuid4
 
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
@@ -16,21 +17,22 @@ from app.core.exceptions import (
 )
 from app.repositories.transcription import TranscriptionRepository
 from app.schemas.transcription import (
+    AudioUrlResponse,
     JobCreateRequest,
     JobCreateResponse,
     JobEventResponse,
-    JobStatusResponse,
     JobListResponse,
+    JobStatusResponse,
     SampleAudioItem,
     SampleJobResponse,
     SamplePreviewResponse,
     SampleResponse,
     SampleSpeakerItem,
     SampleUploadInitResponse,
-    SpeakerResponse,
-    SpeakerListResponse,
-    TranscriptResponse,
     SegmentResponse,
+    SpeakerListResponse,
+    SpeakerResponse,
+    TranscriptResponse,
     TurnCandidateResponse,
     TurnDistanceResponse,
     TurnDistancesResponse,
@@ -38,6 +40,8 @@ from app.schemas.transcription import (
 from app.services.audio_storage import AudioStorageService
 from app.services.gpu_controller import GpuCapExceeded
 from app.services.sqs_publisher import SQSPublisher
+
+DOWNLOAD_TTL_SECONDS = 900
 
 
 class TranscriptionService:
@@ -464,6 +468,62 @@ class TranscriptionService:
         if job is None:
             raise NotFoundError(f"Job {job_id} not found")
         return await self.get_job_status(user_id, job_id)
+
+    async def get_job_audio_url(self, user_id: str, job_id: UUID) -> AudioUrlResponse:
+        """Presigned playback + download URLs for a job's raw input audio.
+
+        Object existence is checked (same bucket-lifecycle reality `rerun_job` handles) so a
+        stale request 404s cleanly instead of handing back a presigned URL to a 404 on S3.
+        """
+        job = await self._repo.get_job(job_id, user_id)
+        if job is None:
+            raise NotFoundError(f"Job {job_id} not found")
+        if not job.audio_s3_key:
+            raise NotFoundError("Job has no input audio")
+        if not self._storage.object_exists(job.audio_s3_key):
+            raise NotFoundError(
+                "Input audio is no longer available — it may have expired from storage"
+            )
+        filename = f"job-{job_id}-audio"
+        presign = self._storage.generate_presigned_download_url
+        return AudioUrlResponse(
+            url=presign(job.audio_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS),
+            download_url=presign(
+                job.audio_s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS, attachment_filename=filename,
+            ),
+            filename=filename,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=DOWNLOAD_TTL_SECONDS),
+        )
+
+    async def get_sample_audio_url(
+        self, user_id: str, speaker_id: UUID, sample_id: UUID
+    ) -> AudioUrlResponse:
+        """Presigned playback + download URLs for a speaker enrollment sample.
+
+        Ownership goes through the speaker, like the other sample endpoints. Any sample
+        status may be fetched here — the SPA is the one that only offers this for `ready`
+        samples.
+        """
+        speaker = await self._repo.get_speaker(speaker_id, user_id)
+        if speaker is None:
+            raise NotFoundError(f"Speaker {speaker_id} not found")
+        sample = await self._repo.get_sample(sample_id, speaker_id)
+        if sample is None:
+            raise NotFoundError(f"Sample {sample_id} not found")
+        if not self._storage.object_exists(sample.s3_key):
+            raise NotFoundError(
+                "Sample audio is no longer available — it may have expired from storage"
+            )
+        filename = f"speaker-sample-{sample_id}"
+        presign = self._storage.generate_presigned_download_url
+        return AudioUrlResponse(
+            url=presign(sample.s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS),
+            download_url=presign(
+                sample.s3_key, ttl_seconds=DOWNLOAD_TTL_SECONDS, attachment_filename=filename,
+            ),
+            filename=filename,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=DOWNLOAD_TTL_SECONDS),
+        )
 
     # ── Sample Job ────────────────────────────────────────────────────────────
 

@@ -39,7 +39,9 @@ def make_service(
     storage = MagicMock()
     storage.generate_presigned_upload_url = MagicMock(return_value="https://s3.example.com/upload")
     storage.generate_presigned_download_url = MagicMock(
-        side_effect=lambda k, ttl_seconds=900: f"https://dl/{k}"
+        side_effect=lambda k, ttl_seconds=900, attachment_filename=None: (
+            f"https://dl/{k}" + (f"?dl={attachment_filename}" if attachment_filename else "")
+        )
     )
     storage.object_exists = MagicMock(return_value=True)
     storage.start_transcription_job = MagicMock(return_value=("job-abc", "audio/user/job/transcript_raw.json"))
@@ -683,3 +685,143 @@ class TestLocalGetSamples:
 
         again = await service.get_samples()  # idempotent: no error re-seeding over existing files
         assert again.audio.url == res.audio.url
+
+
+class TestGetJobAudioUrl:
+    def _job(self, *, audio_s3_key="audio/user1/job1/source"):
+        job = MagicMock()
+        job.id = uuid4()
+        job.audio_s3_key = audio_s3_key
+        return job
+
+    async def test_404_when_job_not_found(self):
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = None
+        with pytest.raises(NotFoundError):
+            await service.get_job_audio_url("user1", uuid4())
+
+    async def test_404_when_job_has_no_audio_s3_key(self):
+        service, repo, *_ = make_service()
+        job = self._job(audio_s3_key=None)
+        repo.get_job.return_value = job
+        with pytest.raises(NotFoundError):
+            await service.get_job_audio_url("user1", job.id)
+
+    async def test_404_when_audio_object_gone(self):
+        service, repo, storage, _ = make_service()
+        job = self._job()
+        repo.get_job.return_value = job
+        storage.object_exists.return_value = False
+        with pytest.raises(NotFoundError):
+            await service.get_job_audio_url("user1", job.id)
+
+    async def test_returns_presigned_url_download_url_and_filename(self):
+        service, repo, storage, _ = make_service()
+        job = self._job(audio_s3_key="audio/user1/job1/source")
+        repo.get_job.return_value = job
+
+        res = await service.get_job_audio_url("user1", job.id)
+
+        storage.object_exists.assert_called_once_with("audio/user1/job1/source")
+        assert res.url == "https://dl/audio/user1/job1/source"
+        assert res.download_url.startswith("https://dl/audio/user1/job1/source")
+        assert res.filename
+        assert res.expires_at is not None
+
+    async def test_download_url_is_attachment_disposition(self):
+        service, repo, storage, _ = make_service()
+        job = self._job()
+        repo.get_job.return_value = job
+
+        res = await service.get_job_audio_url("user1", job.id)
+
+        call = next(
+            c for c in storage.generate_presigned_download_url.call_args_list
+            if c.kwargs.get("attachment_filename")
+        )
+        assert call.kwargs["attachment_filename"] == res.filename
+        assert res.download_url != res.url
+
+    async def test_ownership_enforced_by_repo_get_job(self):
+        service, repo, *_ = make_service()
+        job = self._job()
+        repo.get_job.return_value = job
+
+        await service.get_job_audio_url("user1", job.id)
+
+        repo.get_job.assert_called_once_with(job.id, "user1")
+
+
+class TestGetSampleAudioUrl:
+    def _speaker(self, *, samples=None):
+        speaker = MagicMock()
+        speaker.id = uuid4()
+        speaker.samples = samples or []
+        return speaker
+
+    def _sample(self, *, s3_key="audio/user1/speakers/sp1/samples/sm1", status="ready"):
+        sample = MagicMock()
+        sample.id = uuid4()
+        sample.s3_key = s3_key
+        sample.status = status
+        return sample
+
+    async def test_404_when_speaker_not_found(self):
+        service, repo, *_ = make_service()
+        repo.get_speaker.return_value = None
+        with pytest.raises(NotFoundError):
+            await service.get_sample_audio_url("user1", uuid4(), uuid4())
+
+    async def test_404_when_sample_not_found(self):
+        service, repo, *_ = make_service()
+        speaker = self._speaker()
+        repo.get_speaker.return_value = speaker
+        repo.get_sample.return_value = None
+        with pytest.raises(NotFoundError):
+            await service.get_sample_audio_url("user1", speaker.id, uuid4())
+
+    async def test_404_when_audio_object_gone(self):
+        service, repo, storage, _ = make_service()
+        speaker = self._speaker()
+        sample = self._sample()
+        repo.get_speaker.return_value = speaker
+        repo.get_sample.return_value = sample
+        storage.object_exists.return_value = False
+        with pytest.raises(NotFoundError):
+            await service.get_sample_audio_url("user1", speaker.id, sample.id)
+
+    async def test_any_sample_status_may_be_fetched(self):
+        service, repo, storage, _ = make_service()
+        speaker = self._speaker()
+        for status in ("processing", "ready", "failed"):
+            sample = self._sample(status=status)
+            repo.get_speaker.return_value = speaker
+            repo.get_sample.return_value = sample
+            res = await service.get_sample_audio_url("user1", speaker.id, sample.id)
+            assert res.url
+
+    async def test_returns_presigned_url_download_url_and_filename(self):
+        service, repo, storage, _ = make_service()
+        speaker = self._speaker()
+        sample = self._sample(s3_key="audio/user1/speakers/sp1/samples/sm1")
+        repo.get_speaker.return_value = speaker
+        repo.get_sample.return_value = sample
+
+        res = await service.get_sample_audio_url("user1", speaker.id, sample.id)
+
+        storage.object_exists.assert_called_once_with("audio/user1/speakers/sp1/samples/sm1")
+        assert res.url == "https://dl/audio/user1/speakers/sp1/samples/sm1"
+        assert res.download_url != res.url
+        assert res.filename
+        assert res.expires_at is not None
+
+    async def test_ownership_enforced_by_repo_get_speaker(self):
+        service, repo, *_ = make_service()
+        speaker = self._speaker()
+        sample = self._sample()
+        repo.get_speaker.return_value = speaker
+        repo.get_sample.return_value = sample
+
+        await service.get_sample_audio_url("user1", speaker.id, sample.id)
+
+        repo.get_speaker.assert_called_once_with(speaker.id, "user1")

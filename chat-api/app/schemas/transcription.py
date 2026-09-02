@@ -92,6 +92,14 @@ class JobListResponse(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class AudioUrlResponse(BaseModel):
+    """Presigned playback + download URLs for a job's input audio, or a speaker sample."""
+    url: str                # plain GET — what <audio controls> plays
+    download_url: str       # same object, Content-Disposition: attachment
+    filename: str
+    expires_at: datetime
+
+
 # ── Transcript ────────────────────────────────────────────────────────────────
 
 class SegmentResponse(BaseModel):
