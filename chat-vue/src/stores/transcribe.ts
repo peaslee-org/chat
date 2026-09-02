@@ -157,6 +157,10 @@ export const useTranscribeStore = defineStore("transcribe", () => {
       completed_at: null,
     })
     startPolling(job_id)
+    // Each sample run seeds fresh speaker profiles (new UUIDs) — refetch so the
+    // speaker panel can find them by the job's speaker_ids. A refresh failure
+    // must not fail job creation; the panel falls back to a manual refresh.
+    await loadSpeakers(true).catch(() => {})
     return job_id
   }
 
@@ -178,6 +182,10 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     } catch (err) {
       throw err
     }
+    // Job creation may have just seeded speaker profiles (e.g. fresh sample
+    // uploads) — refetch so the speaker panel can find them. A refresh failure
+    // must not fail job submission; the panel falls back to a manual refresh.
+    if (params.speakerIds.length) await loadSpeakers(true).catch(() => {})
     // 2. Add to local job list as pending while uploading
     const now = ts()
     jobs.value.unshift({
