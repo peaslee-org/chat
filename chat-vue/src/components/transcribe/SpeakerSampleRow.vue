@@ -17,7 +17,6 @@ const emit = defineEmits<{
 const store = useTranscribeStore()
 const playerOpen = ref(false)
 const audioUrl = ref<string | null>(null)
-const downloadUrl = ref<string | null>(null)
 const loading = ref(false)
 const loadError = ref(false)
 
@@ -33,11 +32,23 @@ async function togglePlay() {
   try {
     const urls = await store.fetchSampleAudioUrl(props.speakerId, props.sample.sample_id)
     audioUrl.value = urls.url
-    downloadUrl.value = urls.downloadUrl
   } catch {
     loadError.value = true
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * Re-resolve the download URL at click time (the store refreshes it within 30 s of expiry) so
+ * a panel left open past the 15-minute presign never hands S3 a stale link.
+ */
+async function downloadSample(): Promise<void> {
+  try {
+    const urls = await store.fetchSampleAudioUrl(props.speakerId, props.sample.sample_id)
+    window.location.assign(urls.downloadUrl)
+  } catch {
+    loadError.value = true
   }
 }
 
@@ -57,7 +68,9 @@ function formatDate(dateStr: string): string {
       <SampleStatusBadge :status="sample.status" />
       <button
         v-if="sample.status === 'ready'"
+        type="button"
         data-testid="play-sample"
+        :aria-label="playerOpen ? 'Hide sample audio' : 'Play sample audio'"
         class="text-gray-400 hover:text-indigo-500 transition-colors"
         @click="togglePlay"
       >
@@ -73,7 +86,7 @@ function formatDate(dateStr: string): string {
     <div v-if="playerOpen" class="mt-1 pl-4 flex items-center gap-2">
       <template v-if="audioUrl">
         <audio controls :src="audioUrl" class="h-8" />
-        <a :href="downloadUrl ?? undefined" class="text-indigo-600 hover:text-indigo-500">Download</a>
+        <a href="#" class="text-indigo-600 hover:text-indigo-500" @click.prevent="downloadSample">Download</a>
       </template>
       <span v-else-if="loading" class="text-gray-400">Loading…</span>
       <span v-else-if="loadError" class="text-gray-400">Couldn't load audio</span>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue"
+import axios from "axios"
 import { useTranscribeStore } from "@/stores/transcribe"
 import { workerStateLabel } from "@/lib/workerState"
 import {
@@ -44,28 +45,51 @@ watch(
 // ── Input audio: fetched lazily once a terminal (complete/failed) job is open ──
 const TERMINAL_JOB_STATUSES = new Set(["complete", "failed"])
 const jobAudioUrl = ref<string | null>(null)
-const jobAudioDownloadUrl = ref<string | null>(null)
-const jobAudioExpired = ref(false)
+const jobAudioError = ref<string | null>(null)
+
+/** 404 means the object has expired from the bucket — say so; anything else is a generic
+ *  fetch failure (network, 5xx, …). */
+function audioErrorMessage(err: unknown): string {
+  return axios.isAxiosError(err) && err.response?.status === 404
+    ? "Input audio expired"
+    : "Couldn't load input audio"
+}
 
 watch(
   [() => store.activeJobId, () => store.activeJob?.status],
   async ([jobId, status]) => {
     jobAudioUrl.value = null
-    jobAudioDownloadUrl.value = null
-    jobAudioExpired.value = false
+    jobAudioError.value = null
     if (!jobId || !status || !TERMINAL_JOB_STATUSES.has(status)) return
     try {
       const urls = await store.fetchJobAudioUrl(jobId)
       if (store.activeJobId !== jobId) return
       jobAudioUrl.value = urls.url
-      jobAudioDownloadUrl.value = urls.downloadUrl
-    } catch {
+    } catch (err) {
       if (store.activeJobId !== jobId) return
-      jobAudioExpired.value = true
+      jobAudioError.value = audioErrorMessage(err)
     }
   },
   { immediate: true },
 )
+
+/**
+ * Re-resolve the download URL at click time (the store refreshes it within 30 s of expiry) so
+ * a run detail left open past the 15-minute presign never hands S3 a stale link. Mirrors
+ * ScanDetailView's mesh download() — the same server object, just re-presigned as an
+ * attachment right before navigating.
+ */
+async function downloadJobAudio(): Promise<void> {
+  const jobId = store.activeJobId
+  if (!jobId) return
+  try {
+    const urls = await store.fetchJobAudioUrl(jobId)
+    window.location.assign(urls.downloadUrl)
+  } catch (err) {
+    jobAudioUrl.value = null
+    jobAudioError.value = audioErrorMessage(err)
+  }
+}
 
 const computedTurnsForDisplay = computed((): ComputedTurn[] => {
   const jobId = store.activeJobId
@@ -164,11 +188,12 @@ async function setVisibility(next: boolean) {
           <template v-if="jobAudioUrl">
             <audio controls :src="jobAudioUrl" class="h-8 flex-1 min-w-0" />
             <a
-              :href="jobAudioDownloadUrl ?? undefined"
+              href="#"
               class="text-indigo-600 hover:text-indigo-500 shrink-0"
+              @click.prevent="downloadJobAudio"
             >Download</a>
           </template>
-          <span v-else-if="jobAudioExpired" class="text-gray-400">Input audio expired</span>
+          <span v-else-if="jobAudioError" class="text-gray-400">{{ jobAudioError }}</span>
         </div>
       </div>
 

@@ -63,7 +63,46 @@ describe("RunDetailView — input audio row", () => {
     expect(audioEl.attributes("src")).toBe("https://dl/audio/j/source")
     expect(audioEl.attributes("controls")).toBeDefined()
     const downloadLink = w.findAll("a").find(a => a.text() === "Download")
-    expect(downloadLink?.attributes("href")).toBe("https://dl/audio/j/source?dl=job-audio")
+    expect(downloadLink?.exists()).toBe(true)
+  })
+
+  it("re-resolves the download URL through the store at click time, rather than using a captured href", async () => {
+    // The panel-open fetch returns an entry within 30s of expiry, so the store's cache treats
+    // it as stale and the click handler's fetchJobAudioUrl call hits the API again — proving
+    // the download goes through the store's re-resolve path instead of a captured href.
+    const almostExpired = new Date(Date.now() + 10_000).toISOString()
+    vi.mocked(api.getJobAudioUrl)
+      .mockResolvedValueOnce({
+        url: "https://dl/audio/j/source",
+        download_url: "https://dl/audio/j/source?dl=stale",
+        filename: "job-audio",
+        expires_at: almostExpired,
+      })
+      .mockResolvedValueOnce({
+        url: "https://dl/audio/j/source",
+        download_url: "https://dl/audio/j/source?dl=fresh",
+        filename: "job-audio",
+        expires_at: "2099-01-01T00:00:00Z",
+      })
+    // jsdom's window.location.assign isn't configurable enough for vi.spyOn — swap the whole
+    // `location` property for a stub with a mockable `assign`, then restore it.
+    const originalLocation = window.location
+    const assignMock = vi.fn()
+    Object.defineProperty(window, "location", { configurable: true, value: { assign: assignMock } })
+    try {
+      const { w } = mountWithJob(job({ status: "complete" }))
+      await flushPromises()
+
+      const downloadLink = w.findAll("a").find(a => a.text() === "Download")
+      expect(downloadLink?.attributes("href")).toBe("#")
+      await downloadLink!.trigger("click")
+      await flushPromises()
+
+      expect(api.getJobAudioUrl).toHaveBeenCalledTimes(2) // once on open, once at click time
+      expect(assignMock).toHaveBeenCalledWith("https://dl/audio/j/source?dl=fresh")
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation })
+    }
   })
 
   it("fetches and renders a player for a failed job too", async () => {
@@ -89,12 +128,23 @@ describe("RunDetailView — input audio row", () => {
   })
 
   it("shows a quiet expired note (no player) when the API 404s", async () => {
-    const err = Object.assign(new Error("not found"), { response: { status: 404 } })
+    const err = Object.assign(new Error("not found"), { isAxiosError: true, response: { status: 404 } })
     vi.mocked(api.getJobAudioUrl).mockRejectedValue(err)
     const { w } = mountWithJob(job({ status: "complete" }))
     await flushPromises()
 
     expect(w.find("audio").exists()).toBe(false)
     expect(w.text()).toContain("Input audio expired")
+  })
+
+  it("shows a neutral error note (not 'expired') for a non-404 failure", async () => {
+    const err = Object.assign(new Error("network error"), { isAxiosError: true, response: { status: 500 } })
+    vi.mocked(api.getJobAudioUrl).mockRejectedValue(err)
+    const { w } = mountWithJob(job({ status: "complete" }))
+    await flushPromises()
+
+    expect(w.find("audio").exists()).toBe(false)
+    expect(w.text()).toContain("Couldn't load input audio")
+    expect(w.text()).not.toContain("Input audio expired")
   })
 })

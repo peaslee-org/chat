@@ -291,6 +291,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | DELETE | `/speakers/{id}` | 204 |
 | POST | `/speakers/{id}/samples` | Initiate upload → `{sample_id, upload_url}` |
 | POST | `/speakers/{id}/samples/{sid}/confirm` | Confirm S3 upload → `SpeakerSample` with actual status |
+| GET | `/speakers/{id}/samples/{sid}/audio` | Presigned playback/download URLs for the sample → `{url, download_url, filename, expires_at}`; any sample status may be fetched, the SPA only offers it for `ready` |
 | DELETE | `/speakers/{id}/samples/{sid}` | 204 |
 | GET | `/samples` | Bundled sample bundle: `{name, audio: {filename, url}, speakers: [{speaker_name, url}]}` — presigned; what NewJobForm's sample-review mode plays |
 | POST | `/jobs` | Create job; `{speaker_count_hint?, speaker_ids?, language?}` → `{job_id, upload_url}` |
@@ -300,6 +301,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | GET | `/jobs/{id}` | Get job status (`TranscriptionJob`) |
 | PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; → updated job status (JobStatusResponse) |
 | GET | `/jobs/{id}/transcript` | Get transcript → `{segments, transcript_url}` |
+| GET | `/jobs/{id}/audio` | Presigned playback/download URLs for the job's raw input audio → `{url, download_url, filename, expires_at}`; 404 if the job has no audio or the object has expired from the bucket |
 | DELETE | `/jobs/{id}` | 204 |
 
 **Transcribe upload flow (two-phase S3 presigned PUT):**

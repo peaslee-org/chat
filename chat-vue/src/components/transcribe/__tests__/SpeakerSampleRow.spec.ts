@@ -35,7 +35,23 @@ describe("SpeakerSampleRow — play affordance", () => {
 
   it("shows a play affordance for a ready sample", () => {
     const w = mountRow(sample({ status: "ready" }))
-    expect(w.find('[data-testid="play-sample"]').exists()).toBe(true)
+    const btn = w.find('[data-testid="play-sample"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.attributes("type")).toBe("button")
+    expect(btn.attributes("aria-label")).toBe("Play sample audio")
+  })
+
+  it("updates the play affordance's aria-label once the player is open", async () => {
+    vi.mocked(api.getSampleAudioUrl).mockResolvedValue({
+      url: "https://dl/audio/sp1/samples/sm1",
+      download_url: "https://dl/audio/sp1/samples/sm1?dl=speaker-sample",
+      filename: "speaker-sample",
+      expires_at: "2099-01-01T00:00:00Z",
+    })
+    const w = mountRow(sample({ status: "ready" }))
+    await w.find('[data-testid="play-sample"]').trigger("click")
+    await flushPromises()
+    expect(w.find('[data-testid="play-sample"]').attributes("aria-label")).toBe("Hide sample audio")
   })
 
   it("shows no play affordance for a processing sample", () => {
@@ -66,7 +82,44 @@ describe("SpeakerSampleRow — play affordance", () => {
     expect(audioEl.exists()).toBe(true)
     expect(audioEl.attributes("src")).toBe("https://dl/audio/sp1/samples/sm1")
     const downloadLink = w.findAll("a").find(a => a.text() === "Download")
-    expect(downloadLink?.attributes("href")).toBe("https://dl/audio/sp1/samples/sm1?dl=speaker-sample")
+    expect(downloadLink?.exists()).toBe(true)
+  })
+
+  it("re-resolves the download URL through the store at click time, rather than using a captured href", async () => {
+    // Panel-open fetch returns an entry within 30s of expiry so the store treats it as stale,
+    // forcing the download click's fetchSampleAudioUrl call to hit the API again.
+    const almostExpired = new Date(Date.now() + 10_000).toISOString()
+    vi.mocked(api.getSampleAudioUrl)
+      .mockResolvedValueOnce({
+        url: "https://dl/audio/sp1/samples/sm1",
+        download_url: "https://dl/audio/sp1/samples/sm1?dl=stale",
+        filename: "speaker-sample",
+        expires_at: almostExpired,
+      })
+      .mockResolvedValueOnce({
+        url: "https://dl/audio/sp1/samples/sm1",
+        download_url: "https://dl/audio/sp1/samples/sm1?dl=fresh",
+        filename: "speaker-sample",
+        expires_at: "2099-01-01T00:00:00Z",
+      })
+    const originalLocation = window.location
+    const assignMock = vi.fn()
+    Object.defineProperty(window, "location", { configurable: true, value: { assign: assignMock } })
+    try {
+      const w = mountRow(sample({ status: "ready" }))
+      await w.find('[data-testid="play-sample"]').trigger("click")
+      await flushPromises()
+
+      const downloadLink = w.findAll("a").find(a => a.text() === "Download")
+      expect(downloadLink?.attributes("href")).toBe("#")
+      await downloadLink!.trigger("click")
+      await flushPromises()
+
+      expect(api.getSampleAudioUrl).toHaveBeenCalledTimes(2) // once on play, once at download click
+      expect(assignMock).toHaveBeenCalledWith("https://dl/audio/sp1/samples/sm1?dl=fresh")
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation })
+    }
   })
 
   it("does not refetch on a second click (cached by the store)", async () => {
