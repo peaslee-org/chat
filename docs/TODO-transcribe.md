@@ -4,6 +4,12 @@ Findings from live debugging of the "Try the sample" transcription flow on prod.
 Work each item in order; delete this file when the list is done. Evidence dates:
 worker log group `/ecs/transcription-worker-prod`, 2026-09-02 11:41–11:48 UTC.
 
+**Status 2026-09-02:** items 1–3 implemented on `worktree-fix+transcribe-punch-list`
+(worker inline embed + no-op guard; store speaker refresh after seeding jobs; rerun
+endpoint/button with concurrent-cap, terminal-state, and audio-copy guards). Item 4
+remains — it needs a deployed post-fix run where both sample runs log
+`Loaded 2 candidate sample(s)` (which is also item 1's prod verification).
+
 ## Background (what happened)
 
 The sample flow seeds two speaker profiles + one voice sample each, then

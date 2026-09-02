@@ -44,6 +44,11 @@ deploy; infra items a Terraform apply. `deploy.yml` orders the first three; see
   hourly and only Cost Explorer (already in the panel) knows actuals; the table + stamp is the
   estimator, CE the audit. Supersedes flatly bumping `GPU_HOURLY_RATE_USD` to 0.526.
 
+- [ ] **Transcribe confirm: SQS publish failure after the status commit strands the job.**
+  `confirm_job_upload` commits `status="transcribing"` before `publish_transcription_job`; if the
+  publish raises, the row sits in `transcribing` forever with no queue entry and the SPA has no
+  re-confirm affordance. Publish before commit, or add a sweep/retry. Flagged in the 2026-09-02
+  rerun review (reruns create such a row the user never asked to exist).
 - [ ] **`POST /gpu/release` 200 means "flag written", not "worker acknowledged"** — a worker on an image
   without the watcher never reads it. Either return the session's `release_requested_at`/`ended_at`
   on a follow-up `GET /gpu/state`, or have the controller fall back to `StopTask` when the row is
