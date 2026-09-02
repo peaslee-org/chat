@@ -122,6 +122,37 @@ describe("SpeakerSampleRow — play affordance", () => {
     }
   })
 
+  it("shows the error copy and does not navigate when the click-time fetch fails", async () => {
+    // First fetch returns an entry within 30s of expiry so the store treats it as stale,
+    // forcing the download click to hit the API again — where it then rejects.
+    const almostExpired = new Date(Date.now() + 10_000).toISOString()
+    vi.mocked(api.getSampleAudioUrl)
+      .mockResolvedValueOnce({
+        url: "https://dl/audio/sp1/samples/sm1",
+        download_url: "https://dl/audio/sp1/samples/sm1?dl=speaker-sample",
+        filename: "speaker-sample",
+        expires_at: almostExpired,
+      })
+      .mockRejectedValueOnce(new Error("expired"))
+    const originalLocation = window.location
+    const assignMock = vi.fn()
+    Object.defineProperty(window, "location", { configurable: true, value: { assign: assignMock } })
+    try {
+      const w = mountRow(sample({ status: "ready" }))
+      await w.find('[data-testid="play-sample"]').trigger("click")
+      await flushPromises()
+
+      const downloadLink = w.findAll("a").find(a => a.text() === "Download")
+      await downloadLink!.trigger("click")
+      await flushPromises()
+
+      expect(w.text()).toContain("Couldn't load audio")
+      expect(assignMock).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation })
+    }
+  })
+
   it("does not refetch on a second click (cached by the store)", async () => {
     vi.mocked(api.getSampleAudioUrl).mockResolvedValue({
       url: "https://dl/audio/sp1/samples/sm1",

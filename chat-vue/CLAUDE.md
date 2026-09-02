@@ -164,11 +164,17 @@ src/
                                summary line — the worst case is the per-photo price floor; choice in
                                localStorage "gpuStartupsOpen")
       RunSidebar.vue           Left panel: job list + new job form toggle
-      RunDetailView.vue        Right panel: job detail, transcript, speaker panel
+      RunDetailView.vue        Right panel: job detail, transcript, speaker panel; for a
+                               complete/failed job, an "Input audio" row lazily fetches
+                               GET /jobs/{id}/audio and renders an <audio> player + Download link
+                               (re-presigned at click time via downloadJobAudio); a 404 (object
+                               expired) shows "Input audio expired" instead
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs);
-                               "Try the sample" flips to a read-only sample-review mode (players for
-                               the bundled audio + Barry/Jane samples, from GET /samples) — Start
-                               transcription submits (submitSampleJob, unchanged), Back returns
+                               "Try the sample" flips the audio + speakers sections into a read-only
+                               sample-review mode in place (players for the bundled audio +
+                               Barry/Jane samples, from GET /samples) — "Start transcription"
+                               submits (submitSampleJob, unchanged), "Use my own audio instead"
+                               returns to the normal form
       AudioFileDropzone.vue    Drag-and-drop / click-to-upload audio file picker
       TranscribeJobCard.vue    Job summary card in the sidebar list
       JobStatusBadge.vue       Status chip (pending / transcribing / matching / complete / failed)
@@ -176,7 +182,10 @@ src/
       TranscriptDisplay.vue    Rendered transcript segments with speaker labels
       SpeakerPanel.vue         Speaker profile management panel
       SpeakerProfileCard.vue   Expandable card: speaker name, samples list, upload
-      SpeakerSampleRow.vue     Single sample row with status and delete action
+      SpeakerSampleRow.vue     Single sample row with status and delete action; a `ready` sample
+                               gets a Play toggle that lazily fetches GET .../samples/{sid}/audio
+                               and renders an <audio> player + Download link (re-presigned at click
+                               time via downloadSample) beneath the row
       SampleStatusBadge.vue    Status chip (processing / ready / failed) for a sample
     photogrammetry/
       ScanSidebar.vue          Left panel: job list + "New scan" (formMode blank) / "Sample" (formMode

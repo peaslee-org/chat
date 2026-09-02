@@ -48,6 +48,7 @@ async function downloadSample(): Promise<void> {
     const urls = await store.fetchSampleAudioUrl(props.speakerId, props.sample.sample_id)
     window.location.assign(urls.downloadUrl)
   } catch {
+    audioUrl.value = null
     loadError.value = true
   }
 }
