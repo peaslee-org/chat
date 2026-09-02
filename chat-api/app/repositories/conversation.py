@@ -85,4 +85,8 @@ class ConversationRepository(BaseRepository[Conversation]):
         conversation = await self.get(conversation_id, user_sub)
         conversation.is_public = value
         await self._db.flush()
+        # updated_at is server-generated (onupdate=func.now()) and expired by the flush; without a
+        # refresh, serializing the row triggers a sync lazy load inside pydantic (MissingGreenlet,
+        # 500 on PATCH — 2026-09-02).
+        await self._db.refresh(conversation)
         return conversation
