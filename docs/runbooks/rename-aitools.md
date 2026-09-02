@@ -1,5 +1,14 @@
 # Runbook: chat → aiTools cutover
 
+> **Executed 2026-09-02.** Kept for reference/rollback. One surprise not
+> anticipated below: after the rename, GitHub issues OIDC tokens with
+> **ID-qualified subjects** (`repo:org@<org-id>/repo@<repo-id>:ref:…`) as a
+> rename-attack defense, so step 9 failed with
+> `Not authorized to perform sts:AssumeRoleWithWebIdentity` until all four
+> deploy-role trust policies were widened to accept both sub formats (PR #24 —
+> diagnose this class of failure from CloudTrail's `AssumeRoleWithWebIdentity`
+> events, which record the actual sub; the Actions log does not).
+
 One sitting. Steps 4–6 open a window where CI cannot deploy (OIDC trust and the
 repo name disagree) — do them back-to-back.
 
