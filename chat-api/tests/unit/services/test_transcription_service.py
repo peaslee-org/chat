@@ -209,6 +209,126 @@ class TestConfirmJobUploadSpeakerCheck:
         sqs.publish_transcription_job.assert_called_once()
 
 
+class TestRerunJob:
+    def _source_job(self, *, audio_s3_key="audio/user1/job1/source", speaker_ids=None):
+        job = MagicMock()
+        job.id = uuid4()
+        job.audio_s3_key = audio_s3_key
+        job.speaker_count_hint = 3
+        job.language = "en-US"
+        job.speaker_ids = speaker_ids if speaker_ids is not None else []
+        return job
+
+    def _new_job(self, *, job_id=None, audio_s3_key, speaker_count_hint, language, speaker_ids):
+        job = MagicMock()
+        job.id = job_id or uuid4()
+        job.status = "pending"
+        job.audio_s3_key = audio_s3_key
+        job.speaker_count_hint = speaker_count_hint
+        job.language = language
+        job.speaker_ids = speaker_ids
+        job.error_message = None
+        job.transcribe_output_s3_key = None
+        job.matched_speaker_count = None
+        job.total_segment_count = None
+        job.created_at = MagicMock()
+        job.updated_at = MagicMock()
+        job.completed_at = None
+        return job
+
+    async def test_404_when_source_job_not_found(self):
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = None
+        with pytest.raises(NotFoundError):
+            await service.rerun_job("user1", uuid4())
+
+    async def test_rejects_when_no_audio_s3_key(self):
+        service, repo, *_ = make_service()
+        source = self._source_job(audio_s3_key=None)
+        repo.get_job.return_value = source
+
+        with pytest.raises(ConflictError):
+            await service.rerun_job("user1", source.id)
+
+        repo.create_job.assert_not_called()
+
+    async def test_404_when_audio_object_gone(self):
+        service, repo, storage, sqs = make_service()
+        source = self._source_job()
+        repo.get_job.return_value = source
+        storage.object_exists.return_value = False
+
+        with pytest.raises(NotFoundError):
+            await service.rerun_job("user1", source.id)
+
+        repo.create_job.assert_not_called()
+        sqs.publish_transcription_job.assert_not_called()
+
+    async def test_creates_new_job_copying_fields_and_publishes_sqs(self):
+        service, repo, storage, sqs = make_service()
+        speaker_id = uuid4()
+        source = self._source_job(speaker_ids=[str(speaker_id)])
+        new_job = self._new_job(
+            audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=source.speaker_ids,
+        )
+
+        def get_job_side_effect(job_id, user_id):
+            if job_id == source.id:
+                return source
+            if job_id == new_job.id:
+                return new_job
+            return None
+
+        repo.get_job.side_effect = get_job_side_effect
+        repo.create_job.return_value = new_job
+
+        result = await service.rerun_job("user1", source.id)
+
+        repo.create_job.assert_called_once_with(
+            user_id="user1",
+            audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=[speaker_id],
+        )
+        storage.start_transcription_job.assert_called_once()
+        sqs.publish_transcription_job.assert_called_once()
+        assert result.job_id == new_job.id
+
+    async def test_new_job_has_no_speaker_ids_when_source_has_none(self):
+        service, repo, storage, sqs = make_service()
+        source = self._source_job(speaker_ids=[])
+        new_job = self._new_job(
+            audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=[],
+        )
+
+        def get_job_side_effect(job_id, user_id):
+            if job_id == source.id:
+                return source
+            if job_id == new_job.id:
+                return new_job
+            return None
+
+        repo.get_job.side_effect = get_job_side_effect
+        repo.create_job.return_value = new_job
+
+        await service.rerun_job("user1", source.id)
+
+        repo.create_job.assert_called_once_with(
+            user_id="user1",
+            audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=None,
+        )
+
+
 class TestGetTranscript:
     async def test_409_when_still_processing(self):
         service, repo, *_ = make_service()

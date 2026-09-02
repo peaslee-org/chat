@@ -73,6 +73,15 @@ async def confirm_job_upload(
     await service.confirm_job_upload(current_user["sub"], job_id, speaker_ids)
 
 
+@router.post("/jobs/{job_id}/rerun", status_code=202, response_model=JobStatusResponse)
+async def rerun_job(
+    job_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> JobStatusResponse:
+    return await service.rerun_job(current_user["sub"], job_id)
+
+
 @router.get("/jobs/{job_id}/transcript", response_model=TranscriptResponse)
 async def get_transcript(
     job_id: UUID,

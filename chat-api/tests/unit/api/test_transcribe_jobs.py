@@ -53,6 +53,14 @@ def make_mock_service():
         updated_at=_now(),
         is_public=True,
     ))
+    svc.rerun_job = AsyncMock(return_value=JobStatusResponse(
+        job_id=uuid4(),
+        status="transcribing",
+        speaker_count_hint=None,
+        language="en-US",
+        created_at=_now(),
+        updated_at=_now(),
+    ))
     return svc
 
 
@@ -163,6 +171,56 @@ class TestJobEndpoints:
         )
         assert response.status_code == 200
         assert response.json()["partial_transcript_available"] is True
+
+
+class TestRerunJob:
+    async def test_rerun_returns_202_with_new_job(self, client):
+        ac, svc = client
+        job_id = uuid4()
+        new_job_id = uuid4()
+        svc.rerun_job.return_value = JobStatusResponse(
+            job_id=new_job_id,
+            status="transcribing",
+            speaker_count_hint=None,
+            language="en-US",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        response = await ac.post(
+            f"/api/v1/transcribe/jobs/{job_id}/rerun",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 202
+        assert response.json()["job_id"] == str(new_job_id)
+        svc.rerun_job.assert_awaited_once_with("user1", job_id)
+
+    async def test_rerun_404_when_source_not_found_or_not_owned(self, client):
+        ac, svc = client
+        svc.rerun_job.side_effect = NotFoundError("Job not found")
+        response = await ac.post(
+            f"/api/v1/transcribe/jobs/{uuid4()}/rerun",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 404
+
+    async def test_rerun_404_when_audio_object_gone(self, client):
+        ac, svc = client
+        svc.rerun_job.side_effect = NotFoundError("Audio for this job is no longer available")
+        response = await ac.post(
+            f"/api/v1/transcribe/jobs/{uuid4()}/rerun",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 404
+        assert "no longer available" in response.json()["detail"]
+
+    async def test_rerun_409_when_no_audio_s3_key(self, client):
+        ac, svc = client
+        svc.rerun_job.side_effect = ConflictError("Job has no audio to rerun")
+        response = await ac.post(
+            f"/api/v1/transcribe/jobs/{uuid4()}/rerun",
+            headers={"Authorization": "Bearer fake-token"},
+        )
+        assert response.status_code == 409
 
 
 class TestVisibility:

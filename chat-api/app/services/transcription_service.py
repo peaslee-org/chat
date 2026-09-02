@@ -257,6 +257,34 @@ class TranscriptionService:
                 await self._repo.append_event(job_id, "api", "gpu.capped", {"reason": e.reason})
             await self._repo.db.commit()
 
+    async def rerun_job(self, user_id: str, job_id: UUID) -> JobStatusResponse:
+        """Create a fresh job that reuses a completed/failed job's audio and re-runs the pipeline.
+
+        The bucket lifecycle expires audio objects, so existence is checked before the new job
+        row is created — a stale rerun 404s cleanly instead of leaving an orphaned pending job.
+        """
+        source = await self._repo.get_job(job_id, user_id)
+        if source is None:
+            raise NotFoundError(f"Job {job_id} not found")
+        if not source.audio_s3_key:
+            raise ConflictError("Job has no audio to rerun")
+        if not self._storage.object_exists(source.audio_s3_key):
+            raise NotFoundError(
+                "Audio for this job is no longer available — it may have expired from storage"
+            )
+
+        speaker_ids = [UUID(s) for s in source.speaker_ids] if source.speaker_ids else None
+        new_job = await self._repo.create_job(
+            user_id=user_id,
+            audio_s3_key=source.audio_s3_key,
+            speaker_count_hint=source.speaker_count_hint,
+            language=source.language,
+            speaker_ids=speaker_ids,
+        )
+        await self._repo.append_event(new_job.id, "api", "job.created", {"rerun_of": str(job_id)})
+        await self.confirm_job_upload(user_id, new_job.id, speaker_ids)
+        return await self.get_job_status(user_id, new_job.id)
+
     async def get_job_status(self, user_id: str, job_id: UUID) -> JobStatusResponse:
         job = await self._repo.get_job(job_id, user_id)
         if job is None:
