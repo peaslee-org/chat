@@ -10,7 +10,7 @@ vi.mock("@/lib/transcribeApi", () => ({
 
 import * as api from "@/lib/transcribeApi"
 import NewJobForm from "../NewJobForm.vue"
-import { useTranscribeStore } from "@/stores/transcribe"
+import AudioFileDropzone from "../AudioFileDropzone.vue"
 
 const PREVIEW = {
   name: "Sample conversation",
@@ -31,6 +31,10 @@ describe("NewJobForm — sample preview", () => {
     vi.mocked(api.getSamples).mockReset()
     vi.mocked(api.createSampleJob).mockReset()
     vi.mocked(api.listSpeakers).mockReset().mockResolvedValue({ items: [], next_cursor: null })
+    // jsdom has no real object-URL support; AudioFileDropzone's nested AudioPlayer needs this
+    // once a File is selected (only exercised by the round-trip test below).
+    URL.createObjectURL = vi.fn(() => "blob:mock-url")
+    URL.revokeObjectURL = vi.fn()
   })
 
   it("clicking Try the sample fetches the preview but submits nothing", async () => {
@@ -96,5 +100,24 @@ describe("NewJobForm — sample preview", () => {
 
     expect(wrapper.find("audio").exists()).toBe(false)
     expect(wrapper.find("[data-test=sample-error]").exists()).toBe(true)
+    expect(wrapper.find("button[data-test=start-sample]").attributes("disabled")).toBeDefined()
+  })
+
+  it("Back preserves a previously selected audio file in the dropzone", async () => {
+    vi.mocked(api.getSamples).mockResolvedValue(PREVIEW)
+    const wrapper = mountForm()
+
+    const file = new File(["audio-bytes"], "my-clip.mp3", { type: "audio/mpeg" })
+    const dropzone = wrapper.findComponent(AudioFileDropzone)
+    ;(dropzone.vm as unknown as { setFile: (f: File) => void }).setFile(file)
+    await flushPromises()
+    expect(wrapper.text()).toContain("my-clip.mp3")
+
+    await wrapper.find("button[data-test=try-sample]").trigger("click")
+    await flushPromises()
+    await wrapper.find("button[data-test=back-from-sample]").trigger("click")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("my-clip.mp3")
   })
 })

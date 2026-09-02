@@ -197,7 +197,7 @@ async function openSamplePreview() {
   try {
     samplePreview.value = await store.loadSamplePreview()
   } catch (e) {
-    samplePreviewError.value = parseJobError(e, null)
+    samplePreviewError.value = parseSampleFetchError(e)
   } finally {
     samplePreviewLoading.value = false
   }
@@ -296,11 +296,19 @@ function parseJobError(e: unknown, jobId?: string | null): string {
   const suffix = jobId ? ` (Job ID: ${jobId.slice(0, 8)})` : ""
   return `Submission failed. Please try again.${suffix}`
 }
+
+function parseSampleFetchError(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    const detail = e.response?.data?.detail
+    if (typeof detail === "string") return detail
+  }
+  return "Couldn't load the sample."
+}
 </script>
 
 <template>
-  <div v-if="sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
-    <h3 class="text-base font-semibold text-gray-700 mb-3">Sample conversation</h3>
+  <div v-show="sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+    <h3 class="text-base font-semibold text-gray-700 mb-3">{{ samplePreview?.name ?? 'Sample conversation' }}</h3>
 
     <div v-if="samplePreviewLoading" class="text-sm text-gray-500">Loading sample…</div>
     <p v-else-if="samplePreviewError" data-test="sample-error" class="text-xs text-red-600">
@@ -346,7 +354,7 @@ function parseJobError(e: unknown, jobId?: string | null): string {
     <p v-if="uploadError" class="mt-2 text-xs text-red-600">{{ uploadError }}</p>
   </div>
 
-  <div v-else class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
+  <div v-show="!sampleMode" class="border border-gray-200 rounded-lg p-4 mb-4 bg-white">
     <h3 class="text-base font-semibold text-gray-700 mb-3">New Transcription Job</h3>
 
     <div class="space-y-3">

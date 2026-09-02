@@ -39,7 +39,7 @@ npm run preview                # serves dist/ on http://localhost:4173
 ```
 
 Tests cover the photogrammetry API client and store, `PhotoGrid`, `MeshViewer`, `ScanDetailView`,
-`GpuStatusBar`, the `gpu` store and `lib/workerState.ts` (47 specs as of 2026-08-29). `vitest.config.ts`
+`GpuStatusBar`, the `gpu` store and `lib/workerState.ts` (58 specs as of 2026-09-02). `vitest.config.ts`
 mirrors the `@` alias and the `model-viewer` custom-element rule from `vite.config.ts`; the
 `@google/model-viewer` module is mocked in tests (jsdom has no WebGL).
 
