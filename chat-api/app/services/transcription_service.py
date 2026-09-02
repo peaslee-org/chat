@@ -263,9 +263,14 @@ class TranscriptionService:
         The bucket lifecycle expires audio objects, so existence is checked before the new job
         row is created — a stale rerun 404s cleanly instead of leaving an orphaned pending job.
         """
+        active = await self._repo.count_active_jobs(user_id)
+        if active >= self._settings.max_concurrent_jobs:
+            raise ConcurrentJobLimitExceeded()
         source = await self._repo.get_job(job_id, user_id)
         if source is None:
             raise NotFoundError(f"Job {job_id} not found")
+        if source.status not in ("complete", "failed"):
+            raise ConflictError("Job is still running — wait for it to finish before rerunning")
         if not source.audio_s3_key:
             raise ConflictError("Job has no audio to rerun")
         if not self._storage.object_exists(source.audio_s3_key):

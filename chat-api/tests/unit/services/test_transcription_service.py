@@ -210,9 +210,12 @@ class TestConfirmJobUploadSpeakerCheck:
 
 
 class TestRerunJob:
-    def _source_job(self, *, audio_s3_key="audio/user1/job1/source", speaker_ids=None):
+    def _source_job(
+        self, *, audio_s3_key="audio/user1/job1/source", speaker_ids=None, status="complete"
+    ):
         job = MagicMock()
         job.id = uuid4()
+        job.status = status
         job.audio_s3_key = audio_s3_key
         job.speaker_count_hint = 3
         job.language = "en-US"
@@ -241,6 +244,26 @@ class TestRerunJob:
         repo.get_job.return_value = None
         with pytest.raises(NotFoundError):
             await service.rerun_job("user1", uuid4())
+
+    async def test_429_when_at_concurrent_job_limit(self):
+        service, repo, *_ = make_service(active_jobs=3, max_concurrent_jobs=3)
+        source = self._source_job()
+        repo.get_job.return_value = source
+
+        with pytest.raises(ConcurrentJobLimitExceeded):
+            await service.rerun_job("user1", source.id)
+
+        repo.get_job.assert_not_called()
+        repo.create_job.assert_not_called()
+
+    async def test_409_when_source_job_not_terminal(self):
+        service, repo, *_ = make_service()
+        for status in ("pending", "transcribing", "matching"):
+            source = self._source_job(status=status)
+            repo.get_job.return_value = source
+            with pytest.raises(ConflictError):
+                await service.rerun_job("user1", source.id)
+            repo.create_job.assert_not_called()
 
     async def test_rejects_when_no_audio_s3_key(self):
         service, repo, *_ = make_service()
@@ -294,6 +317,9 @@ class TestRerunJob:
             language=source.language,
             speaker_ids=[speaker_id],
         )
+        # Called at least once for the rerun's own pre-create check (confirm_job_upload's
+        # internal re-check against the same key follows once the row exists).
+        storage.object_exists.assert_any_call(source.audio_s3_key)
         storage.start_transcription_job.assert_called_once()
         sqs.publish_transcription_job.assert_called_once()
         assert result.job_id == new_job.id
