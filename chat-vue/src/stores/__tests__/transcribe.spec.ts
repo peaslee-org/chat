@@ -8,6 +8,7 @@ vi.mock("@/lib/transcribeApi", () => ({
   uploadToS3: vi.fn(),
   confirmJobUpload: vi.fn(),
   listSpeakers: vi.fn(),
+  rerunJob: vi.fn(),
 }))
 
 import * as api from "@/lib/transcribeApi"
@@ -136,5 +137,35 @@ describe("transcribe store — speaker refresh after job creation", () => {
 
     expect(jobId).toBe("j3")
     expect(store.jobs.some((j) => j.job_id === "j3")).toBe(true)
+  })
+})
+
+describe("transcribe store — rerunJob", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(api.rerunJob).mockReset()
+  })
+
+  it("adds the new job, selects it, and returns its id", async () => {
+    const newJob = job({ job_id: "j-rerun", status: "transcribing" })
+    vi.mocked(api.rerunJob).mockResolvedValue(newJob)
+    const store = useTranscribeStore()
+    store.jobs.push(job({ job_id: "j-source", status: "failed" }))
+
+    const result = await store.rerunJob("j-source")
+
+    expect(api.rerunJob).toHaveBeenCalledWith("j-source")
+    expect(result).toBe("j-rerun")
+    expect(store.jobs.some((j) => j.job_id === "j-rerun")).toBe(true)
+    expect(store.activeJobId).toBe("j-rerun")
+  })
+
+  it("propagates errors without adding a job", async () => {
+    vi.mocked(api.rerunJob).mockRejectedValue(new Error("gone"))
+    const store = useTranscribeStore()
+    store.jobs.push(job({ job_id: "j-source", status: "failed" }))
+
+    await expect(store.rerunJob("j-source")).rejects.toThrow("gone")
+    expect(store.jobs.some((j) => j.job_id !== "j-source")).toBe(false)
   })
 })

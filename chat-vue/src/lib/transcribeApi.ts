@@ -77,6 +77,11 @@ export async function confirmJobUpload(jobId: string): Promise<void> {
   await apiClient.post(`/api/v1/transcribe/jobs/${jobId}/confirm`)
 }
 
+export async function rerunJob(jobId: string): Promise<TranscriptionJob> {
+  const res = await apiClient.post(`/api/v1/transcribe/jobs/${jobId}/rerun`)
+  return res.data
+}
+
 export async function listJobs(cursor?: string): Promise<JobListResponse> {
   const res = await apiClient.get("/api/v1/transcribe/jobs", {
     params: { cursor, limit: 20 },

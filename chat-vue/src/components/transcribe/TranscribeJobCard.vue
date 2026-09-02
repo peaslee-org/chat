@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue"
 import type { TranscriptionJob } from "@/types"
 import { useTranscribeStore } from "@/stores/transcribe"
 import JobStatusBadge from "./JobStatusBadge.vue"
@@ -9,6 +10,7 @@ const props = defineProps<{
 }>()
 
 const store = useTranscribeStore()
+const rerunning = ref(false)
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString([], {
@@ -34,6 +36,19 @@ async function handleDelete(e: Event) {
   if (!window.confirm("Delete this transcription job?")) return
   await store.deleteJob(props.job.job_id)
 }
+
+async function handleRerun(e: Event) {
+  e.stopPropagation()
+  if (rerunning.value) return
+  rerunning.value = true
+  try {
+    await store.rerunJob(props.job.job_id)
+  } catch {
+    store.pushToast("Couldn't re-run this job — try again")
+  } finally {
+    rerunning.value = false
+  }
+}
 </script>
 
 <template>
@@ -52,6 +67,15 @@ async function handleDelete(e: Event) {
           :estimated-wait-seconds="job.estimated_wait_seconds"
           :is-polling="store.pollingActive.has(job.job_id)"
         />
+        <button
+          v-if="job.status === 'complete' || job.status === 'failed'"
+          data-testid="rerun-button"
+          :disabled="rerunning"
+          class="text-gray-400 hover:text-indigo-500 text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          @click="handleRerun"
+        >
+          Re-run
+        </button>
         <button
           class="text-gray-400 hover:text-red-500 text-xs transition-colors"
           @click="handleDelete"

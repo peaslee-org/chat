@@ -237,6 +237,28 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     return job_id
   }
 
+  /**
+   * Rerun a completed/failed job: the API creates a new job row reusing the
+   * source job's audio + params and starts it. The profiles referenced by
+   * speaker_ids already exist, so (unlike submitJob) no speaker refresh is
+   * needed here.
+   */
+  async function rerunJob(jobId: string): Promise<string> {
+    logJob(jobId, { ts: ts(), direction: 'request', label: `POST /jobs/${jobId.slice(0, 8)}…/rerun` })
+    let newJob: TranscriptionJob
+    try {
+      newJob = await api.rerunJob(jobId)
+      logJob(jobId, { ts: ts(), direction: 'response', label: `202 ${newJob.status}`, detail: newJob.job_id })
+    } catch (err) {
+      logJob(jobId, { ts: ts(), direction: 'response', label: 'rerun failed', error: true })
+      throw err
+    }
+    jobs.value.unshift(newJob)
+    if (["pending", "transcribing", "matching"].includes(newJob.status)) startPolling(newJob.job_id)
+    await selectJob(newJob.job_id)
+    return newJob.job_id
+  }
+
   async function selectJob(jobId: string): Promise<void> {
     activeJobId.value = jobId
     activeTranscript.value = null
@@ -441,7 +463,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     readySpeakers,
     turnDistanceData,
     loadSpeakers, createSpeaker, renameSpeaker, deleteSpeaker, uploadSample, deleteSample,
-    loadJobs, submitJob, submitSampleJob, selectJob, loadTranscript, deleteJob,
+    loadJobs, submitJob, submitSampleJob, selectJob, loadTranscript, deleteJob, rerunJob,
     dismissToast, pushToast,
     loadTurnDistances,
     resumePollingForActiveJobs, resumePollingForProcessingSamples,

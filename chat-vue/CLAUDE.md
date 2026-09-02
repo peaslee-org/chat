@@ -291,6 +291,7 @@ The chat-api lives in `../chat-api` (see its `CLAUDE.md` for the full list). Key
 | DELETE | `/speakers/{id}/samples/{sid}` | 204 |
 | POST | `/jobs` | Create job; `{speaker_count_hint?, speaker_ids?, language?}` → `{job_id, upload_url}` |
 | POST | `/jobs/{id}/confirm` | Confirm audio uploaded; transitions job → `transcribing` |
+| POST | `/jobs/{id}/rerun` | Rerun a completed/failed job — new job row reusing its audio + params; 404 if the source job or its audio is gone → job status (JobStatusResponse) |
 | GET | `/jobs` | Paginated list; `?cursor&limit` → `{items, next_cursor}` |
 | GET | `/jobs/{id}` | Get job status (`TranscriptionJob`) |
 | PATCH | `/jobs/{id}` | `{is_public: bool}` — owner-only, toggle public visibility; → updated job status (JobStatusResponse) |
