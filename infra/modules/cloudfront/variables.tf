@@ -46,3 +46,15 @@ variable "alternate_domain_names" {
   description = "Extra CloudFront aliases; each must be on the ACM certificate."
   default     = []
 }
+
+variable "github_org_id" {
+  type        = string
+  description = "GitHub organization's immutable numeric id (gh api orgs/<org> --jq .id). Appears as org@id in post-rename OIDC sub claims."
+  default     = "263481008"
+}
+
+variable "github_repo_id" {
+  type        = string
+  description = "GitHub repository's immutable numeric id (gh api repos/<org>/<repo> --jq .id). Appears as repo@id in post-rename OIDC sub claims."
+  default     = "1176238406"
+}
