@@ -120,4 +120,26 @@ describe("NewJobForm — sample preview", () => {
 
     expect(wrapper.text()).toContain("my-clip.mp3")
   })
+
+  it("Try the sample with an unsaved, focused speaker draft does not pop the unsaved-draft modal", async () => {
+    vi.mocked(api.getSamples).mockResolvedValue(PREVIEW)
+    const wrapper = mountForm()
+
+    const draftInput = wrapper.find('input[type="text"]')
+    await draftInput.setValue("Alice")
+    // Simulate focus leaving the draft container, as it does in a real browser when the user
+    // clicks "Try the sample" — handleDraftFocusOut's check is deferred via setTimeout(0), so
+    // it runs after sampleMode is already true.
+    await draftInput.trigger("focusout")
+    await wrapper.find("button[data-test=try-sample]").trigger("click")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushPromises()
+
+    expect(document.body.textContent).not.toContain("Unsaved speaker")
+
+    await wrapper.find("button[data-test=back-from-sample]").trigger("click")
+    await flushPromises()
+
+    expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe("Alice")
+  })
 })

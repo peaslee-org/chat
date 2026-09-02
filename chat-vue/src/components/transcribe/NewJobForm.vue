@@ -135,6 +135,10 @@ function handleDraftFocusOut() {
   // Use a microtask delay so the newly-focused element is settled
   setTimeout(() => {
     if (!draftContainer.value) return
+    // v-show keeps the normal-mode subtree mounted while sample mode is open, so a focusout
+    // triggered by "Try the sample" stealing focus must not pop the unsaved-draft modal over
+    // the (hidden) sample panel.
+    if (sampleMode.value) return
     if (!draftContainer.value.contains(document.activeElement) && draftHasContent.value) {
       pendingAction.value = null
       showUnsavedWarning.value = true
