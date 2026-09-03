@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,8 @@ from app.schemas.transcription import (
 from app.services.audio_storage import AudioStorageService
 from app.services.gpu_controller import GpuCapExceeded
 from app.services.sqs_publisher import SQSPublisher
+
+logger = logging.getLogger(__name__)
 
 DOWNLOAD_TTL_SECONDS = 900
 
@@ -99,6 +102,15 @@ class TranscriptionService:
         speaker = await self._repo.get_speaker(speaker_id, user_id)
         if speaker is None:
             raise NotFoundError(f"Speaker {speaker_id} not found")
+        # The frontend polls here while samples embed; like get_job_status, bring the worker
+        # back if it went away (or never launched) with work still queued.
+        if self._gpu is not None and any(sm.status == "processing" for sm in speaker.samples):
+            gpu_state = await self._gpu.get_state()
+            if gpu_state.worker_state == "off":
+                try:
+                    await self._gpu.ensure_worker("resume", user_id)
+                except GpuCapExceeded:
+                    pass
         return SpeakerResponse(
             speaker_id=speaker.id,
             speaker_name=speaker.speaker_name,
@@ -177,6 +189,14 @@ class TranscriptionService:
         await self._repo.update_sample_status(sample_id, "processing", duration_seconds=duration_seconds)
         await self._repo.db.commit()
         self._sqs.publish_sample_embedding(sample_id, sample.s3_key)
+        # The embedding message needs a worker to drain it, and confirm_job_upload refuses
+        # while any referenced speaker still has a processing sample — so this is the launch
+        # point for enrollment, or a cold pool would deadlock the first job that uses it.
+        if self._gpu is not None:
+            try:
+                await self._gpu.ensure_worker("job", user_id)
+            except GpuCapExceeded as e:
+                logger.warning("Sample %s queued but GPU capped: %s", sample_id, e.reason)
         return SampleResponse(
             sample_id=sample.id,
             status="processing",

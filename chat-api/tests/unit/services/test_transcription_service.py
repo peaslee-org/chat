@@ -628,6 +628,78 @@ class TestGpuIntegration:
         assert resp.worker_state == "starting"
         assert resp.estimated_wait_seconds == 120
 
+    async def test_confirm_sample_launches_worker_for_embedding(self):
+        """A sample-embedding message needs a worker to drain it, and job confirm refuses
+        while samples are processing — so sample confirm must launch the GPU itself."""
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock()
+        service, repo, storage, sqs = make_service(gpu=gpu)
+        speaker_id, sample_id = uuid4(), uuid4()
+        repo.get_speaker.return_value = MagicMock(id=speaker_id)
+        sample = MagicMock(id=sample_id, s3_key="audio/u/speakers/s/samples/x")
+        repo.get_sample.return_value = sample
+        storage.get_object_bytes = MagicMock(return_value=b"")
+
+        res = await service.confirm_sample_upload("user1", speaker_id, sample_id)
+
+        sqs.publish_sample_embedding.assert_called_once_with(sample_id, sample.s3_key)
+        gpu.ensure_worker.assert_awaited_once_with("job", "user1")
+        assert res.status == "processing"
+
+    async def test_confirm_sample_survives_gpu_cap(self):
+        from app.services.gpu_controller import GpuCapExceeded
+
+        gpu = MagicMock()
+        gpu.ensure_worker = AsyncMock(side_effect=GpuCapExceeded("Daily GPU budget used (3 h)."))
+        service, repo, storage, _ = make_service(gpu=gpu)
+        speaker_id, sample_id = uuid4(), uuid4()
+        repo.get_speaker.return_value = MagicMock(id=speaker_id)
+        repo.get_sample.return_value = MagicMock(id=sample_id, s3_key="k")
+        storage.get_object_bytes = MagicMock(return_value=b"")
+
+        res = await service.confirm_sample_upload("user1", speaker_id, sample_id)
+
+        assert res.status == "processing"
+
+    async def test_get_speaker_resumes_worker_when_off_and_samples_processing(self):
+        """The frontend polls the speaker while samples process; if the worker died (or the
+        launch at confirm failed) this poll is what brings it back — mirrors get_job_status."""
+        from app.schemas.gpu import GpuStateResponse
+
+        gpu = MagicMock()
+        gpu.get_state = AsyncMock(
+            return_value=GpuStateResponse(worker_state="off", estimated_wait_seconds=180)
+        )
+        gpu.ensure_worker = AsyncMock(
+            return_value=GpuStateResponse(worker_state="starting", estimated_wait_seconds=120)
+        )
+        service, repo, _, _ = make_service(gpu=gpu)
+        speaker_id = uuid4()
+        sample = MagicMock(id=uuid4(), status="processing", duration_seconds=30.0, created_at=MagicMock())
+        repo.get_speaker.return_value = MagicMock(
+            id=speaker_id, speaker_name="Barry", created_at=MagicMock(), samples=[sample]
+        )
+
+        await service.get_speaker("user1", speaker_id)
+
+        gpu.ensure_worker.assert_awaited_once_with("resume", "user1")
+
+    async def test_get_speaker_leaves_worker_alone_when_no_samples_processing(self):
+        gpu = MagicMock()
+        gpu.get_state = AsyncMock()
+        gpu.ensure_worker = AsyncMock()
+        service, repo, _, _ = make_service(gpu=gpu)
+        speaker_id = uuid4()
+        sample = MagicMock(id=uuid4(), status="ready", duration_seconds=30.0, created_at=MagicMock())
+        repo.get_speaker.return_value = MagicMock(
+            id=speaker_id, speaker_name="Barry", created_at=MagicMock(), samples=[sample]
+        )
+
+        await service.get_speaker("user1", speaker_id)
+
+        gpu.get_state.assert_not_awaited()
+        gpu.ensure_worker.assert_not_awaited()
+
 
 class TestGetSamples:
     async def test_returns_presigned_urls_for_the_three_shared_keys(self):
