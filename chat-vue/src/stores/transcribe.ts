@@ -2,7 +2,8 @@ import { defineStore } from "pinia"
 import { ref, reactive, computed } from "vue"
 import axios from "axios"
 import * as api from "@/lib/transcribeApi"
-import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData, SamplePreview, AudioUrls } from "@/types"
+import { seedThresholds } from "@/composables/useMatchingThresholds"
+import type { SpeakerProfile, TranscriptionJob, TranscriptResponse, JobLogEntry, TurnDistanceData, SamplePreview, AudioUrls, CompileSettings } from "@/types"
 
 export interface Toast {
   id: number
@@ -284,8 +285,23 @@ export const useTranscribeStore = defineStore("transcribe", () => {
       const result = await api.getTranscript(jobId)
       logJob(jobId, { ts: ts(), direction: 'response', label: `200 OK`, detail: `${result.segments.length} segments` })
       activeTranscript.value = result
+      seedThresholds(result.settings)
     } catch (err) {
       logJob(jobId, { ts: ts(), direction: 'response', label: 'transcript fetch failed', error: true })
+      throw err
+    }
+  }
+
+  /** Re-compile the stored transcript with new matching settings; the response replaces it. */
+  async function recompile(jobId: string, settings: CompileSettings): Promise<void> {
+    logJob(jobId, { ts: ts(), direction: 'request', label: `POST /jobs/${jobId.slice(0, 8)}…/compile` })
+    try {
+      const result = await api.compileTranscript(jobId, settings)
+      logJob(jobId, { ts: ts(), direction: 'response', label: '200 compiled', detail: `${result.turns?.length ?? 0} turns` })
+      if (activeJobId.value === jobId) activeTranscript.value = result
+      seedThresholds(result.settings)
+    } catch (err) {
+      logJob(jobId, { ts: ts(), direction: 'response', label: 'compile failed', error: true })
       throw err
     }
   }
@@ -506,7 +522,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     turnDistanceData,
     jobAudioUrls, sampleAudioUrls,
     loadSpeakers, createSpeaker, renameSpeaker, deleteSpeaker, uploadSample, deleteSample,
-    loadJobs, submitJob, submitSampleJob, loadSamplePreview, selectJob, loadTranscript, deleteJob, rerunJob,
+    loadJobs, submitJob, submitSampleJob, loadSamplePreview, selectJob, loadTranscript, recompile, deleteJob, rerunJob,
     dismissToast, pushToast,
     loadTurnDistances,
     fetchJobAudioUrl, fetchSampleAudioUrl,

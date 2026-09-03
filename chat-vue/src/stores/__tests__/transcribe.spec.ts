@@ -12,10 +12,13 @@ vi.mock("@/lib/transcribeApi", () => ({
   getSamples: vi.fn(),
   getJobAudioUrl: vi.fn(),
   getSampleAudioUrl: vi.fn(),
+  getTranscript: vi.fn(),
+  compileTranscript: vi.fn(),
 }))
 
 import * as api from "@/lib/transcribeApi"
 import { useTranscribeStore } from "@/stores/transcribe"
+import { useMatchingThresholds } from "@/composables/useMatchingThresholds"
 import type { TranscriptionJob } from "@/types"
 
 function job(overrides: Partial<TranscriptionJob> = {}): TranscriptionJob {
@@ -280,5 +283,44 @@ describe("transcribe store — sample audio url", () => {
     await store.fetchSampleAudioUrl("sp1", "sm1")
 
     expect(api.getSampleAudioUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("compiled transcripts", () => {
+  const transcript = (over: Record<string, unknown> = {}) => ({
+    segments: [],
+    turns: [{ start_time: 0, end_time: 1, text: "a", label: "Jane", match_type: "high" }],
+    settings: { cosine_dist_threshold: 0.3, separation_min: 0.1, quality_min: 0, confidence_min: 0 },
+    compiled_at: "2026-09-03T12:00:00Z",
+    ...over,
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(api.getTranscript).mockReset()
+    vi.mocked(api.compileTranscript).mockReset()
+  })
+
+  it("loadTranscript seeds the sliders from the embedded settings", async () => {
+    vi.mocked(api.getTranscript).mockResolvedValue(transcript() as never)
+    const store = useTranscribeStore()
+    await store.loadTranscript("t1")
+    const { cosineDistThreshold, separationMin } = useMatchingThresholds()
+    expect(cosineDistThreshold.value).toBe(0.3)
+    expect(separationMin.value).toBe(0.1)
+  })
+
+  it("recompile posts the settings and replaces the active transcript", async () => {
+    const store = useTranscribeStore()
+    store.jobs.push(job())
+    store.activeJobId = "t1"
+    const next = transcript({ settings: { cosine_dist_threshold: 0.2, separation_min: 0.5, quality_min: 0, confidence_min: 0 } })
+    vi.mocked(api.compileTranscript).mockResolvedValue(next as never)
+
+    await store.recompile("t1", next.settings)
+
+    expect(api.compileTranscript).toHaveBeenCalledWith("t1", next.settings)
+    expect(store.activeTranscript).toEqual(next)
+    expect(useMatchingThresholds().separationMin.value).toBe(0.5)
   })
 })
