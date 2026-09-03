@@ -72,3 +72,47 @@ async def test_showcase_missing_stats_default_to_none_and_zero():
     out = await svc.showcase()
     assert out.transcriptions[0].duration_seconds is None
     assert out.transcriptions[0].segment_count is None
+
+
+from app.schemas.transcription import CompileSettings
+
+
+def turn_row(start, end, text, cand_id, name, dist):
+    td = MagicMock(start_time=start, end_time=end, text=text, candidate_id=cand_id, cosine_dist=dist)
+    return (td, name)
+
+
+async def test_transcription_detail_compiles_lazily_and_returns_turns():
+    svc, _, transcriptions, _, _ = make_service()
+    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=1)
+    transcriptions.get_public_job.return_value = job
+    transcriptions.get_segment_stats.return_value = (1.0, 1)
+    transcriptions.get_segments.return_value = []
+    transcriptions.get_compiled_transcript.return_value = None
+    transcriptions.get_turn_distances.return_value = [turn_row(0.0, 1.0, "hi", uuid4(), "Jane", 0.1)]
+    transcriptions.upsert_compiled_transcript.return_value = MagicMock(
+        settings=CompileSettings().model_dump(),
+        turns=[{"start_time": 0.0, "end_time": 1.0, "text": "hi", "label": "Jane", "match_type": "high"}],
+        compiled_at=datetime.now(timezone.utc),
+    )
+
+    out = await svc.transcription_detail(job.id)
+
+    assert out.turns[0].label == "Jane" and out.settings.cosine_dist_threshold == 0.25
+    transcriptions.upsert_compiled_transcript.assert_awaited_once()
+    transcriptions.db.commit.assert_awaited()
+
+
+async def test_transcription_detail_without_turn_data_has_null_turns():
+    svc, _, transcriptions, _, _ = make_service()
+    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=None)
+    transcriptions.get_public_job.return_value = job
+    transcriptions.get_segment_stats.return_value = (None, 0)
+    transcriptions.get_segments.return_value = []
+    transcriptions.get_compiled_transcript.return_value = None
+    transcriptions.get_turn_distances.return_value = []
+
+    out = await svc.transcription_detail(job.id)
+
+    assert out.turns is None and out.compiled_at is None
+    transcriptions.upsert_compiled_transcript.assert_not_awaited()

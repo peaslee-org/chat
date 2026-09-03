@@ -8,6 +8,7 @@ from app.repositories.photogrammetry import PhotogrammetryRepository
 from app.repositories.transcription import TranscriptionRepository
 from app.services.audio_storage import AudioStorageService, LocalAudioStorageService
 from app.services.public_service import PublicService
+from app.services.transcript_compiler import compile_defaults
 
 
 def get_public_service(db: AsyncSession = Depends(get_db)) -> PublicService:
@@ -21,4 +22,5 @@ def get_public_service(db: AsyncSession = Depends(get_db)) -> PublicService:
         TranscriptionRepository(db),
         ConversationRepository(db),
         storage,
+        compile_defaults(s),
     )

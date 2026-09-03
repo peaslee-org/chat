@@ -18,18 +18,20 @@ from app.schemas.public import (
     PublicTranscriptionSummary,
     ShowcaseResponse,
 )
-from app.schemas.transcription import SegmentResponse
+from app.schemas.transcription import CompileSettings, SegmentResponse
 from app.services.photogrammetry_service import DOWNLOAD_TTL_SECONDS
+from app.services.transcript_compiler import load_or_compile, transcript_response
 
 SHOWCASE_LIMIT = 20
 
 
 class PublicService:
-    def __init__(self, scans, transcriptions, conversations, storage):
+    def __init__(self, scans, transcriptions, conversations, storage, compile_defaults: CompileSettings | None = None):
         self._scans = scans
         self._transcriptions = transcriptions
         self._conversations = conversations
         self._storage = storage
+        self._compile_defaults = compile_defaults or CompileSettings()
 
     async def showcase(self) -> ShowcaseResponse:
         scans = [self._scan_summary(j) for j in await self._scans.list_public_jobs(SHOWCASE_LIMIT)]
@@ -87,7 +89,16 @@ class PublicService:
             )
             for s in await self._transcriptions.get_segments(job_id)
         ]
-        return PublicTranscriptionDetail(**summary.model_dump(), segments=segments)
+        compiled = await load_or_compile(self._transcriptions, job_id, self._compile_defaults)
+        await self._transcriptions.db.commit()
+        tr = transcript_response(segments, compiled, self._compile_defaults)
+        return PublicTranscriptionDetail(
+            **summary.model_dump(),
+            segments=tr.segments,
+            turns=tr.turns,
+            settings=tr.settings,
+            compiled_at=tr.compiled_at,
+        )
 
     async def conversation_detail(self, conversation_id: UUID) -> PublicConversationDetail:
         conversation = await self._conversations.get_public(conversation_id)

@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.schemas.transcription import SegmentResponse
+from app.schemas.transcription import CompiledTurn, CompileSettings, SegmentResponse
 
 
 class VisibilityRequest(BaseModel):
@@ -44,6 +44,9 @@ class PublicTranscriptionSummary(BaseModel):
 
 class PublicTranscriptionDetail(PublicTranscriptionSummary):
     segments: List[SegmentResponse] = Field(default_factory=list)
+    turns: Optional[List[CompiledTurn]] = None
+    settings: CompileSettings = Field(default_factory=CompileSettings)
+    compiled_at: Optional[datetime] = None
 
 
 class PublicMessage(BaseModel):
