@@ -33,8 +33,15 @@ async function recompile() {
   compileError.value = null
   try {
     await store.recompile(props.jobId, currentSettings())
-  } catch {
-    compileError.value = "Re-compile failed — try again."
+  } catch (err) {
+    const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+    if (typeof detail === "string") {
+      compileError.value = detail
+    } else if (Array.isArray(detail)) {
+      compileError.value = detail.map(d => (d as { msg?: string })?.msg ?? String(d)).join("; ")
+    } else {
+      compileError.value = "Re-compile failed — try again."
+    }
   } finally {
     isCompiling.value = false
   }
@@ -106,7 +113,7 @@ function formatTime(s: number): string {
               <span>Cosine dist</span>
               <span class="font-mono text-gray-800">{{ cosineDistThreshold.toFixed(2) }}</span>
             </label>
-            <input type="range" min="0" max="1.5" step="0.01" v-model.number="cosineDistThreshold" class="w-full accent-indigo-600" />
+            <input type="range" min="0.01" max="1.5" step="0.01" v-model.number="cosineDistThreshold" class="w-full accent-indigo-600" />
           </div>
           <div>
             <label class="text-xs text-gray-600 flex justify-between mb-0.5">

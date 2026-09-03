@@ -1,7 +1,7 @@
 import { ref } from "vue"
-import type { CompiledTurn, CompileSettings, TurnDistanceData } from "@/types"
+import type { CompiledTurn, CompileSettings, MatchType, TurnDistanceData } from "@/types"
 
-export type MatchType = "high" | "medium" | "low" | "none"
+export type { MatchType }
 
 export interface ComputedTurn {
   start_time: number

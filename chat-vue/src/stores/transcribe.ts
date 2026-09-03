@@ -284,6 +284,7 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     try {
       const result = await api.getTranscript(jobId)
       logJob(jobId, { ts: ts(), direction: 'response', label: `200 OK`, detail: `${result.segments.length} segments` })
+      if (activeJobId.value !== jobId) return
       activeTranscript.value = result
       seedThresholds(result.settings)
     } catch (err) {
@@ -298,8 +299,10 @@ export const useTranscribeStore = defineStore("transcribe", () => {
     try {
       const result = await api.compileTranscript(jobId, settings)
       logJob(jobId, { ts: ts(), direction: 'response', label: '200 compiled', detail: `${result.turns?.length ?? 0} turns` })
-      if (activeJobId.value === jobId) activeTranscript.value = result
-      seedThresholds(result.settings)
+      if (activeJobId.value === jobId) {
+        activeTranscript.value = result
+        seedThresholds(result.settings)
+      }
     } catch (err) {
       logJob(jobId, { ts: ts(), direction: 'response', label: 'compile failed', error: true })
       throw err

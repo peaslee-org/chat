@@ -60,4 +60,33 @@ describe("MatchingAnalysis — re-compile", () => {
     expect(api.compileTranscript).toHaveBeenCalledWith("t1", { ...settings, cosine_dist_threshold: 0.4 })
     expect(w.find('[data-testid="recompile"]').exists()).toBe(false)
   })
+
+  it("the cosine slider cannot reach 0 (API rejects 0 with 422)", async () => {
+    const { w } = await mountOpen()
+    const input = w.findAll('input[type="range"]')[0]
+    expect(input.attributes("min")).toBe("0.01")
+  })
+
+  it("surfaces the server's pydantic 422 message on recompile failure", async () => {
+    const { w } = await mountOpen()
+    useMatchingThresholds().cosineDistThreshold.value = 0.4
+    await flushPromises()
+    vi.mocked(api.compileTranscript).mockRejectedValue({
+      response: { status: 422, data: { detail: [{ msg: "Input should be greater than 0" }] } },
+    })
+    await w.find('[data-testid="recompile"]').trigger("click")
+    await flushPromises()
+    expect(w.find('[data-testid="recompile"]').exists()).toBe(true)
+    expect(w.text()).toContain("Input should be greater than 0")
+  })
+
+  it("falls back to generic copy for a non-response error", async () => {
+    const { w } = await mountOpen()
+    useMatchingThresholds().cosineDistThreshold.value = 0.4
+    await flushPromises()
+    vi.mocked(api.compileTranscript).mockRejectedValue(new Error("boom"))
+    await w.find('[data-testid="recompile"]').trigger("click")
+    await flushPromises()
+    expect(w.text()).toContain("Re-compile failed — try again.")
+  })
 })
