@@ -248,8 +248,28 @@ export interface TranscriptSegment {
   text: string
 }
 
+export type MatchType = "high" | "medium" | "low" | "none"
+
+export interface CompileSettings {
+  cosine_dist_threshold: number
+  separation_min: number
+  quality_min: number
+  confidence_min: number
+}
+
+export interface CompiledTurn {
+  start_time: number
+  end_time: number
+  text: string
+  label: string
+  match_type: MatchType
+}
+
 export interface TranscriptResponse {
   segments: TranscriptSegment[]
+  turns: CompiledTurn[] | null      // null: job has no turn-distance data
+  settings: CompileSettings
+  compiled_at: string | null
 }
 
 // ── Turn distances (client-side matching analysis) ────────────────────────
@@ -379,6 +399,9 @@ export interface PublicTranscriptionSummary {
 
 export interface PublicTranscriptionDetail extends PublicTranscriptionSummary {
   segments: TranscriptSegment[]
+  turns: CompiledTurn[] | null
+  settings: CompileSettings
+  compiled_at: string | null
 }
 
 export interface PublicMessage {

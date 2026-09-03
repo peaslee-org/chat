@@ -3,6 +3,7 @@ import type {
   SpeakerProfile, SpeakerListResponse, SampleUploadInitResponse, SpeakerSample,
   TranscriptionJob, JobListResponse, JobCreateRequest, JobCreateResponse,
   TranscriptResponse, TurnDistancesResponse, SamplePreview, AudioUrlResponse,
+  CompileSettings,
 } from "@/types"
 
 // ── Speakers ──────────────────────────────────────────────────────────────
@@ -108,6 +109,11 @@ export async function getJobStatus(jobId: string): Promise<TranscriptionJob> {
 
 export async function getTranscript(jobId: string): Promise<TranscriptResponse> {
   const res = await apiClient.get(`/api/v1/transcribe/jobs/${jobId}/transcript`)
+  return res.data
+}
+
+export async function compileTranscript(jobId: string, settings: CompileSettings): Promise<TranscriptResponse> {
+  const res = await apiClient.post(`/api/v1/transcribe/jobs/${jobId}/compile`, settings)
   return res.data
 }
 

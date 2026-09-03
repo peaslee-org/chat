@@ -1,5 +1,5 @@
 import { ref } from "vue"
-import type { TurnDistanceData } from "@/types"
+import type { CompiledTurn, CompileSettings, TurnDistanceData } from "@/types"
 
 export type MatchType = "high" | "medium" | "low" | "none"
 
@@ -21,6 +21,38 @@ export function useMatchingThresholds() {
   return { cosineDistThreshold, separationMin, qualityMin, confidenceMin }
 }
 
+export const DEFAULT_COMPILE_SETTINGS: CompileSettings = {
+  cosine_dist_threshold: 0.25, separation_min: 0, quality_min: 0, confidence_min: 0,
+}
+
+/** Set the sliders to a transcript's embedded settings (called whenever a transcript loads). */
+export function seedThresholds(s: CompileSettings): void {
+  cosineDistThreshold.value = s.cosine_dist_threshold
+  separationMin.value = s.separation_min
+  qualityMin.value = s.quality_min
+  confidenceMin.value = s.confidence_min
+}
+
+export function currentSettings(): CompileSettings {
+  return {
+    cosine_dist_threshold: cosineDistThreshold.value,
+    separation_min: separationMin.value,
+    quality_min: qualityMin.value,
+    confidence_min: confidenceMin.value,
+  }
+}
+
+const EPS = 1e-9
+export function settingsDiffer(s: CompileSettings): boolean {
+  const c = currentSettings()
+  return (Object.keys(s) as (keyof CompileSettings)[]).some(k => Math.abs(c[k] - s[k]) > EPS)
+}
+
+export function compiledToComputed(turns: CompiledTurn[]): ComputedTurn[] {
+  return turns.map(({ match_type, ...rest }) => ({ ...rest, matchType: match_type }))
+}
+
+// Mirrors compile_turns in chat-api/app/services/transcript_compiler.py; both run chat-api/tests/fixtures/compile_turns_cases.json.
 export function computeTurns(
   turns: TurnDistanceData[],
   threshold: number,
