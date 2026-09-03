@@ -142,6 +142,21 @@ class TranscriptTurnDistance(UUIDMixin, Base):
     )
 
 
+class CompiledTranscript(UUIDMixin, Base):
+    """One per job: the turn list produced by `compile_turns` plus the settings it used."""
+    __tablename__ = "compiled_transcripts"
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("transcription_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    settings: Mapped[dict] = mapped_column(JSON, nullable=False)
+    turns: Mapped[list] = mapped_column(JSON, nullable=False)
+    compiled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class TranscriptionJobEvent(Base):
     __tablename__ = "job_events"
 

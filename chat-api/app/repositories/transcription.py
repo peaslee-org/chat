@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.transcription import SpeakerProfile, SpeakerSample, TranscriptionJob, TranscriptSegment, TranscriptionJobEvent, TranscriptTurnDistance
+from app.models.transcription import CompiledTranscript, SpeakerProfile, SpeakerSample, TranscriptionJob, TranscriptSegment, TranscriptionJobEvent, TranscriptTurnDistance
 
 
 class TranscriptionRepository:
@@ -348,6 +348,27 @@ class TranscriptionRepository:
             .order_by(TranscriptTurnDistance.start_time.asc())
         )
         return list(result.all())
+
+    async def get_compiled_transcript(self, job_id: UUID) -> Optional[CompiledTranscript]:
+        result = await self.db.execute(
+            select(CompiledTranscript).where(CompiledTranscript.job_id == job_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_compiled_transcript(
+        self, job_id: UUID, settings: dict, turns: list[dict], compiled_at: datetime
+    ) -> CompiledTranscript:
+        """Replace the job's compiled transcript (one row per job). Caller commits."""
+        row = await self.get_compiled_transcript(job_id)
+        if row is None:
+            row = CompiledTranscript(job_id=job_id, settings=settings, turns=turns, compiled_at=compiled_at)
+            self.db.add(row)
+        else:
+            row.settings = settings
+            row.turns = turns
+            row.compiled_at = compiled_at
+        await self.db.flush()
+        return row
 
     async def get_events(
         self, job_id: UUID, after_id: int = 0
