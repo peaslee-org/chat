@@ -1,0 +1,79 @@
+{
+  "cases": [
+    {
+      "name": "no candidates is unknown/none",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "candidates": []}],
+      "expected": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "label": "Unknown", "match_type": "none"}]
+    },
+    {
+      "name": "best within threshold is high",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.20},
+        {"candidate_id": "c2", "speaker_name": "Barry", "cosine_dist": 0.40}
+      ]}],
+      "expected": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "label": "Jane", "match_type": "high"}]
+    },
+    {
+      "name": "equal to threshold is still high",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.25}
+      ]}],
+      "expected": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "label": "Jane", "match_type": "high"}]
+    },
+    {
+      "name": "above threshold with zero minimums is medium",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.50},
+        {"candidate_id": "c2", "speaker_name": "Barry", "cosine_dist": 0.30}
+      ]}],
+      "expected": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "label": "Barry", "match_type": "medium"}]
+    },
+    {
+      "name": "fails quality but passes separation is low",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.1, "quality_min": 0.9, "confidence_min": 0.0},
+      "turns": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.50},
+        {"candidate_id": "c2", "speaker_name": "Barry", "cosine_dist": 0.30}
+      ]}],
+      "expected": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "label": "Barry", "match_type": "low"}]
+    },
+    {
+      "name": "fails separation minimum is unknown/none",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.5, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.50},
+        {"candidate_id": "c2", "speaker_name": "Barry", "cosine_dist": 0.30}
+      ]}],
+      "expected": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "label": "Unknown", "match_type": "none"}]
+    },
+    {
+      "name": "tied candidates above threshold is unknown/none",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.40},
+        {"candidate_id": "c2", "speaker_name": "Barry", "cosine_dist": 0.40}
+      ]}],
+      "expected": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "label": "Unknown", "match_type": "none"}]
+    },
+    {
+      "name": "single candidate above threshold is unknown/none",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "candidates": [
+        {"candidate_id": "c1", "speaker_name": "Jane", "cosine_dist": 0.40}
+      ]}],
+      "expected": [{"start_time": 1.0, "end_time": 2.0, "text": "b", "label": "Unknown", "match_type": "none"}]
+    },
+    {
+      "name": "null speaker name becomes Unknown label even on a match",
+      "settings": {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0},
+      "turns": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "candidates": [
+        {"candidate_id": "c1", "speaker_name": null, "cosine_dist": 0.10}
+      ]}],
+      "expected": [{"start_time": 0.0, "end_time": 1.0, "text": "a", "label": "Unknown", "match_type": "high"}]
+    }
+  ]
+}

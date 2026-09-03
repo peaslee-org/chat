@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -113,8 +113,32 @@ class SegmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Compiled transcript ───────────────────────────────────────────────────────
+
+MatchType = Literal["high", "medium", "low", "none"]
+
+
+class CompileSettings(BaseModel):
+    """The matching thresholds a compiled transcript was produced with."""
+    cosine_dist_threshold: float = Field(0.25, gt=0, le=2)
+    separation_min: float = Field(0.0, ge=0, le=1)
+    quality_min: float = Field(0.0, ge=0, le=1)
+    confidence_min: float = Field(0.0, ge=0, le=1)
+
+
+class CompiledTurn(BaseModel):
+    start_time: float
+    end_time: float
+    text: str
+    label: str            # speaker name, or "Unknown"
+    match_type: MatchType
+
+
 class TranscriptResponse(BaseModel):
     segments: List[SegmentResponse]
+    turns: Optional[List[CompiledTurn]] = None   # None: job has no turn-distance data
+    settings: CompileSettings = Field(default_factory=CompileSettings)
+    compiled_at: Optional[datetime] = None
 
 
 # ── Job Events ────────────────────────────────────────────────────────────────
