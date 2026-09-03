@@ -168,7 +168,10 @@ src/
                                complete/failed job, an "Input audio" row lazily fetches
                                GET /jobs/{id}/audio and renders an <audio> player + Download link
                                (re-presigned at click time via downloadJobAudio); a 404 (object
-                               expired) shows "Input audio expired" instead
+                               expired) shows "Input audio expired" instead. Sliders are seeded from
+                               the loaded transcript's `settings`; `RunDetailView` shows the stored
+                               `turns` until a slider differs, then the local preview; `MatchingAnalysis`
+                               offers Re-compile / Reset while they differ.
       NewJobForm.vue           Audio file dropzone + job params (language, speaker count, speaker IDs);
                                "Try the sample" flips the audio + speakers sections into a read-only
                                sample-review mode in place (players for the bundled audio +

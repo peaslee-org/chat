@@ -51,6 +51,8 @@ Browser (chat-vue SPA on S3 + CloudFront)
         Local dev uses the in-process mock (USE_MOCK_PHOTOGRAMMETRY), see docs/mock-api.md
 ```
 
+**Compiled transcripts:** the API turns a job's stored turn distances into a labelled turn list with `compile_turns` (`chat-api/app/services/transcript_compiler.py`), compiled with the `compile_*` defaults on first read and re-compiled via `POST …/jobs/{id}/compile`. One row per job in `compiled_transcripts`, settings embedded. The Vue `computeTurns` mirrors it for slider preview; both run `chat-api/tests/fixtures/compile_turns_cases.json`.
+
 **Auth:**
 - Frontend uses PKCE (no client secret) to obtain Cognito `id_token`
 - All API requests send `Authorization: Bearer <id_token>`

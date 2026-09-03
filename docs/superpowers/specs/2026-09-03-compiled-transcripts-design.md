@@ -1,7 +1,7 @@
 # Compiled transcripts — design
 
 **Date:** 2026-09-03
-**Status:** approved in discussion; awaiting implementation plan
+**Status:** implemented 2026-09-03
 
 ## Goal
 
