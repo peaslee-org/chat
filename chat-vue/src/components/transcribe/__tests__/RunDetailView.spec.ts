@@ -6,11 +6,14 @@ vi.mock("@/lib/transcribeApi", () => ({
   rerunJob: vi.fn(),
   fetchTurnDistances: vi.fn(),
   getJobAudioUrl: vi.fn(),
+  getTranscript: vi.fn(),
+  compileTranscript: vi.fn(),
 }))
 
 import * as api from "@/lib/transcribeApi"
 import RunDetailView from "../RunDetailView.vue"
 import { useTranscribeStore } from "@/stores/transcribe"
+import { seedThresholds, useMatchingThresholds } from "@/composables/useMatchingThresholds"
 import type { TranscriptionJob } from "@/types"
 
 function job(overrides: Partial<TranscriptionJob> = {}): TranscriptionJob {
@@ -146,5 +149,43 @@ describe("RunDetailView — input audio row", () => {
     expect(w.find("audio").exists()).toBe(false)
     expect(w.text()).toContain("Couldn't load input audio")
     expect(w.text()).not.toContain("Input audio expired")
+  })
+})
+
+describe("RunDetailView — compiled transcript display", () => {
+  const settings = { cosine_dist_threshold: 0.25, separation_min: 0, quality_min: 0, confidence_min: 0 }
+
+  beforeEach(() => {
+    vi.mocked(api.fetchTurnDistances).mockReset().mockResolvedValue({
+      turns: [{ start_time: 0, end_time: 1, text: "a", candidates: [{ candidate_id: "c1", speaker_name: "Jane", cosine_dist: 0.9 }] }],
+    })
+  })
+
+  it("renders the stored turns, not the local preview, when sliders equal the embedded settings", async () => {
+    const { store, w } = mountWithJob(job())
+    store.activeTranscript = {
+      segments: [],
+      turns: [{ start_time: 0, end_time: 1, text: "a", label: "Stored", match_type: "high" }],
+      settings, compiled_at: "2026-09-03T12:00:00Z",
+    }
+    seedThresholds(settings)
+    await flushPromises()
+    expect(w.text()).toContain("Stored")
+    expect(w.text()).not.toContain("Unknown")
+  })
+
+  it("switches to the local preview once a slider differs", async () => {
+    const { store, w } = mountWithJob(job())
+    store.activeTranscript = {
+      segments: [],
+      turns: [{ start_time: 0, end_time: 1, text: "a", label: "Stored", match_type: "high" }],
+      settings, compiled_at: "2026-09-03T12:00:00Z",
+    }
+    seedThresholds(settings)
+    await flushPromises()
+    useMatchingThresholds().cosineDistThreshold.value = 0.95   // 0.9 now within threshold → "Jane"
+    await flushPromises()
+    expect(w.text()).toContain("Jane")
+    expect(w.text()).not.toContain("Stored")
   })
 })

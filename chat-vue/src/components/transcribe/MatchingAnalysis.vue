@@ -5,6 +5,9 @@ import {
   useMatchingThresholds,
   computeTurns,
   speakerColor,
+  currentSettings,
+  seedThresholds,
+  settingsDiffer,
   type ComputedTurn,
 } from "@/composables/useMatchingThresholds"
 
@@ -15,6 +18,27 @@ const { cosineDistThreshold, separationMin, qualityMin, confidenceMin } = useMat
 
 const isOpen = ref(false)
 const isLoading = ref(false)
+const isCompiling = ref(false)
+const compileError = ref<string | null>(null)
+
+const embeddedSettings = computed(() => store.activeTranscript?.settings ?? null)
+const dirty = computed(() => embeddedSettings.value !== null && settingsDiffer(embeddedSettings.value))
+
+function resetThresholds() {
+  if (embeddedSettings.value) seedThresholds(embeddedSettings.value)
+}
+
+async function recompile() {
+  isCompiling.value = true
+  compileError.value = null
+  try {
+    await store.recompile(props.jobId, currentSettings())
+  } catch {
+    compileError.value = "Re-compile failed — try again."
+  } finally {
+    isCompiling.value = false
+  }
+}
 
 async function toggle() {
   isOpen.value = !isOpen.value
@@ -105,6 +129,25 @@ function formatTime(s: number): string {
             </label>
             <input type="range" min="0" max="1" step="0.01" v-model.number="confidenceMin" class="w-full accent-indigo-600" />
           </div>
+        </div>
+
+        <div v-if="dirty" class="flex items-center gap-2 mb-2 text-xs">
+          <button
+            type="button"
+            data-testid="recompile"
+            class="rounded bg-indigo-600 px-2.5 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            :disabled="isCompiling"
+            @click="recompile"
+          >{{ isCompiling ? "Compiling…" : "Re-compile transcript" }}</button>
+          <button
+            type="button"
+            data-testid="reset-thresholds"
+            class="text-gray-500 hover:text-gray-700"
+            :disabled="isCompiling"
+            @click="resetThresholds"
+          >Reset</button>
+          <span class="text-gray-400">Sliders differ from the compiled transcript</span>
+          <span v-if="compileError" class="text-red-600">{{ compileError }}</span>
         </div>
 
         <!-- Stats bar -->

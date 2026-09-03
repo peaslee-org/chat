@@ -6,6 +6,9 @@ import { workerStateLabel } from "@/lib/workerState"
 import {
   useMatchingThresholds,
   computeTurns,
+  compiledToComputed,
+  settingsDiffer,
+  currentSettings,
   type ComputedTurn,
 } from "@/composables/useMatchingThresholds"
 import TranscriptDisplay from "./TranscriptDisplay.vue"
@@ -94,6 +97,11 @@ async function downloadJobAudio(): Promise<void> {
 const computedTurnsForDisplay = computed((): ComputedTurn[] => {
   const jobId = store.activeJobId
   if (!jobId) return []
+  const transcript = store.activeTranscript
+  // Stored compile wins while the sliders match the settings it was compiled with.
+  if (transcript?.turns && !settingsDiffer(transcript.settings)) {
+    return compiledToComputed(transcript.turns)
+  }
   const turns = store.turnDistanceData[jobId]
   if (!turns?.length) return []
   return computeTurns(turns, cosineDistThreshold.value, separationMin.value, qualityMin.value, confidenceMin.value)
@@ -214,6 +222,8 @@ async function setVisibility(next: boolean) {
           v-else-if="store.activeTranscript"
           :transcript="store.activeTranscript"
           :computed-turns="computedTurnsForDisplay"
+          :settings="currentSettings()"
+          :compiled-at="settingsDiffer(store.activeTranscript.settings) ? null : store.activeTranscript.compiled_at"
         />
         <div v-else class="text-sm text-gray-400 text-center py-8">
           No transcript available.
