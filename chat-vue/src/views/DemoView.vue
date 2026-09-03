@@ -4,7 +4,7 @@ import { onMounted, ref } from "vue"
 import MeshViewer from "@/components/photogrammetry/MeshViewer.vue"
 import MessageList from "@/components/MessageList.vue"
 import TranscriptDisplay from "@/components/transcribe/TranscriptDisplay.vue"
-import { DEFAULT_COMPILE_SETTINGS } from "@/composables/useMatchingThresholds"
+import { compiledToComputed } from "@/composables/useMatchingThresholds"
 import {
   getPublicConversation,
   getPublicScan,
@@ -167,7 +167,12 @@ function transcriptionChipLabel(t: { created_at: string; duration_seconds: numbe
           >{{ transcriptionChipLabel(t) }}</button>
         </div>
         <div v-if="transcript" class="rounded border border-gray-200 bg-white p-4">
-          <TranscriptDisplay :transcript="{ segments: transcript.segments, turns: null, settings: DEFAULT_COMPILE_SETTINGS, compiled_at: null }" />
+          <TranscriptDisplay
+            :transcript="transcript"
+            :computed-turns="transcript.turns ? compiledToComputed(transcript.turns) : undefined"
+            :settings="transcript.settings"
+            :compiled-at="transcript.compiled_at"
+          />
         </div>
         <p v-if="transcriptionError" class="mt-2 text-xs text-red-600" data-testid="section-error">
           This item is no longer available.

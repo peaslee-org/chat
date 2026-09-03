@@ -1,11 +1,42 @@
+<script lang="ts">
+import type { CompileSettings, TranscriptSegment } from "@/types"
+import type { ComputedTurn } from "@/composables/useMatchingThresholds"
+
+/** The exact transcript.txt body. Turns (with a settings header) when present, else segments. */
+export function transcriptText(
+  turns: ComputedTurn[],
+  segments: TranscriptSegment[],
+  settings?: CompileSettings,
+  compiledAt?: string | null,
+): string {
+  if (turns.length === 0) {
+    return segments
+      .map(s => `[${s.start_time.toFixed(2)} - ${s.end_time.toFixed(2)}] ${s.speaker_name ?? s.anonymous_label}: ${s.text}`)
+      .join("\n")
+  }
+  const lines = turns.map(t =>
+    `[${t.start_time.toFixed(2)} - ${t.end_time.toFixed(2)}] ${t.label} [${t.matchType}]: ${t.text}`)
+  if (settings) {
+    const state = compiledAt ? `compiled ${compiledAt}` : "preview (not compiled)"
+    lines.unshift(
+      `# ${state}  cosine<=${settings.cosine_dist_threshold.toFixed(2)}  separation>=${settings.separation_min.toFixed(2)}` +
+      `  quality>=${settings.quality_min.toFixed(2)}  confidence>=${settings.confidence_min.toFixed(2)}`,
+    )
+  }
+  return lines.join("\n")
+}
+</script>
+
 <script setup lang="ts">
 import type { TranscriptResponse } from "@/types"
 import { computed } from "vue"
-import { speakerColor, type ComputedTurn } from "@/composables/useMatchingThresholds"
+import { speakerColor } from "@/composables/useMatchingThresholds"
 
 const props = defineProps<{
   transcript: TranscriptResponse
   computedTurns?: ComputedTurn[]
+  settings?: CompileSettings
+  compiledAt?: string | null
 }>()
 
 const allLabels = computed(() => (props.computedTurns ?? []).map(t => t.label))
@@ -29,12 +60,7 @@ function formatTime(seconds: number): string {
 }
 
 function downloadTranscript() {
-  const lines = (props.computedTurns && props.computedTurns.length > 0
-    ? props.computedTurns.map(t =>
-        `[${t.start_time.toFixed(2)} - ${t.end_time.toFixed(2)}] ${t.label} [${t.matchType}]: ${t.text}`)
-    : props.transcript.segments.map(s =>
-        `[${s.start_time.toFixed(2)} - ${s.end_time.toFixed(2)}] ${s.speaker_name ?? s.anonymous_label}: ${s.text}`)
-  ).join('\n')
+  const lines = transcriptText(props.computedTurns ?? [], props.transcript.segments, props.settings, props.compiledAt)
 
   const blob = new Blob([lines], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
