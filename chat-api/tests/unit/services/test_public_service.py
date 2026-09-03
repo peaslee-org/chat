@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.exceptions import NotFoundError
+from app.schemas.transcription import CompileSettings
 from app.services.public_service import PublicService
 
 
@@ -74,9 +75,6 @@ async def test_showcase_missing_stats_default_to_none_and_zero():
     assert out.transcriptions[0].segment_count is None
 
 
-from app.schemas.transcription import CompileSettings
-
-
 def turn_row(start, end, text, cand_id, name, dist):
     td = MagicMock(start_time=start, end_time=end, text=text, candidate_id=cand_id, cosine_dist=dist)
     return (td, name)
@@ -84,7 +82,7 @@ def turn_row(start, end, text, cand_id, name, dist):
 
 async def test_transcription_detail_compiles_lazily_and_returns_turns():
     svc, _, transcriptions, _, _ = make_service()
-    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=1)
+    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=1, status="complete")
     transcriptions.get_public_job.return_value = job
     transcriptions.get_segment_stats.return_value = (1.0, 1)
     transcriptions.get_segments.return_value = []
@@ -105,7 +103,7 @@ async def test_transcription_detail_compiles_lazily_and_returns_turns():
 
 async def test_transcription_detail_without_turn_data_has_null_turns():
     svc, _, transcriptions, _, _ = make_service()
-    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=None)
+    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=None, status="complete")
     transcriptions.get_public_job.return_value = job
     transcriptions.get_segment_stats.return_value = (None, 0)
     transcriptions.get_segments.return_value = []
@@ -115,4 +113,21 @@ async def test_transcription_detail_without_turn_data_has_null_turns():
     out = await svc.transcription_detail(job.id)
 
     assert out.turns is None and out.compiled_at is None
+    transcriptions.upsert_compiled_transcript.assert_not_awaited()
+
+
+async def test_transcription_detail_failed_job_is_never_compiled():
+    """A public 'failed' job may have partial turn-distance rows (mid-matching crash); it must
+    never be compiled — mirrors test_failed_job_with_partial_segments_is_never_compiled for the
+    owner path."""
+    svc, _, transcriptions, _, _ = make_service()
+    job = MagicMock(id=uuid4(), created_at=datetime.now(timezone.utc), matched_speaker_count=None, status="failed")
+    transcriptions.get_public_job.return_value = job
+    transcriptions.get_segment_stats.return_value = (None, 0)
+    transcriptions.get_segments.return_value = []
+    transcriptions.get_turn_distances.return_value = [turn_row(0.0, 1.0, "hi", uuid4(), "Jane", 0.1)]
+
+    out = await svc.transcription_detail(job.id)
+
+    assert out.turns is None
     transcriptions.upsert_compiled_transcript.assert_not_awaited()

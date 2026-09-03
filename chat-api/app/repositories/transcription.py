@@ -1,10 +1,12 @@
 import base64
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -358,17 +360,20 @@ class TranscriptionRepository:
     async def upsert_compiled_transcript(
         self, job_id: UUID, settings: dict, turns: list[dict], compiled_at: datetime
     ) -> CompiledTranscript:
-        """Replace the job's compiled transcript (one row per job). Caller commits."""
-        row = await self.get_compiled_transcript(job_id)
-        if row is None:
-            row = CompiledTranscript(job_id=job_id, settings=settings, turns=turns, compiled_at=compiled_at)
-            self.db.add(row)
-        else:
-            row.settings = settings
-            row.turns = turns
-            row.compiled_at = compiled_at
-        await self.db.flush()
-        return row
+        """Atomically insert or replace the job's compiled transcript (one row per job). Caller
+        commits. Must be a single statement, not read-then-write: two concurrent first reads of
+        an uncompiled job would otherwise race to insert and 500 on the unique index on job_id."""
+        stmt = (
+            pg_insert(CompiledTranscript)
+            .values(id=uuid.uuid4(), job_id=job_id, settings=settings, turns=turns, compiled_at=compiled_at)
+            .on_conflict_do_update(
+                index_elements=[CompiledTranscript.job_id],
+                set_={"settings": settings, "turns": turns, "compiled_at": compiled_at},
+            )
+            .returning(CompiledTranscript)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
 
     async def get_events(
         self, job_id: UUID, after_id: int = 0

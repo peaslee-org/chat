@@ -20,7 +20,7 @@ def compile_turns(turns: list[dict], settings: CompileSettings) -> list[Compiled
             out.append(CompiledTurn(**base, label="Unknown", match_type="none"))
             continue
         best = ranked[0]
-        name = best["speaker_name"] or "Unknown"
+        name = best["speaker_name"] if best["speaker_name"] is not None else "Unknown"
         if best["cosine_dist"] <= settings.cosine_dist_threshold:
             out.append(CompiledTurn(**base, label=name, match_type="high"))
             continue

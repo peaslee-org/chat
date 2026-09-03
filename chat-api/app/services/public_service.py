@@ -89,7 +89,10 @@ class PublicService:
             )
             for s in await self._transcriptions.get_segments(job_id)
         ]
-        compiled = await load_or_compile(self._transcriptions, job_id, self._compile_defaults)
+        compiled = (
+            await load_or_compile(self._transcriptions, job_id, self._compile_defaults)
+            if job.status == "complete" else None
+        )
         await self._transcriptions.db.commit()
         tr = transcript_response(segments, compiled, self._compile_defaults)
         return PublicTranscriptionDetail(
