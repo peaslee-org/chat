@@ -13,6 +13,7 @@ from app.repositories.transcription import TranscriptionRepository
 from app.schemas.public import VisibilityRequest
 from app.schemas.transcription import (
     AudioUrlResponse,
+    CompileSettings,
     JobCreateRequest,
     JobCreateResponse,
     JobEventResponse,
@@ -101,6 +102,17 @@ async def get_transcript(
     service: TranscriptionService = Depends(get_transcription_service),
 ) -> TranscriptResponse:
     return await service.get_transcript(current_user["sub"], job_id)
+
+
+@router.post("/jobs/{job_id}/compile", response_model=TranscriptResponse)
+async def compile_transcript(
+    job_id: UUID,
+    settings: CompileSettings,
+    current_user: dict = Depends(get_current_user),
+    service: TranscriptionService = Depends(get_transcription_service),
+) -> TranscriptResponse:
+    """Re-compile the transcript with these matching settings, replacing the stored one."""
+    return await service.compile_transcript(current_user["sub"], job_id, settings)
 
 
 @router.get("/jobs/{job_id}/audio", response_model=AudioUrlResponse)

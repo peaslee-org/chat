@@ -16,6 +16,7 @@ from app.core.exceptions import (
 )
 from app.schemas.transcription import (
     AudioUrlResponse,
+    CompileSettings,
     JobCreateResponse,
     JobListResponse,
     JobStatusResponse,
@@ -44,6 +45,7 @@ def make_mock_service():
     ))
     svc.confirm_job_upload = AsyncMock(return_value=None)
     svc.get_transcript = AsyncMock(return_value=TranscriptResponse(segments=[]))
+    svc.compile_transcript = AsyncMock(return_value=TranscriptResponse(segments=[]))
     svc.delete_job = AsyncMock(return_value=None)
     svc.set_visibility = AsyncMock(return_value=JobStatusResponse(
         job_id=uuid4(),
@@ -340,3 +342,32 @@ class TestJobAudioUrl:
             headers={"Authorization": "Bearer fake-token"},
         )
         assert r.status_code == 404
+
+
+class TestCompileTranscript:
+    HEADERS = {"Authorization": "Bearer fake-token"}
+
+    async def test_posts_settings_and_returns_transcript(self, client):
+        ac, svc = client
+        job_id = uuid4()
+        body = {"cosine_dist_threshold": 0.3, "separation_min": 0.1, "quality_min": 0.0, "confidence_min": 0.0}
+        res = await ac.post(f"/api/v1/transcribe/jobs/{job_id}/compile", json=body, headers=self.HEADERS)
+        assert res.status_code == 200
+        assert "turns" in res.json() and "settings" in res.json()
+        _user, jid, settings = svc.compile_transcript.await_args.args
+        assert jid == job_id and settings == CompileSettings(**body)
+
+    async def test_422_on_out_of_range_settings(self, client):
+        ac, _ = client
+        res = await ac.post(
+            f"/api/v1/transcribe/jobs/{uuid4()}/compile",
+            json={"cosine_dist_threshold": 0, "separation_min": 0, "quality_min": 0, "confidence_min": 0},
+            headers=self.HEADERS,
+        )
+        assert res.status_code == 422
+
+    async def test_409_when_service_conflicts(self, client):
+        ac, svc = client
+        svc.compile_transcript.side_effect = ConflictError("no matching data")
+        res = await ac.post(f"/api/v1/transcribe/jobs/{uuid4()}/compile", json={}, headers=self.HEADERS)
+        assert res.status_code == 409
