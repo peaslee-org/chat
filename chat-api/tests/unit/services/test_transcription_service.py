@@ -1,4 +1,5 @@
 """Unit tests for TranscriptionService — no real DB, S3, or SQS."""
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -33,6 +34,10 @@ def make_service(
     repo.delete_sample = AsyncMock()
     repo.append_event = AsyncMock()
     repo.get_speakers_without_ready_samples = AsyncMock(return_value=[])
+    repo.get_turn_distances = AsyncMock(return_value=[])
+    repo.get_compiled_transcript = AsyncMock(return_value=None)
+    # Behaves like the real upsert: hands back a row carrying what was written.
+    repo.upsert_compiled_transcript = AsyncMock(side_effect=lambda **kw: MagicMock(**kw))
     repo.db = MagicMock()
     repo.db.commit = AsyncMock()
 
@@ -57,8 +62,25 @@ def make_service(
     settings.sample_audio_s3_key = "samples/conversation.wav"
     settings.sample_barry_s3_key = "samples/speakers/barry.wav"
     settings.sample_jane_s3_key = "samples/speakers/jane.wav"
+    settings.compile_cosine_dist_threshold = 0.25
+    settings.compile_separation_min = 0.0
+    settings.compile_quality_min = 0.0
+    settings.compile_confidence_min = 0.0
 
     return TranscriptionService(repo, storage, sqs, settings, gpu), repo, storage, sqs
+
+
+def turn_row(start, end, text, cand_id, name, dist):
+    td = MagicMock(start_time=start, end_time=end, text=text, candidate_id=cand_id, cosine_dist=dist)
+    return (td, name)
+
+
+def complete_job(job_id=None):
+    j = MagicMock()
+    j.id = job_id or uuid4()
+    j.status = "complete"
+    j.transcribe_output_s3_key = "k"
+    return j
 
 
 class TestInitiateJobUpload:
@@ -449,6 +471,121 @@ class TestGetTranscript:
 
         with pytest.raises(ConflictError):
             await service.get_transcript("user1", fake_job.id)
+
+    async def test_no_turn_data_returns_null_turns_with_defaults(self):
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = complete_job()
+        repo.get_segments.return_value = []
+
+        res = await service.get_transcript("user1", uuid4())
+
+        assert res.turns is None and res.compiled_at is None
+        assert res.settings.cosine_dist_threshold == 0.25
+        repo.upsert_compiled_transcript.assert_not_awaited()
+
+    async def test_first_read_compiles_with_defaults_and_stores(self):
+        service, repo, *_ = make_service()
+        job = complete_job()
+        repo.get_job.return_value = job
+        repo.get_segments.return_value = []
+        c1, c2 = uuid4(), uuid4()
+        repo.get_turn_distances.return_value = [
+            turn_row(0.0, 1.0, "hi", c1, "Jane", 0.1),
+            turn_row(0.0, 1.0, "hi", c2, "Barry", 0.6),
+        ]
+
+        res = await service.get_transcript("user1", job.id)
+
+        args = repo.upsert_compiled_transcript.await_args.kwargs
+        assert args["job_id"] == job.id
+        assert args["settings"] == {"cosine_dist_threshold": 0.25, "separation_min": 0.0, "quality_min": 0.0, "confidence_min": 0.0}
+        assert args["turns"] == [{"start_time": 0.0, "end_time": 1.0, "text": "hi", "label": "Jane", "match_type": "high"}]
+        assert res.turns[0].label == "Jane" and res.turns[0].match_type == "high"
+        assert res.compiled_at == args["compiled_at"]
+        repo.db.commit.assert_awaited()
+
+    async def test_stored_compiled_row_is_returned_without_recompiling(self):
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = complete_job()
+        repo.get_segments.return_value = []
+        when = datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc)
+        repo.get_compiled_transcript.return_value = MagicMock(
+            settings={"cosine_dist_threshold": 0.3, "separation_min": 0.1, "quality_min": 0.0, "confidence_min": 0.0},
+            turns=[{"start_time": 0.0, "end_time": 1.0, "text": "hi", "label": "Barry", "match_type": "medium"}],
+            compiled_at=when,
+        )
+
+        res = await service.get_transcript("user1", uuid4())
+
+        assert res.settings.cosine_dist_threshold == 0.3
+        assert res.turns[0].label == "Barry" and res.compiled_at == when
+        repo.get_turn_distances.assert_not_awaited()
+        repo.upsert_compiled_transcript.assert_not_awaited()
+
+    async def test_failed_job_with_partial_segments_is_never_compiled(self):
+        service, repo, *_ = make_service()
+        job = complete_job()
+        job.status = "failed"
+        repo.get_job.return_value = job
+        repo.get_segments.return_value = []
+        repo.get_turn_distances.return_value = [turn_row(0.0, 1.0, "hi", uuid4(), "Jane", 0.1)]
+
+        res = await service.get_transcript("user1", uuid4())
+
+        assert res.turns is None
+        repo.upsert_compiled_transcript.assert_not_awaited()
+
+
+class TestCompileTranscript:
+    async def test_recompile_replaces_row_and_records_event(self):
+        from app.schemas.transcription import CompileSettings
+
+        service, repo, *_ = make_service()
+        job = complete_job()
+        repo.get_job.return_value = job
+        repo.get_segments.return_value = []
+        repo.get_turn_distances.return_value = [
+            turn_row(0.0, 1.0, "hi", uuid4(), "Jane", 0.5),
+            turn_row(0.0, 1.0, "hi", uuid4(), "Barry", 0.3),
+        ]
+        repo.get_compiled_transcript.return_value = MagicMock(settings={}, turns=[], compiled_at=None)
+        settings = CompileSettings(cosine_dist_threshold=0.2, separation_min=0.5)
+
+        res = await service.compile_transcript("user1", job.id, settings)
+
+        args = repo.upsert_compiled_transcript.await_args.kwargs
+        assert args["settings"]["separation_min"] == 0.5
+        assert args["turns"][0]["match_type"] == "none"   # separation 0.4 < 0.5
+        assert res.settings.separation_min == 0.5
+        repo.append_event.assert_any_await(job.id, "api", "transcript.compiled", settings.model_dump())
+        repo.db.commit.assert_awaited()
+
+    async def test_409_when_job_not_complete(self):
+        from app.schemas.transcription import CompileSettings
+
+        service, repo, *_ = make_service()
+        job = complete_job()
+        job.status = "transcribing"
+        repo.get_job.return_value = job
+        with pytest.raises(ConflictError):
+            await service.compile_transcript("user1", job.id, CompileSettings())
+
+    async def test_409_when_no_turn_data(self):
+        from app.schemas.transcription import CompileSettings
+
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = complete_job()
+        repo.get_turn_distances.return_value = []
+        with pytest.raises(ConflictError):
+            await service.compile_transcript("user1", uuid4(), CompileSettings())
+
+    async def test_404_for_unknown_job(self):
+        from app.schemas.transcription import CompileSettings
+
+        service, repo, *_ = make_service()
+        repo.get_job.return_value = None
+        with pytest.raises(NotFoundError):
+            await service.compile_transcript("user1", uuid4(), CompileSettings())
 
 
 class TestDeleteJob:

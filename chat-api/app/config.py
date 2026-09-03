@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     gpu_wait_estimate_warm_seconds: int = 90    # warm start (instance still up) until ≥3 measured
     gpu_scale_in_seconds: int = 900             # ASG scale-in lag: a job inside it lands on the idle instance
 
+    # Defaults for compiling a transcript from turn distances (see transcript_compiler.py).
+    # Must stay equal to the CompileSettings field defaults and the chat-vue slider defaults.
+    compile_cosine_dist_threshold: float = 0.25
+    compile_separation_min: float = 0.0
+    compile_quality_min: float = 0.0
+    compile_confidence_min: float = 0.0
+
     @property
     def cognito_jwks_url(self) -> str:
         return (

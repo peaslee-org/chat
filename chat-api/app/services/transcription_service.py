@@ -19,6 +19,7 @@ from app.core.exceptions import (
 from app.repositories.transcription import TranscriptionRepository
 from app.schemas.transcription import (
     AudioUrlResponse,
+    CompileSettings,
     JobCreateRequest,
     JobCreateResponse,
     JobEventResponse,
@@ -34,13 +35,13 @@ from app.schemas.transcription import (
     SpeakerListResponse,
     SpeakerResponse,
     TranscriptResponse,
-    TurnCandidateResponse,
     TurnDistanceResponse,
     TurnDistancesResponse,
 )
 from app.services.audio_storage import AudioStorageService
 from app.services.gpu_controller import GpuCapExceeded
 from app.services.sqs_publisher import SQSPublisher
+from app.services.transcript_compiler import compile_defaults, group_turn_distances, load_or_compile, transcript_response
 
 logger = logging.getLogger(__name__)
 
@@ -399,27 +400,44 @@ class TranscriptionService:
         if job.status in ("pending", "transcribing", "matching"):
             raise ConflictError("Transcript not yet available")
         segments = await self._repo.get_segments(job_id)
-        segment_responses = []
-        for seg in segments:
-            speaker_name = None
-            if seg.speaker_profile is not None:
-                speaker_name = seg.speaker_profile.speaker_name
-            segment_responses.append(
-                SegmentResponse(
-                    segment_id=seg.id,
-                    anonymous_label=seg.anonymous_label,
-                    speaker_name=speaker_name,
-                    start_time=seg.start_time,
-                    end_time=seg.end_time,
-                    text=seg.text,
-                )
-            )
+        segment_responses = [self._segment_response(seg) for seg in segments]
         if job.status == "complete":
-            return TranscriptResponse(segments=segment_responses)
-        # failed with partial data
+            compiled = await load_or_compile(self._repo, job_id, self._compile_defaults())
+            await self._repo.db.commit()
+            return transcript_response(segment_responses, compiled, self._compile_defaults())
+        # failed with partial data: never compiled
         if job.transcribe_output_s3_key:
-            return TranscriptResponse(segments=segment_responses)
+            return transcript_response(segment_responses, None, self._compile_defaults())
         raise ConflictError("No transcript available")
+
+    def _compile_defaults(self) -> CompileSettings:
+        return compile_defaults(self._settings)
+
+    @staticmethod
+    def _segment_response(seg) -> SegmentResponse:
+        return SegmentResponse(
+            segment_id=seg.id,
+            anonymous_label=seg.anonymous_label,
+            speaker_name=seg.speaker_profile.speaker_name if seg.speaker_profile is not None else None,
+            start_time=seg.start_time,
+            end_time=seg.end_time,
+            text=seg.text,
+        )
+
+    async def compile_transcript(self, user_id: str, job_id: UUID, settings: CompileSettings) -> TranscriptResponse:
+        """Re-compile with `settings`, replacing the stored transcript."""
+        job = await self._repo.get_job(job_id, user_id)
+        if job is None:
+            raise NotFoundError(f"Job {job_id} not found")
+        if job.status != "complete":
+            raise ConflictError("Transcript can only be compiled for a complete job")
+        compiled = await load_or_compile(self._repo, job_id, self._compile_defaults(), force=settings)
+        if compiled is None:
+            raise ConflictError("This job has no matching data to compile")
+        await self._repo.append_event(job_id, "api", "transcript.compiled", settings.model_dump())
+        await self._repo.db.commit()
+        segments = [self._segment_response(seg) for seg in await self._repo.get_segments(job_id)]
+        return transcript_response(segments, compiled, self._compile_defaults())
 
     async def get_job_events(self, user_id: str, job_id: UUID) -> list[JobEventResponse]:
         job = await self._repo.get_job(job_id, user_id)
@@ -442,29 +460,8 @@ class TranscriptionService:
         job = await self._repo.get_job(job_id, user_id)
         if job is None:
             raise NotFoundError(f"Job {job_id} not found")
-        rows = await self._repo.get_turn_distances(job_id)
-        turns_dict: dict[tuple, dict] = {}
-        for row in rows:
-            turn_dist = row[0]
-            speaker_name = row[1]
-            key = (turn_dist.start_time, turn_dist.end_time)
-            if key not in turns_dict:
-                turns_dict[key] = {
-                    "start_time": turn_dist.start_time,
-                    "end_time": turn_dist.end_time,
-                    "text": turn_dist.text,
-                    "candidates": [],
-                }
-            turns_dict[key]["candidates"].append(
-                TurnCandidateResponse(
-                    candidate_id=turn_dist.candidate_id,
-                    speaker_name=speaker_name,
-                    cosine_dist=turn_dist.cosine_dist,
-                )
-            )
-        return TurnDistancesResponse(
-            turns=[TurnDistanceResponse(**t) for t in turns_dict.values()]
-        )
+        grouped = group_turn_distances(await self._repo.get_turn_distances(job_id))
+        return TurnDistancesResponse(turns=[TurnDistanceResponse(**t) for t in grouped])
 
     async def delete_job(self, user_id: str, job_id: UUID) -> None:
         job = await self._repo.get_job(job_id, user_id)
